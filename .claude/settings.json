@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cwt:*)",
+      "Bash(cwt create:*)",
+      "Bash(cwt list:*)",
+      "Bash(cwt switch:*)",
+      "Bash(cwt delete:*)",
+      "Bash(cwt cleanup:*)",
+      "Bash(cwt sync:*)",
+      "Bash(cwt tmux:*)",
+      "Bash(git worktree:*)",
+      "Bash(git branch:*)",
+      "Bash(git status:*)",
+      "Bash(tmux:*)",
+      "Bash(uv:*)",
+      "Bash(pytest:*)"
+    ]
+  }
+}

@@ -1,0 +1,118 @@
+# Claude Orchestrator Configuration
+# Copy this file to .worktreerc in your project root to customize behavior
+
+[worktree]
+# Directory where worktrees will be created (relative to main repo)
+# Default: "../" (sibling to main repo)
+base_directory = "../"
+
+# Pattern for naming worktree directories
+# Available placeholders: {project}, {branch}
+# Default: "{project}-{branch}"
+naming_pattern = "{project}-{branch}"
+
+# Number of days before a worktree is considered stale for cleanup
+# Default: 14
+auto_cleanup_days = 14
+
+
+[tmux]
+# Default pane layout when creating tmux sessions
+# Options: main-vertical, three-pane, quad, even-horizontal, even-vertical
+# Default: "main-vertical"
+#
+# Layout descriptions:
+#   main-vertical:    Large left pane (60%), smaller right pane (40%)
+#   three-pane:       Main top pane (60%), two bottom panes
+#   quad:             Four equal panes (2x2 grid)
+#   even-horizontal:  Equal horizontal split
+#   even-vertical:    Equal vertical split
+default_layout = "main-vertical"
+
+# Automatically start Claude Code in the first pane
+# Default: true
+auto_start_claude = true
+
+# Number of panes to create (for layouts that support variable counts)
+# Default: 2
+pane_count = 2
+
+
+[environment]
+# Automatically install dependencies when creating a new worktree
+# Detects project type and runs appropriate install command:
+#   Python (uv):      uv sync
+#   Python (poetry):  poetry install
+#   Python (pip):     pip install -r requirements.txt
+#   Node.js (npm):    npm install
+#   Node.js (yarn):   yarn install
+#   Node.js (pnpm):   pnpm install
+#   Node.js (bun):    bun install
+#   Rust:             cargo build
+#   Go:               go mod download
+#   PHP:              composer install
+# Default: true
+auto_install_deps = true
+
+# Copy .env file from main repo to new worktrees
+# Paths inside .env will be adjusted relative to the new worktree
+# Default: true
+copy_env_file = true
+
+
+# Project-specific overrides (optional)
+# Uncomment and modify to override detected settings
+# [project]
+# type = "python"         # Force project type
+# package_manager = "uv"  # Force package manager
+# install_command = "uv sync --dev"  # Custom install command
+
+
+# Cleanup configuration (optional)
+# [cleanup]
+# protect_uncommitted = true  # Don't delete worktrees with uncommitted changes
+# protect_unpushed = true     # Don't delete worktrees with unpushed commits
+
+
+# Example: Full configuration for a Python monorepo
+# ================================================
+# [worktree]
+# base_directory = "../worktrees"
+# naming_pattern = "myproject-{branch}"
+# auto_cleanup_days = 7
+#
+# [tmux]
+# default_layout = "three-pane"
+# auto_start_claude = true
+# pane_count = 3
+#
+# [environment]
+# auto_install_deps = true
+# copy_env_file = true
+#
+# [project]
+# type = "python"
+# package_manager = "uv"
+# install_command = "uv sync && uv run pre-commit install"
+
+
+# Example: Configuration for Node.js frontend project
+# ===================================================
+# [worktree]
+# base_directory = "../"
+# naming_pattern = "frontend-{branch}"
+# auto_cleanup_days = 14
+#
+# [tmux]
+# default_layout = "main-vertical"
+# auto_start_claude = true
+# pane_count = 2
+#
+# [environment]
+# auto_install_deps = true
+# copy_env_file = true
+#
+# [project]
+# type = "node"
+# package_manager = "pnpm"
+# install_command = "pnpm install && pnpm prepare"
