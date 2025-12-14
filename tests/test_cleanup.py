@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claude_orchestrator.core.cleanup import (
+from open_orchestrator.core.cleanup import (
     CleanupConfig,
     CleanupReport,
     CleanupService,

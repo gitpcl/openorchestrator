@@ -71,7 +71,7 @@ class UsageTracker:
 
     def _get_default_stats_path(self) -> Path:
         """Get default path for stats file in user's home directory."""
-        return Path.home() / ".claude-orchestrator" / self.DEFAULT_STATS_FILENAME
+        return Path.home() / ".open-orchestrator" / self.DEFAULT_STATS_FILENAME
 
     def _load_stats(self) -> None:
         """Load usage statistics from persistent storage."""

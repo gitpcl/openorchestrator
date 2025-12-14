@@ -1,5 +1,5 @@
 """
-tmux CLI subcommands for Claude Orchestrator.
+tmux CLI subcommands for Open Orchestrator.
 
 This module provides the CLI interface for tmux session management.
 These commands can be integrated into the main CLI as a command group.
@@ -108,7 +108,7 @@ def create_session(session_name: str, directory: str, layout: str, panes: int, c
             console.print("\n[dim]Attaching to session...[/dim]")
             manager.attach(session_name)
         else:
-            console.print(f"\n[dim]Use 'cwt tmux attach {session_name}' to attach[/dim]")
+            console.print(f"\n[dim]Use 'owt tmux attach {session_name}' to attach[/dim]")
 
     except TmuxSessionExistsError as e:
         console.print(f"[yellow]Warning:[/yellow] {e}")

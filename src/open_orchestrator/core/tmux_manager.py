@@ -1,5 +1,5 @@
 """
-tmux session management for Claude Orchestrator.
+tmux session management for Open Orchestrator.
 
 This module handles tmux session creation, management, and integration
 with git worktrees for parallel development workflows.
@@ -78,7 +78,7 @@ class TmuxManager:
     with support for various pane layouts optimized for development workflows.
     """
 
-    SESSION_PREFIX = "cwt"
+    SESSION_PREFIX = "owt"
 
     def __init__(self):
         """Initialize TmuxManager with libtmux server connection."""
@@ -120,7 +120,7 @@ class TmuxManager:
         if self.session_exists(config.session_name):
             raise TmuxSessionExistsError(
                 f"Session '{config.session_name}' already exists. "
-                f"Use 'cwt tmux attach {config.session_name}' to attach."
+                f"Use 'owt tmux attach {config.session_name}' to attach."
             )
 
         if not os.path.isdir(config.working_directory):
@@ -305,7 +305,7 @@ class TmuxManager:
         if not self.session_exists(session_name):
             raise TmuxSessionNotFoundError(
                 f"Session '{session_name}' not found. "
-                f"Use 'cwt tmux list' to see available sessions."
+                f"Use 'owt tmux list' to see available sessions."
             )
 
         subprocess.run(["tmux", "attach-session", "-t", session_name], check=True)

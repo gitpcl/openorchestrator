@@ -1,5 +1,5 @@
 """
-Pytest configuration and shared fixtures for Claude Orchestrator tests.
+Pytest configuration and shared fixtures for Open Orchestrator tests.
 """
 
 import json
@@ -321,7 +321,7 @@ def project_with_env(temp_directory: Path) -> Path:
 @pytest.fixture
 def usage_stats_file(temp_directory: Path) -> Path:
     """Create a mock usage stats file."""
-    stats_dir = temp_directory / ".claude-orchestrator"
+    stats_dir = temp_directory / ".open-orchestrator"
     stats_dir.mkdir(parents=True, exist_ok=True)
     stats_file = stats_dir / ".worktree_stats.json"
 
@@ -363,7 +363,7 @@ def mock_libtmux_server() -> MagicMock:
 def mock_libtmux_session() -> MagicMock:
     """Create a mock libtmux session."""
     session = MagicMock()
-    session.name = "cwt-test-session"
+    session.name = "owt-test-session"
     session.id = "$1"
     session.attached_count = 0
 

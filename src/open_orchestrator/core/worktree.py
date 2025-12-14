@@ -7,7 +7,7 @@ from typing import Optional
 from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError
 
-from claude_orchestrator.models.worktree_info import WorktreeInfo
+from open_orchestrator.models.worktree_info import WorktreeInfo
 
 
 class WorktreeError(Exception):

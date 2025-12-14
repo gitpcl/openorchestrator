@@ -1,5 +1,5 @@
 """
-Pydantic models for Claude Orchestrator.
+Pydantic models for Open Orchestrator.
 
 This package contains data models for:
 - Worktree information
@@ -8,7 +8,7 @@ This package contains data models for:
 - Claude activity status tracking
 """
 
-from claude_orchestrator.models.maintenance import (
+from open_orchestrator.models.maintenance import (
     CleanupReport,
     SyncReport,
     SyncStatus,
@@ -17,7 +17,7 @@ from claude_orchestrator.models.maintenance import (
     WorktreeSyncResult,
     WorktreeUsageStats,
 )
-from claude_orchestrator.models.status import (
+from open_orchestrator.models.status import (
     ClaudeActivityStatus,
     CommandRecord,
     StatusStore,

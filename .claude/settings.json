@@ -1,14 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cwt:*)",
-      "Bash(cwt create:*)",
-      "Bash(cwt list:*)",
-      "Bash(cwt switch:*)",
-      "Bash(cwt delete:*)",
-      "Bash(cwt cleanup:*)",
-      "Bash(cwt sync:*)",
-      "Bash(cwt tmux:*)",
+      "Bash(owt:*)",
+      "Bash(owt create:*)",
+      "Bash(owt list:*)",
+      "Bash(owt switch:*)",
+      "Bash(owt delete:*)",
+      "Bash(owt cleanup:*)",
+      "Bash(owt sync:*)",
+      "Bash(owt tmux:*)",
       "Bash(git worktree:*)",
       "Bash(git branch:*)",
       "Bash(git status:*)",

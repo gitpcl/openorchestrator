@@ -1,10 +1,10 @@
-# Claude Orchestrator
+# Open Orchestrator
 
 A Git Worktree + Claude Code orchestration tool combining a Python CLI with Claude Code plugin integration for managing parallel development workflows.
 
 ## Overview
 
-Claude Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own Claude Code session and tmux pane. Perfect for parallel development workflows where you need to context-switch between features without losing your place.
+Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own Claude Code session and tmux pane. Perfect for parallel development workflows where you need to context-switch between features without losing your place.
 
 ## Features
 
@@ -29,8 +29,8 @@ Claude Orchestrator enables developers to work on multiple tasks simultaneously 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/claude-orchestrator.git
-cd claude-orchestrator
+git clone https://github.com/yourusername/open-orchestrator.git
+cd open-orchestrator
 
 # Install with uv
 uv pip install -e .
@@ -51,38 +51,38 @@ pip install -e .
 
 ```bash
 # Create a worktree for a new feature branch
-cwt create feature/add-login
+owt create feature/add-login
 
 # Create a worktree from an existing branch
-cwt create feature/existing-branch --no-create-branch
+owt create feature/existing-branch --no-create-branch
 ```
 
 ### List worktrees
 
 ```bash
-cwt list
+owt list
 ```
 
 ### Switch to a worktree
 
 ```bash
-cwt switch feature/add-login
+owt switch feature/add-login
 ```
 
 ### Delete a worktree
 
 ```bash
-cwt delete feature/add-login
+owt delete feature/add-login
 ```
 
 ### Clean up stale worktrees
 
 ```bash
 # Dry run (show what would be cleaned)
-cwt cleanup --dry-run
+owt cleanup --dry-run
 
 # Actually clean up
-cwt cleanup
+owt cleanup
 ```
 
 ## CLI Command Reference
@@ -91,28 +91,28 @@ cwt cleanup
 
 | Command | Description |
 |---------|-------------|
-| `cwt create <branch>` | Create a new worktree with tmux session and Claude Code |
-| `cwt list` | List all worktrees with status |
-| `cwt switch <name>` | Switch to worktree (prints path or attaches tmux) |
-| `cwt delete <name>` | Delete worktree and its tmux session |
-| `cwt cleanup` | Remove stale worktrees (dry-run by default) |
-| `cwt sync <name>` | Sync a worktree with its upstream branch |
-| `cwt send <name> "cmd"` | Send a command to another worktree's Claude session |
-| `cwt status [name]` | Show Claude activity status across all worktrees |
+| `owt create <branch>` | Create a new worktree with tmux session and Claude Code |
+| `owt list` | List all worktrees with status |
+| `owt switch <name>` | Switch to worktree (prints path or attaches tmux) |
+| `owt delete <name>` | Delete worktree and its tmux session |
+| `owt cleanup` | Remove stale worktrees (dry-run by default) |
+| `owt sync <name>` | Sync a worktree with its upstream branch |
+| `owt send <name> "cmd"` | Send a command to another worktree's Claude session |
+| `owt status [name]` | Show Claude activity status across all worktrees |
 
 ### tmux Commands
 
 | Command | Description |
 |---------|-------------|
-| `cwt tmux create <name>` | Create a tmux session |
-| `cwt tmux attach <name>` | Attach to an existing session |
-| `cwt tmux list` | List worktree tmux sessions |
-| `cwt tmux kill <name>` | Kill a tmux session |
-| `cwt tmux send <name> "keys"` | Send keys to a session pane |
+| `owt tmux create <name>` | Create a tmux session |
+| `owt tmux attach <name>` | Attach to an existing session |
+| `owt tmux list` | List worktree tmux sessions |
+| `owt tmux kill <name>` | Kill a tmux session |
+| `owt tmux send <name> "keys"` | Send keys to a session pane |
 
 ### Command Options
 
-#### `cwt create`
+#### `owt create`
 
 | Option | Description |
 |--------|-------------|
@@ -127,19 +127,19 @@ cwt cleanup
 | `--deps / --no-deps` | Install dependencies (default: enabled) |
 | `--env / --no-env` | Copy .env file (default: enabled) |
 
-#### `cwt list`
+#### `owt list`
 
 | Option | Description |
 |--------|-------------|
 | `-a, --all` | Show all worktrees including main |
 
-#### `cwt switch`
+#### `owt switch`
 
 | Option | Description |
 |--------|-------------|
 | `-t, --tmux` | Attach to worktree's tmux session |
 
-#### `cwt delete`
+#### `owt delete`
 
 | Option | Description |
 |--------|-------------|
@@ -147,7 +147,7 @@ cwt cleanup
 | `-y, --yes` | Skip confirmation prompt |
 | `--keep-tmux` | Keep the associated tmux session |
 
-#### `cwt cleanup`
+#### `owt cleanup`
 
 | Option | Description |
 |--------|-------------|
@@ -156,7 +156,7 @@ cwt cleanup
 | `-f, --force` | Include worktrees with uncommitted changes |
 | `-y, --yes` | Skip confirmation prompt |
 
-#### `cwt sync`
+#### `owt sync`
 
 | Option | Description |
 |--------|-------------|
@@ -164,7 +164,7 @@ cwt cleanup
 | `--strategy <merge\|rebase>` | Pull strategy (default: merge) |
 | `--no-stash` | Don't auto-stash uncommitted changes |
 
-#### `cwt send`
+#### `owt send`
 
 | Option | Description |
 |--------|-------------|
@@ -172,7 +172,7 @@ cwt cleanup
 | `-w, --window <n>` | Target window index (default: 0) |
 | `--no-enter` | Don't press Enter after sending |
 
-#### `cwt status`
+#### `owt status`
 
 | Option | Description |
 |--------|-------------|
@@ -182,7 +182,7 @@ cwt cleanup
 | `--notes <text>` | Set notes for this worktree |
 | `--json` | Output as JSON |
 
-#### `cwt tmux create`
+#### `owt tmux create`
 
 | Option | Description |
 |--------|-------------|
@@ -192,20 +192,20 @@ cwt cleanup
 | `--claude / --no-claude` | Auto-start Claude Code (default: enabled) |
 | `-a, --attach` | Attach after creation |
 
-#### `cwt tmux list`
+#### `owt tmux list`
 
 | Option | Description |
 |--------|-------------|
 | `-a, --all` | Show all tmux sessions |
 | `--json` | Output as JSON |
 
-#### `cwt tmux kill`
+#### `owt tmux kill`
 
 | Option | Description |
 |--------|-------------|
 | `-f, --force` | Kill without confirmation |
 
-#### `cwt tmux send`
+#### `owt tmux send`
 
 | Option | Description |
 |--------|-------------|
@@ -266,7 +266,7 @@ Available layouts:
 
 ## Project Detection
 
-Claude Orchestrator automatically detects your project type and package manager:
+Open Orchestrator automatically detects your project type and package manager:
 
 | Project Type | Detected By | Package Manager Priority |
 |-------------|-------------|-------------------------|
@@ -278,24 +278,24 @@ Claude Orchestrator automatically detects your project type and package manager:
 
 ## Usage Modes
 
-Claude Orchestrator can be used in two ways:
+Open Orchestrator can be used in two ways:
 
 ### 1. Standalone CLI Tool
 
-Use `cwt` directly from the terminal to manage worktrees and tmux sessions:
+Use `owt` directly from the terminal to manage worktrees and tmux sessions:
 
 ```bash
 # Create a worktree with auto-setup
-cwt create feature/my-feature
+owt create feature/my-feature
 
 # List all worktrees
-cwt list
+owt list
 
 # Attach to a worktree's tmux session
-cwt switch feature/my-feature --tmux
+owt switch feature/my-feature --tmux
 
 # Clean up stale worktrees
-cwt cleanup --dry-run
+owt cleanup --dry-run
 ```
 
 This mode is ideal for developers who want worktree management without Claude Code integration.
@@ -310,7 +310,7 @@ Copy the `.claude/` directory to your project (or symlink it):
 
 ```bash
 # From your project root
-cp -r /path/to/claude-orchestrator/.claude .
+cp -r /path/to/open-orchestrator/.claude .
 ```
 
 Or add the permissions to your existing `.claude/settings.json`:
@@ -319,7 +319,7 @@ Or add the permissions to your existing `.claude/settings.json`:
 {
   "permissions": {
     "allow": [
-      "Bash(cwt:*)",
+      "Bash(owt:*)",
       "Bash(git worktree:*)",
       "Bash(tmux:*)"
     ]
@@ -369,28 +369,28 @@ This will show `[Worktree: name | Branch: branch]` in your prompts when working 
 
 ```bash
 # Clone and install with dev dependencies
-git clone https://github.com/yourusername/claude-orchestrator.git
-cd claude-orchestrator
+git clone https://github.com/yourusername/open-orchestrator.git
+cd open-orchestrator
 uv pip install -e ".[dev]"
 
 # Run tests
 pytest
 
 # Run tests with coverage
-pytest --cov=claude_orchestrator
+pytest --cov=open_orchestrator
 
 # Run linting
 ruff check .
 
 # Run type checking
-mypy src/claude_orchestrator
+mypy src/open_orchestrator
 ```
 
 ### Project Structure
 
 ```
-claude-orchestrator/
-├── src/claude_orchestrator/
+open-orchestrator/
+├── src/open_orchestrator/
 │   ├── __init__.py
 │   ├── cli.py                     # Main CLI entry point
 │   ├── config.py                  # Configuration management

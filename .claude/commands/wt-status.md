@@ -12,12 +12,12 @@ View Claude activity across all worktrees - see what each Claude session is work
 Git worktrees:
 !`git worktree list 2>/dev/null || echo "No worktrees found"`
 
-tmux sessions (cwt-*):
-!`tmux list-sessions 2>/dev/null | grep cwt || echo "No cwt sessions active"`
+tmux sessions (owt-*):
+!`tmux list-sessions 2>/dev/null | grep owt || echo "No owt sessions active"`
 
 ## Instructions
 
-1. Run: `cwt status`
+1. Run: `owt status`
 2. Present the status table showing:
    - Worktree name
    - Branch
@@ -28,26 +28,26 @@ tmux sessions (cwt-*):
 3. Highlight any worktrees that are blocked or have errors
 4. Show summary stats (how many active, idle, blocked)
 5. Suggest actions like:
-   - View detailed status: `cwt status <worktree-name>`
-   - Set task: `cwt status <worktree-name> --set-task "description"`
-   - Send command: `cwt send <worktree-name> "your instruction"`
-   - Mark completed: `cwt status <worktree-name> --set-status completed`
+   - View detailed status: `owt status <worktree-name>`
+   - Set task: `owt status <worktree-name> --set-task "description"`
+   - Send command: `owt send <worktree-name> "your instruction"`
+   - Mark completed: `owt status <worktree-name> --set-status completed`
 
 ## Usage Examples
 
 ```bash
 # View all worktree statuses
-cwt status
+owt status
 
 # View specific worktree in detail
-cwt status feature/auth
+owt status feature/auth
 
 # Update what a worktree is working on
-cwt status feature/auth --set-task "Implementing OAuth flow"
+owt status feature/auth --set-task "Implementing OAuth flow"
 
 # Mark a worktree as blocked
-cwt status feature/api --set-status blocked --notes "Waiting for API spec"
+owt status feature/api --set-status blocked --notes "Waiting for API spec"
 
 # Output as JSON for programmatic use
-cwt status --json
+owt status --json
 ```

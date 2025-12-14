@@ -1,4 +1,4 @@
-"""CLI entry point for Claude Orchestrator."""
+"""CLI entry point for Open Orchestrator."""
 
 import subprocess
 from pathlib import Path
@@ -8,24 +8,24 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from claude_orchestrator.core.worktree import (
+from open_orchestrator.core.worktree import (
     NotAGitRepositoryError,
     WorktreeAlreadyExistsError,
     WorktreeError,
     WorktreeManager,
     WorktreeNotFoundError,
 )
-from claude_orchestrator.core.status import StatusTracker
-from claude_orchestrator.models.status import ClaudeActivityStatus
-from claude_orchestrator.core.tmux_manager import (
+from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.models.status import ClaudeActivityStatus
+from open_orchestrator.core.tmux_manager import (
     TmuxError,
     TmuxLayout,
     TmuxManager,
     TmuxSessionExistsError,
 )
-from claude_orchestrator.core.tmux_cli import tmux_group
-from claude_orchestrator.core.project_detector import ProjectDetector
-from claude_orchestrator.core.environment import (
+from open_orchestrator.core.tmux_cli import tmux_group
+from open_orchestrator.core.project_detector import ProjectDetector
+from open_orchestrator.core.environment import (
     EnvironmentSetup,
     EnvironmentSetupError,
 )
@@ -53,9 +53,9 @@ def get_worktree_manager(repo_path: Optional[Path] = None) -> WorktreeManager:
 
 
 @click.group()
-@click.version_option(package_name="claude-orchestrator")
+@click.version_option(package_name="open-orchestrator")
 def main() -> None:
-    """Claude Orchestrator - Git Worktree + Claude Code orchestration tool.
+    """Open Orchestrator - Git Worktree + Claude Code orchestration tool.
 
     Manage parallel development workflows with git worktrees and tmux sessions.
     """
@@ -146,11 +146,11 @@ def create_worktree(
     and starts Claude Code.
 
     Example:
-        cwt create feature/new-feature
-        cwt create bugfix/fix-123 --base main
-        cwt create feature/test --no-tmux
-        cwt create feature/dev --layout three-pane --attach
-        cwt create feature/quick --no-deps --no-env
+        owt create feature/new-feature
+        owt create bugfix/fix-123 --base main
+        owt create feature/test --no-tmux
+        owt create feature/dev --layout three-pane --attach
+        owt create feature/quick --no-deps --no-env
     """
     wt_manager = get_worktree_manager()
     tmux_manager = TmuxManager() if tmux else None
@@ -254,7 +254,7 @@ def create_worktree(
             console.print("[dim]Attaching to tmux session...[/dim]")
             tmux_manager.attach(tmux_session.session_name)
         elif tmux_session:
-            console.print(f"[dim]Attach with: cwt tmux attach {tmux_session.session_name}[/dim]")
+            console.print(f"[dim]Attach with: owt tmux attach {tmux_session.session_name}[/dim]")
         else:
             console.print(f"[dim]cd {worktree.path}[/dim]")
 
@@ -279,8 +279,8 @@ def list_worktrees(show_all: bool) -> None:
     the main repository worktree.
 
     Example:
-        cwt list
-        cwt list --all
+        owt list
+        owt list --all
     """
     manager = get_worktree_manager()
 
@@ -354,9 +354,9 @@ def delete_worktree(identifier: str, force: bool, yes: bool, keep_tmux: bool) ->
     By default, also kills the associated tmux session.
 
     Example:
-        cwt delete feature/old-feature
-        cwt delete project-feature-branch
-        cwt delete feature/test --keep-tmux
+        owt delete feature/old-feature
+        owt delete project-feature-branch
+        owt delete feature/test --keep-tmux
     """
     wt_manager = get_worktree_manager()
     tmux_manager = TmuxManager()
@@ -423,8 +423,8 @@ def switch_worktree(identifier: str, tmux: bool) -> None:
     Use --tmux to attach to the worktree's tmux session instead.
 
     Example:
-        cd $(cwt switch feature/my-feature)
-        cwt switch feature/my-feature --tmux
+        cd $(owt switch feature/my-feature)
+        owt switch feature/my-feature --tmux
     """
     wt_manager = get_worktree_manager()
 
@@ -442,7 +442,7 @@ def switch_worktree(identifier: str, tmux: bool) -> None:
                     tmux_manager.attach(session.session_name)
             else:
                 console.print(f"[yellow]No tmux session found for worktree '{identifier}'[/yellow]")
-                console.print(f"[dim]Create one with: cwt tmux create {tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}[/dim]")
+                console.print(f"[dim]Create one with: owt tmux create {tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}[/dim]")
                 raise SystemExit(1)
         else:
             click.echo(worktree.path)
@@ -489,12 +489,12 @@ def cleanup_worktrees(threshold_days: int, dry_run: bool, force: bool, yes: bool
     by default. Use --force to override this protection.
 
     Example:
-        cwt cleanup                    # Dry run with default 14 days
-        cwt cleanup --days 7           # Dry run with 7 days threshold
-        cwt cleanup --no-dry-run -y    # Actually delete stale worktrees
-        cwt cleanup --force            # Include worktrees with uncommitted changes
+        owt cleanup                    # Dry run with default 14 days
+        owt cleanup --days 7           # Dry run with 7 days threshold
+        owt cleanup --no-dry-run -y    # Actually delete stale worktrees
+        owt cleanup --force            # Include worktrees with uncommitted changes
     """
-    from claude_orchestrator.core.cleanup import CleanupConfig, CleanupService
+    from open_orchestrator.core.cleanup import CleanupConfig, CleanupService
 
     wt_manager = get_worktree_manager()
 
@@ -617,12 +617,12 @@ def send_to_worktree(
     COMMAND is the text to send to the worktree's Claude session.
 
     By default, sends to the main pane (pane 0) where Claude Code runs.
-    Commands sent are tracked and visible via `cwt status`.
+    Commands sent are tracked and visible via `owt status`.
 
     Example:
-        cwt send feature/auth "implement login validation"
-        cwt send my-worktree "run the tests"
-        cwt send feature/api "fix the bug in user service" --pane 1
+        owt send feature/auth "implement login validation"
+        owt send my-worktree "run the tests"
+        owt send feature/api "fix the bug in user service" --pane 1
     """
     wt_manager = get_worktree_manager()
     tmux_manager = TmuxManager()
@@ -638,7 +638,7 @@ def send_to_worktree(
     if not session:
         raise click.ClickException(
             f"No tmux session found for worktree '{identifier}'. "
-            f"Create one with: cwt tmux create {tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}"
+            f"Create one with: owt tmux create {tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}"
         )
 
     # Get the source worktree (the one sending the command)
@@ -723,11 +723,11 @@ def sync_worktrees(
     - The full path to the worktree
 
     Example:
-        cwt sync feature/my-feature    # Sync specific worktree
-        cwt sync --all                 # Sync all worktrees
-        cwt sync --all --strategy rebase
+        owt sync feature/my-feature    # Sync specific worktree
+        owt sync --all                 # Sync all worktrees
+        owt sync --all --strategy rebase
     """
-    from claude_orchestrator.core.sync import SyncConfig, SyncService, SyncStatus
+    from open_orchestrator.core.sync import SyncConfig, SyncService, SyncStatus
 
     wt_manager = get_worktree_manager()
 
@@ -863,11 +863,11 @@ def show_status(
     With IDENTIFIER, shows or updates status for a specific worktree.
 
     Example:
-        cwt status                          # Show all worktree statuses
-        cwt status feature/auth             # Show status for specific worktree
-        cwt status feature/auth --set-task "Implementing login"
-        cwt status feature/auth --set-status working
-        cwt status --json                   # Output as JSON
+        owt status                          # Show all worktree statuses
+        owt status feature/auth             # Show status for specific worktree
+        owt status feature/auth --set-task "Implementing login"
+        owt status feature/auth --set-status working
+        owt status --json                   # Output as JSON
     """
     import json as json_module
 
@@ -952,7 +952,7 @@ def show_status(
 
         if not wt_status:
             console.print(f"[yellow]No status tracked for '{identifier}'[/yellow]")
-            console.print(f"[dim]Initialize with: cwt status {identifier} --set-task 'Your task'[/dim]")
+            console.print(f"[dim]Initialize with: owt status {identifier} --set-task 'Your task'[/dim]")
             return
 
         _print_worktree_status_detail(wt_status, worktree)
@@ -969,9 +969,9 @@ def show_status(
             console.print("[yellow]No status information tracked yet.[/yellow]")
             console.print()
             console.print("[dim]Status tracking begins when:[/dim]")
-            console.print("[dim]  - You create a worktree with: cwt create <branch>[/dim]")
-            console.print("[dim]  - You send a command with: cwt send <worktree> 'command'[/dim]")
-            console.print("[dim]  - You set status with: cwt status <worktree> --set-task 'task'[/dim]")
+            console.print("[dim]  - You create a worktree with: owt create <branch>[/dim]")
+            console.print("[dim]  - You send a command with: owt send <worktree> 'command'[/dim]")
+            console.print("[dim]  - You set status with: owt status <worktree> --set-task 'task'[/dim]")
             return
 
         console.print()

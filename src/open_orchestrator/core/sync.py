@@ -119,7 +119,7 @@ class SyncService:
             stashed = False
 
             if self._has_uncommitted_changes(path) and self.config.auto_stash:
-                self._run_git_command(path, ["stash", "push", "-m", "cwt-sync-autostash"])
+                self._run_git_command(path, ["stash", "push", "-m", "owt-sync-autostash"])
                 stashed = True
 
             self._fetch_upstream(path)

@@ -1,4 +1,4 @@
-"""Environment setup for Claude Orchestrator worktrees.
+"""Environment setup for Open Orchestrator worktrees.
 
 This module handles dependency installation and environment file configuration
 for newly created worktrees.
@@ -43,7 +43,7 @@ class EnvironmentSetup:
     necessary dependencies and configuration to run.
 
     Example:
-        >>> from claude_orchestrator.core import ProjectDetector, EnvironmentSetup
+        >>> from open_orchestrator.core import ProjectDetector, EnvironmentSetup
         >>> detector = ProjectDetector()
         >>> config = detector.detect("/path/to/source")
         >>> setup = EnvironmentSetup(config)

@@ -1,5 +1,5 @@
 """
-Core modules for Claude Orchestrator.
+Core modules for Open Orchestrator.
 
 This package contains the core business logic for:
 - Worktree management
@@ -11,21 +11,21 @@ This package contains the core business logic for:
 - Status tracking
 """
 
-from claude_orchestrator.core.cleanup import (
+from open_orchestrator.core.cleanup import (
     CleanupConfig,
     CleanupReport,
     CleanupService,
     UsageTracker,
     WorktreeUsageStats,
 )
-from claude_orchestrator.core.sync import (
+from open_orchestrator.core.sync import (
     SyncConfig,
     SyncReport,
     SyncService,
     SyncStatus,
     WorktreeSyncResult,
 )
-from claude_orchestrator.core.status import (
+from open_orchestrator.core.status import (
     StatusConfig,
     StatusTracker,
 )

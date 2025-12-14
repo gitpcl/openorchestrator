@@ -1,4 +1,4 @@
-Claude Orchestrator - Implementation Plan
+Open Orchestrator - Implementation Plan
 
  Overview
 
@@ -11,9 +11,9 @@ Claude Orchestrator - Implementation Plan
  ---
  Project Structure
 
- /Users/pedrolopes/dev/projects/claude-orchestrator/
+ /Users/pedrolopes/dev/projects/open-orchestrator/
  ├── src/
- │   └── claude_orchestrator/
+ │   └── open_orchestrator/
  │       ├── __init__.py
  │       ├── cli.py                     # Main CLI entry point (click)
  │       ├── config.py                  # Configuration management
@@ -53,15 +53,15 @@ Claude Orchestrator - Implementation Plan
 
  | Command             | Description                              |
  |---------------------|------------------------------------------|
- | cwt create <branch> | Create worktree with deps & tmux session |
- | cwt list            | List all worktrees with status           |
- | cwt switch <name>   | Switch to worktree & attach tmux         |
- | cwt delete <name>   | Delete worktree & cleanup                |
- | cwt cleanup         | Remove stale worktrees                   |
- | cwt sync [--all]    | Sync worktree(s) with upstream           |
- | cwt tmux create     | Create tmux session for worktree         |
- | cwt tmux attach     | Attach to existing session               |
- | cwt tmux list       | List worktree tmux sessions              |
+ | owt create <branch> | Create worktree with deps & tmux session |
+ | owt list            | List all worktrees with status           |
+ | owt switch <name>   | Switch to worktree & attach tmux         |
+ | owt delete <name>   | Delete worktree & cleanup                |
+ | owt cleanup         | Remove stale worktrees                   |
+ | owt sync [--all]    | Sync worktree(s) with upstream           |
+ | owt tmux create     | Create tmux session for worktree         |
+ | owt tmux attach     | Attach to existing session               |
+ | owt tmux list       | List worktree tmux sessions              |
 
  ---
  Implementation Steps
@@ -74,13 +74,13 @@ Claude Orchestrator - Implementation Plan
  - Set up directory structure
 
  Step 1.2: Implement WorktreeManager
- - File: src/claude_orchestrator/core/worktree.py
+ - File: src/open_orchestrator/core/worktree.py
  - Methods: create(), list_all(), delete(), _find_worktree()
  - Use gitpython for git operations
  - Generate worktree paths: {project}-{branch-name}
 
  Step 1.3: Implement CLI Entry Point
- - File: src/claude_orchestrator/cli.py
+ - File: src/open_orchestrator/cli.py
  - Commands: create, list, delete
  - Use click decorators
  - Use rich for output formatting
@@ -88,19 +88,19 @@ Claude Orchestrator - Implementation Plan
  Phase 2: Project Detection & Environment
 
  Step 2.1: Implement ProjectDetector
- - File: src/claude_orchestrator/core/project_detector.py
+ - File: src/open_orchestrator/core/project_detector.py
  - Detect: Python (uv/pip/poetry), Node (npm/yarn/pnpm/bun), PHP, Rust, Go
  - Map project types to install commands
 
  Step 2.2: Implement EnvironmentSetup
- - File: src/claude_orchestrator/core/environment.py
+ - File: src/open_orchestrator/core/environment.py
  - Methods: install_dependencies(), setup_env_file()
  - Copy .env with path adjustments
 
  Phase 3: tmux Integration
 
  Step 3.1: Implement TmuxManager
- - File: src/claude_orchestrator/core/tmux_manager.py
+ - File: src/open_orchestrator/core/tmux_manager.py
  - Use libtmux library
  - Methods: create_session(), attach(), list_sessions(), kill_session()
  - Layouts: main-vertical, three-pane, quad
@@ -110,7 +110,7 @@ Claude Orchestrator - Implementation Plan
  - Commands: create, attach, list
 
  Step 3.3: Integrate tmux with Worktree Creation
- - Auto-create tmux session on cwt create
+ - Auto-create tmux session on owt create
  - Auto-start Claude Code in first pane
 
  Phase 4: Claude Code Plugin
@@ -132,7 +132,7 @@ Claude Orchestrator - Implementation Plan
  Phase 5: Maintenance Features
 
  Step 5.1: Implement Cleanup Service
- - File: src/claude_orchestrator/core/cleanup.py
+ - File: src/open_orchestrator/core/cleanup.py
  - Track usage statistics
  - Detect stale worktrees (configurable days)
  - Dry-run support
@@ -156,12 +156,12 @@ Claude Orchestrator - Implementation Plan
  Critical Files to Implement
 
  1. pyproject.toml - Project config with dependencies
- 2. src/claude_orchestrator/cli.py - CLI entry point
- 3. src/claude_orchestrator/core/worktree.py - Core worktree logic
- 4. src/claude_orchestrator/core/project_detector.py - Project detection
- 5. src/claude_orchestrator/core/tmux_manager.py - tmux management
- 6. src/claude_orchestrator/core/environment.py - Environment setup
- 7. src/claude_orchestrator/config.py - Configuration management
+ 2. src/open_orchestrator/cli.py - CLI entry point
+ 3. src/open_orchestrator/core/worktree.py - Core worktree logic
+ 4. src/open_orchestrator/core/project_detector.py - Project detection
+ 5. src/open_orchestrator/core/tmux_manager.py - tmux management
+ 6. src/open_orchestrator/core/environment.py - Environment setup
+ 7. src/open_orchestrator/config.py - Configuration management
  8. .claude/commands/worktree.md - Main slash command
  9. .claude/settings.json - Hooks configuration
 
@@ -212,7 +212,7 @@ Claude Orchestrator - Implementation Plan
  - Worktrees: !`git worktree list`
 
  ## Instructions
- 1. Run: `cwt create $ARGUMENTS`
+ 1. Run: `owt create $ARGUMENTS`
  2. Report created path and status
 
  ---
@@ -224,20 +224,20 @@ Claude Orchestrator - Implementation Plan
 
  1. Create worktrees manually for each feature track:
  # From main project directory
- cd /Users/pedrolopes/dev/projects/claude-orchestrator
+ cd /Users/pedrolopes/dev/projects/open-orchestrator
  git init  # If new repo
 
  # Create worktrees for parallel development
- git worktree add ../claude-orchestrator-core core/worktree
- git worktree add ../claude-orchestrator-cli core/cli
- git worktree add ../claude-orchestrator-tmux feature/tmux
- git worktree add ../claude-orchestrator-plugin feature/plugin
+ git worktree add ../open-orchestrator-core core/worktree
+ git worktree add ../open-orchestrator-cli core/cli
+ git worktree add ../open-orchestrator-tmux feature/tmux
+ git worktree add ../open-orchestrator-plugin feature/plugin
  2. Create tmux sessions manually:
  # Create sessions for each worktree
- tmux new-session -d -s co-core -c ~/dev/projects/claude-orchestrator-core
- tmux new-session -d -s co-cli -c ~/dev/projects/claude-orchestrator-cli
- tmux new-session -d -s co-tmux -c ~/dev/projects/claude-orchestrator-tmux
- tmux new-session -d -s co-plugin -c ~/dev/projects/claude-orchestrator-plugin
+ tmux new-session -d -s co-core -c ~/dev/projects/open-orchestrator-core
+ tmux new-session -d -s co-cli -c ~/dev/projects/open-orchestrator-cli
+ tmux new-session -d -s co-tmux -c ~/dev/projects/open-orchestrator-tmux
+ tmux new-session -d -s co-plugin -c ~/dev/projects/open-orchestrator-plugin
  3. Start Claude Code in each:
  tmux send-keys -t co-core "claude" Enter
  tmux send-keys -t co-cli "claude" Enter
@@ -252,10 +252,10 @@ Claude Orchestrator - Implementation Plan
 
  | Track  | Worktree                   | Focus                            |
  |--------|----------------------------|----------------------------------|
- | Core   | claude-orchestrator-core   | worktree.py, project_detector.py |
- | CLI    | claude-orchestrator-cli    | cli.py, config.py, models        |
- | tmux   | claude-orchestrator-tmux   | tmux_manager.py                  |
- | Plugin | claude-orchestrator-plugin | .claude/commands/, hooks         |
+ | Core   | open-orchestrator-core   | worktree.py, project_detector.py |
+ | CLI    | open-orchestrator-cli    | cli.py, config.py, models        |
+ | tmux   | open-orchestrator-tmux   | tmux_manager.py                  |
+ | Plugin | open-orchestrator-plugin | .claude/commands/, hooks         |
 
  Quick Bootstrap Script
 
@@ -264,7 +264,7 @@ Claude Orchestrator - Implementation Plan
  #!/bin/bash
  # bootstrap-dev.sh - Set up parallel development environment
 
- PROJECT_DIR="/Users/pedrolopes/dev/projects/claude-orchestrator"
+ PROJECT_DIR="/Users/pedrolopes/dev/projects/open-orchestrator"
  PARENT_DIR="$(dirname "$PROJECT_DIR")"
 
  # Initialize git if needed
@@ -272,15 +272,15 @@ Claude Orchestrator - Implementation Plan
  [ ! -d .git ] && git init && git add -A && git commit -m "Initial commit"
 
  # Create worktrees
- git worktree add "$PARENT_DIR/claude-orchestrator-core" -b core/worktree main 2>/dev/null || true
- git worktree add "$PARENT_DIR/claude-orchestrator-cli" -b core/cli main 2>/dev/null || true
- git worktree add "$PARENT_DIR/claude-orchestrator-tmux" -b feature/tmux main 2>/dev/null || true
- git worktree add "$PARENT_DIR/claude-orchestrator-plugin" -b feature/plugin main 2>/dev/null || true
+ git worktree add "$PARENT_DIR/open-orchestrator-core" -b core/worktree main 2>/dev/null || true
+ git worktree add "$PARENT_DIR/open-orchestrator-cli" -b core/cli main 2>/dev/null || true
+ git worktree add "$PARENT_DIR/open-orchestrator-tmux" -b feature/tmux main 2>/dev/null || true
+ git worktree add "$PARENT_DIR/open-orchestrator-plugin" -b feature/plugin main 2>/dev/null || true
 
  # Create tmux sessions with Claude Code
  for track in core cli tmux plugin; do
      session="co-$track"
-     dir="$PARENT_DIR/claude-orchestrator-$track"
+     dir="$PARENT_DIR/open-orchestrator-$track"
 
      if ! tmux has-session -t "$session" 2>/dev/null; then
          tmux new-session -d -s "$session" -c "$dir"
@@ -295,20 +295,20 @@ Claude Orchestrator - Implementation Plan
 
  Once Phase 1-3 complete, switch to using the tool itself:
  # Install the tool in dev mode
- cd /Users/pedrolopes/dev/projects/claude-orchestrator
+ cd /Users/pedrolopes/dev/projects/open-orchestrator
  uv pip install -e .
 
- # Now use cwt instead of manual commands
- cwt create feature/cleanup
- cwt list
- cwt switch feature/cleanup
+ # Now use owt instead of manual commands
+ owt create feature/cleanup
+ owt list
+ owt switch feature/cleanup
 
  ---
  Success Criteria
 
- - cwt create feature/test creates worktree with deps installed
- - cwt list shows all worktrees with status
- - cwt switch <name> attaches to tmux session
+ - owt create feature/test creates worktree with deps installed
+ - owt list shows all worktrees with status
+ - owt switch <name> attaches to tmux session
  - /worktree create works in Claude Code
  - tmux sessions auto-created with Claude Code running
  - Stale worktrees detected and cleaned

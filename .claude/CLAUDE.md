@@ -1,4 +1,4 @@
-# Claude Orchestrator
+# Open Orchestrator
 
 Git Worktree + Claude Code orchestration tool for parallel development workflows.
 
@@ -6,23 +6,23 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 
 | Command | Description |
 |---------|-------------|
-| `cwt create <branch>` | Create worktree with tmux session and Claude Code |
-| `cwt list` | List all worktrees with status |
-| `cwt switch <name> --tmux` | Switch to worktree's tmux session |
-| `cwt send <name> "cmd"` | Send command to another worktree's Claude |
-| `cwt status` | Show Claude activity across all worktrees |
-| `cwt delete <name>` | Delete worktree and its tmux session |
-| `cwt cleanup` | Remove stale worktrees (dry-run by default) |
-| `cwt sync --all` | Sync all worktrees with upstream |
+| `owt create <branch>` | Create worktree with tmux session and Claude Code |
+| `owt list` | List all worktrees with status |
+| `owt switch <name> --tmux` | Switch to worktree's tmux session |
+| `owt send <name> "cmd"` | Send command to another worktree's Claude |
+| `owt status` | Show Claude activity across all worktrees |
+| `owt delete <name>` | Delete worktree and its tmux session |
+| `owt cleanup` | Remove stale worktrees (dry-run by default) |
+| `owt sync --all` | Sync all worktrees with upstream |
 
 ## tmux Commands
 
 | Command | Description |
 |---------|-------------|
-| `cwt tmux create <name> -d <dir>` | Create tmux session |
-| `cwt tmux attach <name>` | Attach to session |
-| `cwt tmux list` | List cwt sessions |
-| `cwt tmux kill <name>` | Kill session |
+| `owt tmux create <name> -d <dir>` | Create tmux session |
+| `owt tmux attach <name>` | Attach to session |
+| `owt tmux list` | List owt sessions |
+| `owt tmux kill <name>` | Kill session |
 
 ## Slash Commands
 
@@ -54,7 +54,7 @@ uv run ruff check src/
 ## Project Structure
 
 ```
-src/claude_orchestrator/
+src/open_orchestrator/
 ├── cli.py              # CLI entry point (click)
 ├── core/
 │   ├── worktree.py     # Git worktree operations
@@ -83,7 +83,7 @@ src/claude_orchestrator/
 
 ### Creating a worktree
 ```python
-from claude_orchestrator.core import WorktreeManager
+from open_orchestrator.core import WorktreeManager
 
 manager = WorktreeManager()
 worktree = manager.create(branch="feature/new-feature", base_branch="main")
@@ -91,7 +91,7 @@ worktree = manager.create(branch="feature/new-feature", base_branch="main")
 
 ### Managing tmux sessions
 ```python
-from claude_orchestrator.core import TmuxManager, TmuxLayout
+from open_orchestrator.core import TmuxManager, TmuxLayout
 
 tmux = TmuxManager()
 session = tmux.create_worktree_session(
@@ -104,7 +104,7 @@ session = tmux.create_worktree_session(
 
 ### Detecting project type
 ```python
-from claude_orchestrator.core import ProjectDetector
+from open_orchestrator.core import ProjectDetector
 
 detector = ProjectDetector()
 config = detector.detect("/path/to/project")
@@ -113,8 +113,8 @@ print(f"Type: {config.project_type}, Manager: {config.package_manager}")
 
 ### Tracking Claude status
 ```python
-from claude_orchestrator.core import StatusTracker
-from claude_orchestrator.models import ClaudeActivityStatus
+from open_orchestrator.core import StatusTracker
+from open_orchestrator.models import ClaudeActivityStatus
 
 tracker = StatusTracker()
 
@@ -123,7 +123,7 @@ tracker.initialize_status(
     worktree_name="my-feature",
     worktree_path="/path/to/worktree",
     branch="feature/my-feature",
-    tmux_session="cwt-my-feature"
+    tmux_session="owt-my-feature"
 )
 
 # Update what Claude is working on

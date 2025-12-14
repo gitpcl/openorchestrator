@@ -1,11 +1,11 @@
 """
-Configuration management for claude-orchestrator.
+Configuration management for open-orchestrator.
 
 Loads configuration from .worktreerc files in the following priority:
 1. Path specified via --config flag
 2. .worktreerc in current directory
 3. .worktreerc.toml in current directory
-4. ~/.config/claude-orchestrator/config.toml
+4. ~/.config/open-orchestrator/config.toml
 5. ~/.worktreerc
 """
 
@@ -49,7 +49,7 @@ class TmuxConfig(BaseModel):
         description="Default number of panes",
     )
     session_prefix: str = Field(
-        default="cwt",
+        default="owt",
         description="Prefix for tmux session names",
     )
 
@@ -93,7 +93,7 @@ class SyncConfig(BaseModel):
 
 
 class Config(BaseModel):
-    """Main configuration model for claude-orchestrator."""
+    """Main configuration model for open-orchestrator."""
 
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
@@ -115,7 +115,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
         Path(config_path) if config_path else None,
         Path.cwd() / ".worktreerc",
         Path.cwd() / ".worktreerc.toml",
-        Path.home() / ".config" / "claude-orchestrator" / "config.toml",
+        Path.home() / ".config" / "open-orchestrator" / "config.toml",
         Path.home() / ".worktreerc",
     ]
 

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
 import libtmux.exc
 
-from claude_orchestrator.core.tmux_manager import (
+from open_orchestrator.core.tmux_manager import (
     TmuxError,
     TmuxLayout,
     TmuxManager,
@@ -93,13 +93,13 @@ class TestTmuxManager:
         """Test session name generation from worktree name."""
         manager = TmuxManager()
 
-        assert manager._generate_session_name("feature-test") == "cwt-feature-test"
-        assert manager._generate_session_name("feature/test") == "cwt-feature-test"
-        assert manager._generate_session_name("feature.test") == "cwt-feature-test"
+        assert manager._generate_session_name("feature-test") == "owt-feature-test"
+        assert manager._generate_session_name("feature/test") == "owt-feature-test"
+        assert manager._generate_session_name("feature.test") == "owt-feature-test"
 
     def test_session_prefix(self):
         """Test that session prefix is correctly defined."""
-        assert TmuxManager.SESSION_PREFIX == "cwt"
+        assert TmuxManager.SESSION_PREFIX == "owt"
 
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
     def test_session_exists_true(self, mock_server_prop):
@@ -210,11 +210,11 @@ class TestTmuxManager:
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
     def test_list_sessions_filter_prefix(self, mock_server_prop, mock_libtmux_session):
         """Test listing sessions filters by prefix."""
-        cwt_session = MagicMock()
-        cwt_session.name = "cwt-test"
-        cwt_session.id = "$1"
-        cwt_session.attached_count = 0
-        cwt_session.windows = mock_libtmux_session.windows
+        owt_session = MagicMock()
+        owt_session.name = "owt-test"
+        owt_session.id = "$1"
+        owt_session.attached_count = 0
+        owt_session.windows = mock_libtmux_session.windows
 
         other_session = MagicMock()
         other_session.name = "other-session"
@@ -223,23 +223,23 @@ class TestTmuxManager:
         other_session.windows = mock_libtmux_session.windows
 
         mock_server = MagicMock()
-        mock_server.sessions = [cwt_session, other_session]
+        mock_server.sessions = [owt_session, other_session]
         mock_server_prop.return_value = mock_server
 
         manager = TmuxManager()
         result = manager.list_sessions(filter_prefix=True)
 
         assert len(result) == 1
-        assert result[0].session_name == "cwt-test"
+        assert result[0].session_name == "owt-test"
 
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
     def test_list_sessions_no_filter(self, mock_server_prop, mock_libtmux_session):
         """Test listing all sessions without prefix filter."""
-        cwt_session = MagicMock()
-        cwt_session.name = "cwt-test"
-        cwt_session.id = "$1"
-        cwt_session.attached_count = 0
-        cwt_session.windows = mock_libtmux_session.windows
+        owt_session = MagicMock()
+        owt_session.name = "owt-test"
+        owt_session.id = "$1"
+        owt_session.attached_count = 0
+        owt_session.windows = mock_libtmux_session.windows
 
         other_session = MagicMock()
         other_session.name = "other-session"
@@ -248,7 +248,7 @@ class TestTmuxManager:
         other_session.windows = mock_libtmux_session.windows
 
         mock_server = MagicMock()
-        mock_server.sessions = [cwt_session, other_session]
+        mock_server.sessions = [owt_session, other_session]
         mock_server_prop.return_value = mock_server
 
         manager = TmuxManager()
@@ -375,7 +375,7 @@ class TestTmuxManager:
         mock_server.new_session.assert_called_once()
 
         call_kwargs = mock_server.new_session.call_args[1]
-        assert call_kwargs["session_name"] == "cwt-feature-test"
+        assert call_kwargs["session_name"] == "owt-feature-test"
         assert call_kwargs["start_directory"] == str(temp_dir)
 
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
@@ -385,7 +385,7 @@ class TestTmuxManager:
         mock_libtmux_session: MagicMock
     ):
         """Test finding existing session for worktree."""
-        mock_libtmux_session.name = "cwt-feature-test"
+        mock_libtmux_session.name = "owt-feature-test"
 
         mock_server = MagicMock()
         mock_server.has_session.return_value = True
@@ -399,7 +399,7 @@ class TestTmuxManager:
         result = manager.get_session_for_worktree("feature-test")
 
         assert result is not None
-        assert result.session_name == "cwt-feature-test"
+        assert result.session_name == "owt-feature-test"
 
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
     def test_get_session_for_worktree_not_found(self, mock_server_prop):

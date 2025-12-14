@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from claude_orchestrator.core.sync import (
+from open_orchestrator.core.sync import (
     SyncConfig,
     SyncReport,
     SyncService,

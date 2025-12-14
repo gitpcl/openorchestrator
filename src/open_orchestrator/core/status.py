@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
-from claude_orchestrator.models.status import (
+from open_orchestrator.models.status import (
     ClaudeActivityStatus,
     CommandRecord,
     StatusStore,
@@ -54,7 +54,7 @@ class StatusTracker:
 
     def _get_default_path(self) -> Path:
         """Get default path for status storage in user's home directory."""
-        return Path.home() / ".claude-orchestrator" / self.DEFAULT_STATUS_FILENAME
+        return Path.home() / ".open-orchestrator" / self.DEFAULT_STATUS_FILENAME
 
     def _load_store(self) -> None:
         """Load status store from persistent storage."""

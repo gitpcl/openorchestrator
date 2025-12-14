@@ -16,7 +16,7 @@ All worktrees:
 
 1. First, run a dry-run to show what would be cleaned:
    ```
-   cwt cleanup --days 14
+   owt cleanup --days 14
    ```
 
 2. Show the user the list of stale worktrees found, including:
@@ -27,7 +27,7 @@ All worktrees:
 
 3. If stale worktrees are found and user confirms cleanup:
    ```
-   cwt cleanup --no-dry-run -y
+   owt cleanup --no-dry-run -y
    ```
 
 4. Report cleanup results:

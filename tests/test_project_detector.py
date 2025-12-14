@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from claude_orchestrator.core.project_detector import ProjectDetector
-from claude_orchestrator.models.project_config import PackageManager, ProjectType
+from open_orchestrator.core.project_detector import ProjectDetector
+from open_orchestrator.models.project_config import PackageManager, ProjectType
 
 
 def resolve_path(path: Path) -> Path:

@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from claude_orchestrator.models.project_config import (
+from open_orchestrator.models.project_config import (
     PackageManager,
     ProjectConfig,
     ProjectType,
 )
-from claude_orchestrator.models.worktree_info import WorktreeCreateResult, WorktreeInfo
+from open_orchestrator.models.worktree_info import WorktreeCreateResult, WorktreeInfo
 
 
 class TestPackageManager:
@@ -311,13 +311,13 @@ class TestWorktreeCreateResult:
             worktree=sample_worktree,
             created_branch=True,
             deps_installed=True,
-            tmux_session="cwt-feature-test"
+            tmux_session="owt-feature-test"
         )
 
         assert result.worktree == sample_worktree
         assert result.created_branch is True
         assert result.deps_installed is True
-        assert result.tmux_session == "cwt-feature-test"
+        assert result.tmux_session == "owt-feature-test"
 
     def test_create_result_defaults(self, sample_worktree: WorktreeInfo):
         """Test WorktreeCreateResult uses correct defaults."""
@@ -343,7 +343,7 @@ class TestWorktreeCreateResult:
             worktree=sample_worktree,
             created_branch=True,
             deps_installed=True,
-            tmux_session="cwt-test"
+            tmux_session="owt-test"
         )
 
         data = result.model_dump()

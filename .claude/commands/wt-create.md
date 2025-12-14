@@ -24,14 +24,14 @@ Existing worktrees:
 
 ## Instructions
 
-1. Run: `cwt create $ARGUMENTS`
+1. Run: `owt create $ARGUMENTS`
 2. Report the created worktree details:
    - Path to the new worktree
    - Branch name
    - tmux session name
 3. Provide instructions for:
-   - Attaching to the tmux session: `cwt tmux attach cwt-<name>`
-   - Switching to the worktree: `cd $(cwt switch <name>)`
+   - Attaching to the tmux session: `owt tmux attach owt-<name>`
+   - Switching to the worktree: `cd $(owt switch <name>)`
 
 ## Options
 
