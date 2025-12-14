@@ -509,10 +509,10 @@ class TestTmuxLayoutSetup:
 
         window = mock_libtmux_session.active_window
         # Three-pane layout:
-        # 1. First split on window to create top/bottom (window.split_window)
-        # 2. Second split on bottom pane to create left/right (bottom_pane.split_window)
-        assert window.split_window.call_count == 1
-        assert mock_bottom_pane.split_window.call_count == 1
+        # 1. First split on window to create top/bottom (window.split)
+        # 2. Second split on bottom pane to create left/right (bottom_pane.split)
+        assert window.split.call_count == 1
+        assert mock_bottom_pane.split.call_count == 1
 
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
     def test_setup_quad_layout(

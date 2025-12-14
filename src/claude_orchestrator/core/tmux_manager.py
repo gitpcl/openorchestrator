@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Optional
 
 import libtmux
+from libtmux.constants import PaneDirection
 
 
 class TmuxLayout(Enum):
@@ -185,9 +186,9 @@ class TmuxManager:
         └────────────┴─────────┘
         """
         for i in range(pane_count - 1):
-            window.split_window(
+            window.split(
                 start_directory=working_dir,
-                vertical=False
+                direction=PaneDirection.Right
             )
 
         window.select_layout("main-vertical")
@@ -210,10 +211,10 @@ class TmuxManager:
         │   (40%)    │   (40%)    │
         └────────────┴────────────┘
         """
-        window.split_window(start_directory=working_dir, vertical=True)
+        window.split(start_directory=working_dir, direction=PaneDirection.Below)
 
         bottom_pane = window.panes[-1]
-        bottom_pane.split_window(start_directory=working_dir, vertical=False)
+        bottom_pane.split(start_directory=working_dir, direction=PaneDirection.Right)
 
         window.panes[0].select_pane()
 
@@ -232,11 +233,11 @@ class TmuxManager:
         │            │            │
         └────────────┴────────────┘
         """
-        window.split_window(start_directory=working_dir, vertical=False)
+        window.split(start_directory=working_dir, direction=PaneDirection.Right)
 
-        window.panes[0].split_window(start_directory=working_dir, vertical=True)
+        window.panes[0].split(start_directory=working_dir, direction=PaneDirection.Below)
 
-        window.panes[2].split_window(start_directory=working_dir, vertical=True)
+        window.panes[2].split(start_directory=working_dir, direction=PaneDirection.Below)
 
         window.select_layout("tiled")
 
@@ -250,7 +251,7 @@ class TmuxManager:
     ) -> None:
         """Create horizontally split equal panes."""
         for _ in range(pane_count - 1):
-            window.split_window(start_directory=working_dir, vertical=False)
+            window.split(start_directory=working_dir, direction=PaneDirection.Right)
 
         window.select_layout("even-horizontal")
         window.panes[0].select_pane()
@@ -263,7 +264,7 @@ class TmuxManager:
     ) -> None:
         """Create vertically split equal panes."""
         for _ in range(pane_count - 1):
-            window.split_window(start_directory=working_dir, vertical=True)
+            window.split(start_directory=working_dir, direction=PaneDirection.Below)
 
         window.select_layout("even-vertical")
         window.panes[0].select_pane()
@@ -279,7 +280,7 @@ class TmuxManager:
 
         working_dir = None
         if windows and windows[0].panes:
-            working_dir = windows[0].panes[0].current_path
+            working_dir = windows[0].panes[0].pane_current_path
 
         return TmuxSessionInfo(
             session_name=session.name,
