@@ -84,7 +84,8 @@ class ProjectConfig(BaseModel):
     class Config:
         """Pydantic config."""
 
-        use_enum_values = True
+        # Note: Don't use use_enum_values=True as it breaks enum usage in other modules
+        pass
 
     def get_install_command(self) -> str:
         """Get the appropriate install command for this project."""

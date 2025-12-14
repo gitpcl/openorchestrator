@@ -147,7 +147,8 @@ class TmuxManager:
             return self._get_session_info(session)
 
         except libtmux.exc.LibTmuxException as e:
-            raise TmuxError(f"Failed to create tmux session: {e}") from e
+            error_msg = str(e) if str(e) else "tmux server may not be running. Start it with: tmux new-session -d"
+            raise TmuxError(f"Failed to create tmux session: {error_msg}") from e
 
     def _setup_layout(self, window: libtmux.Window, config: TmuxSessionConfig) -> None:
         """Set up pane layout for the window."""
