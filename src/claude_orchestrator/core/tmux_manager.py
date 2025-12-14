@@ -195,7 +195,7 @@ class TmuxManager:
 
         panes = window.panes
         if panes:
-            panes[0].select_pane()
+            panes[0].select()
 
     def _setup_three_pane(self, window: libtmux.Window, working_dir: str) -> None:
         """
@@ -216,7 +216,7 @@ class TmuxManager:
         bottom_pane = window.panes[-1]
         bottom_pane.split(start_directory=working_dir, direction=PaneDirection.Right)
 
-        window.panes[0].select_pane()
+        window.panes[0].select()
 
     def _setup_quad(self, window: libtmux.Window, working_dir: str) -> None:
         """
@@ -241,7 +241,7 @@ class TmuxManager:
 
         window.select_layout("tiled")
 
-        window.panes[0].select_pane()
+        window.panes[0].select()
 
     def _setup_even_horizontal(
         self,
@@ -254,7 +254,7 @@ class TmuxManager:
             window.split(start_directory=working_dir, direction=PaneDirection.Right)
 
         window.select_layout("even-horizontal")
-        window.panes[0].select_pane()
+        window.panes[0].select()
 
     def _setup_even_vertical(
         self,
@@ -267,7 +267,7 @@ class TmuxManager:
             window.split(start_directory=working_dir, direction=PaneDirection.Below)
 
         window.select_layout("even-vertical")
-        window.panes[0].select_pane()
+        window.panes[0].select()
 
     def _start_claude_in_pane(self, pane: libtmux.Pane) -> None:
         """Start Claude Code in the specified pane."""
