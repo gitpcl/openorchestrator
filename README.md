@@ -85,19 +85,121 @@ cwt cleanup --dry-run
 cwt cleanup
 ```
 
-## CLI Commands
+## CLI Command Reference
+
+### Worktree Commands
 
 | Command | Description |
 |---------|-------------|
-| `cwt create <branch>` | Create worktree with deps & tmux session |
+| `cwt create <branch>` | Create a new worktree with tmux session and Claude Code |
 | `cwt list` | List all worktrees with status |
-| `cwt switch <name>` | Switch to worktree & attach tmux |
-| `cwt delete <name>` | Delete worktree & cleanup |
-| `cwt cleanup` | Remove stale worktrees |
-| `cwt sync [--all]` | Sync worktree(s) with upstream |
-| `cwt tmux create` | Create tmux session for worktree |
-| `cwt tmux attach` | Attach to existing session |
+| `cwt switch <name>` | Switch to worktree (prints path or attaches tmux) |
+| `cwt delete <name>` | Delete worktree and its tmux session |
+| `cwt cleanup` | Remove stale worktrees (dry-run by default) |
+| `cwt sync <name>` | Sync a worktree with its upstream branch |
+| `cwt send <name> "cmd"` | Send a command to another worktree's Claude session |
+
+### tmux Commands
+
+| Command | Description |
+|---------|-------------|
+| `cwt tmux create <name>` | Create a tmux session |
+| `cwt tmux attach <name>` | Attach to an existing session |
 | `cwt tmux list` | List worktree tmux sessions |
+| `cwt tmux kill <name>` | Kill a tmux session |
+| `cwt tmux send <name> "keys"` | Send keys to a session pane |
+
+### Command Options
+
+#### `cwt create`
+
+| Option | Description |
+|--------|-------------|
+| `-b, --base <branch>` | Base branch for creating new branches |
+| `-p, --path <path>` | Custom path for the worktree |
+| `-f, --force` | Force creation even if branch exists elsewhere |
+| `--tmux / --no-tmux` | Create tmux session (default: enabled) |
+| `--claude / --no-claude` | Auto-start Claude Code (default: enabled) |
+| `-l, --layout <layout>` | tmux layout: `main-vertical`, `three-pane`, `quad`, `even-horizontal`, `even-vertical` |
+| `--panes <n>` | Number of panes (default: 2) |
+| `-a, --attach` | Attach to tmux session after creation |
+| `--deps / --no-deps` | Install dependencies (default: enabled) |
+| `--env / --no-env` | Copy .env file (default: enabled) |
+
+#### `cwt list`
+
+| Option | Description |
+|--------|-------------|
+| `-a, --all` | Show all worktrees including main |
+
+#### `cwt switch`
+
+| Option | Description |
+|--------|-------------|
+| `-t, --tmux` | Attach to worktree's tmux session |
+
+#### `cwt delete`
+
+| Option | Description |
+|--------|-------------|
+| `-f, --force` | Force deletion with uncommitted changes |
+| `-y, --yes` | Skip confirmation prompt |
+| `--keep-tmux` | Keep the associated tmux session |
+
+#### `cwt cleanup`
+
+| Option | Description |
+|--------|-------------|
+| `-d, --days <n>` | Days threshold for stale detection (default: 14) |
+| `--dry-run / --no-dry-run` | Preview mode (default: dry-run) |
+| `-f, --force` | Include worktrees with uncommitted changes |
+| `-y, --yes` | Skip confirmation prompt |
+
+#### `cwt sync`
+
+| Option | Description |
+|--------|-------------|
+| `-a, --all` | Sync all worktrees |
+| `--strategy <merge\|rebase>` | Pull strategy (default: merge) |
+| `--no-stash` | Don't auto-stash uncommitted changes |
+
+#### `cwt send`
+
+| Option | Description |
+|--------|-------------|
+| `-p, --pane <n>` | Target pane index (default: 0) |
+| `-w, --window <n>` | Target window index (default: 0) |
+| `--no-enter` | Don't press Enter after sending |
+
+#### `cwt tmux create`
+
+| Option | Description |
+|--------|-------------|
+| `-d, --directory <path>` | Working directory (default: current) |
+| `-l, --layout <layout>` | Pane layout |
+| `-p, --panes <n>` | Number of panes |
+| `--claude / --no-claude` | Auto-start Claude Code (default: enabled) |
+| `-a, --attach` | Attach after creation |
+
+#### `cwt tmux list`
+
+| Option | Description |
+|--------|-------------|
+| `-a, --all` | Show all tmux sessions |
+| `--json` | Output as JSON |
+
+#### `cwt tmux kill`
+
+| Option | Description |
+|--------|-------------|
+| `-f, --force` | Kill without confirmation |
+
+#### `cwt tmux send`
+
+| Option | Description |
+|--------|-------------|
+| `-p, --pane <n>` | Target pane index |
+| `-w, --window <n>` | Target window index |
 
 ## Configuration
 
