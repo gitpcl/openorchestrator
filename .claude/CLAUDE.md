@@ -10,6 +10,7 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 | `cwt list` | List all worktrees with status |
 | `cwt switch <name> --tmux` | Switch to worktree's tmux session |
 | `cwt send <name> "cmd"` | Send command to another worktree's Claude |
+| `cwt status` | Show Claude activity across all worktrees |
 | `cwt delete <name>` | Delete worktree and its tmux session |
 | `cwt cleanup` | Remove stale worktrees (dry-run by default) |
 | `cwt sync --all` | Sync all worktrees with upstream |
@@ -28,6 +29,7 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 - `/worktree` - Main worktree management command
 - `/wt-create` - Quick worktree creation
 - `/wt-list` - List worktrees
+- `/wt-status` - Show Claude activity across worktrees
 - `/wt-cleanup` - Cleanup stale worktrees
 
 ## Development
@@ -60,11 +62,13 @@ src/claude_orchestrator/
 │   ├── project_detector.py  # Project type detection
 │   ├── environment.py  # Dependency & .env setup
 │   ├── cleanup.py      # Worktree cleanup service
-│   └── sync.py         # Upstream sync service
+│   ├── sync.py         # Upstream sync service
+│   └── status.py       # Claude activity status tracking
 └── models/
     ├── worktree_info.py    # Worktree models
     ├── project_config.py   # Project config models
-    └── maintenance.py      # Cleanup/sync models
+    ├── maintenance.py      # Cleanup/sync models
+    └── status.py           # Claude status models
 ```
 
 ## Guidelines
@@ -105,4 +109,27 @@ from claude_orchestrator.core import ProjectDetector
 detector = ProjectDetector()
 config = detector.detect("/path/to/project")
 print(f"Type: {config.project_type}, Manager: {config.package_manager}")
+```
+
+### Tracking Claude status
+```python
+from claude_orchestrator.core import StatusTracker
+from claude_orchestrator.models import ClaudeActivityStatus
+
+tracker = StatusTracker()
+
+# Initialize status for a worktree
+tracker.initialize_status(
+    worktree_name="my-feature",
+    worktree_path="/path/to/worktree",
+    branch="feature/my-feature",
+    tmux_session="cwt-my-feature"
+)
+
+# Update what Claude is working on
+tracker.update_task("my-feature", "Implementing auth flow", ClaudeActivityStatus.WORKING)
+
+# Get summary of all worktrees
+summary = tracker.get_summary()
+print(f"Active: {summary.active_claudes}, Blocked: {summary.blocked_claudes}")
 ```

@@ -98,6 +98,7 @@ cwt cleanup
 | `cwt cleanup` | Remove stale worktrees (dry-run by default) |
 | `cwt sync <name>` | Sync a worktree with its upstream branch |
 | `cwt send <name> "cmd"` | Send a command to another worktree's Claude session |
+| `cwt status [name]` | Show Claude activity status across all worktrees |
 
 ### tmux Commands
 
@@ -170,6 +171,16 @@ cwt cleanup
 | `-p, --pane <n>` | Target pane index (default: 0) |
 | `-w, --window <n>` | Target window index (default: 0) |
 | `--no-enter` | Don't press Enter after sending |
+
+#### `cwt status`
+
+| Option | Description |
+|--------|-------------|
+| `-a, --all` | Show status for all worktrees |
+| `--set-task <text>` | Set the current task for this worktree |
+| `--set-status <status>` | Set activity status: idle, working, blocked, waiting, completed, error |
+| `--notes <text>` | Set notes for this worktree |
+| `--json` | Output as JSON |
 
 #### `cwt tmux create`
 
@@ -326,6 +337,7 @@ Once configured, Claude Code can use these slash commands:
 | `/wt-create` | Quick worktree creation shortcut |
 | `/wt-list` | List all worktrees with status |
 | `/wt-cleanup` | Clean up stale worktrees |
+| `/wt-status` | Show Claude activity status across worktrees |
 
 Example usage in Claude Code:
 ```

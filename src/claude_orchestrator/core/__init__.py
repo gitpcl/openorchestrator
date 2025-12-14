@@ -8,6 +8,7 @@ This package contains the core business logic for:
 - tmux session management
 - Cleanup and maintenance
 - Synchronization
+- Status tracking
 """
 
 from claude_orchestrator.core.cleanup import (
@@ -24,6 +25,10 @@ from claude_orchestrator.core.sync import (
     SyncStatus,
     WorktreeSyncResult,
 )
+from claude_orchestrator.core.status import (
+    StatusConfig,
+    StatusTracker,
+)
 
 __all__ = [
     "CleanupConfig",
@@ -36,4 +41,6 @@ __all__ = [
     "SyncService",
     "SyncStatus",
     "WorktreeSyncResult",
+    "StatusConfig",
+    "StatusTracker",
 ]

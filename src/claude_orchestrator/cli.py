@@ -15,6 +15,8 @@ from claude_orchestrator.core.worktree import (
     WorktreeManager,
     WorktreeNotFoundError,
 )
+from claude_orchestrator.core.status import StatusTracker
+from claude_orchestrator.models.status import ClaudeActivityStatus
 from claude_orchestrator.core.tmux_manager import (
     TmuxError,
     TmuxLayout,
@@ -232,6 +234,15 @@ def create_worktree(
                 if claude:
                     console.print("[cyan]Claude Code started in main pane[/cyan]")
 
+                # Initialize status tracking for the new worktree
+                status_tracker = StatusTracker()
+                status_tracker.initialize_status(
+                    worktree_name=worktree.name,
+                    worktree_path=str(worktree.path),
+                    branch=worktree.branch,
+                    tmux_session=tmux_session.session_name,
+                )
+
             except TmuxSessionExistsError:
                 console.print("[yellow]tmux session already exists[/yellow]")
             except TmuxError as e:
@@ -385,6 +396,10 @@ def delete_worktree(identifier: str, force: bool, yes: bool, keep_tmux: bool) ->
 
         with console.status(f"[bold red]Deleting worktree '{identifier}'..."):
             deleted_path = wt_manager.delete(identifier, force=force)
+
+        # Clean up status tracking
+        status_tracker = StatusTracker()
+        status_tracker.remove_status(worktree.name)
 
         console.print()
         console.print(f"[bold green]Worktree deleted:[/bold green] {deleted_path}")
@@ -602,6 +617,7 @@ def send_to_worktree(
     COMMAND is the text to send to the worktree's Claude session.
 
     By default, sends to the main pane (pane 0) where Claude Code runs.
+    Commands sent are tracked and visible via `cwt status`.
 
     Example:
         cwt send feature/auth "implement login validation"
@@ -610,6 +626,7 @@ def send_to_worktree(
     """
     wt_manager = get_worktree_manager()
     tmux_manager = TmuxManager()
+    status_tracker = StatusTracker()
 
     try:
         worktree = wt_manager.get(identifier)
@@ -623,6 +640,9 @@ def send_to_worktree(
             f"No tmux session found for worktree '{identifier}'. "
             f"Create one with: cwt tmux create {tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}"
         )
+
+    # Get the source worktree (the one sending the command)
+    source_worktree = status_tracker.get_current_worktree_name()
 
     try:
         if no_enter:
@@ -638,6 +658,25 @@ def send_to_worktree(
                 pane_index=pane,
                 window_index=window
             )
+
+        # Track the command in the status system
+        wt_status = status_tracker.get_status(worktree.name)
+        if not wt_status:
+            # Initialize status if it doesn't exist
+            wt_status = status_tracker.initialize_status(
+                worktree_name=worktree.name,
+                worktree_path=str(worktree.path),
+                branch=worktree.branch,
+                tmux_session=session.session_name,
+            )
+
+        status_tracker.record_command(
+            target_worktree=worktree.name,
+            command=command,
+            source_worktree=source_worktree,
+            pane_index=pane,
+            window_index=window,
+        )
 
         console.print(f"[green]Sent to {session.session_name}:[/green] {command[:50]}{'...' if len(command) > 50 else ''}")
 
@@ -775,6 +814,254 @@ def sync_worktrees(
 
     else:
         raise click.ClickException("Provide a worktree identifier or use --all")
+
+
+@main.command("status")
+@click.argument("identifier", required=False)
+@click.option(
+    "-a",
+    "--all",
+    "show_all",
+    is_flag=True,
+    help="Show status for all worktrees.",
+)
+@click.option(
+    "--set-task",
+    "task",
+    help="Set the current task for this worktree.",
+)
+@click.option(
+    "--set-status",
+    "activity_status",
+    type=click.Choice(["idle", "working", "blocked", "waiting", "completed", "error"]),
+    help="Set the activity status for this worktree.",
+)
+@click.option(
+    "--notes",
+    help="Set notes for this worktree.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Output as JSON.",
+)
+def show_status(
+    identifier: Optional[str],
+    show_all: bool,
+    task: Optional[str],
+    activity_status: Optional[str],
+    notes: Optional[str],
+    as_json: bool,
+) -> None:
+    """Show or update Claude activity status across worktrees.
+
+    View what Claude is working on in each worktree, or update the status
+    for a specific worktree.
+
+    Without arguments, shows status for all worktrees.
+    With IDENTIFIER, shows or updates status for a specific worktree.
+
+    Example:
+        cwt status                          # Show all worktree statuses
+        cwt status feature/auth             # Show status for specific worktree
+        cwt status feature/auth --set-task "Implementing login"
+        cwt status feature/auth --set-status working
+        cwt status --json                   # Output as JSON
+    """
+    import json as json_module
+
+    wt_manager = get_worktree_manager()
+    status_tracker = StatusTracker()
+    tmux_manager = TmuxManager()
+
+    # Get all worktrees for reference
+    worktrees = wt_manager.list_all()
+    worktree_names = [wt.name for wt in worktrees]
+
+    # Clean up orphaned status entries
+    status_tracker.cleanup_orphans(worktree_names)
+
+    # If setting status for a specific worktree
+    if identifier and (task or activity_status or notes):
+        try:
+            worktree = wt_manager.get(identifier)
+        except WorktreeNotFoundError as e:
+            raise click.ClickException(str(e)) from e
+
+        # Initialize status if it doesn't exist
+        wt_status = status_tracker.get_status(worktree.name)
+        if not wt_status:
+            session = tmux_manager.get_session_for_worktree(worktree.name)
+            wt_status = status_tracker.initialize_status(
+                worktree_name=worktree.name,
+                worktree_path=str(worktree.path),
+                branch=worktree.branch,
+                tmux_session=session.session_name if session else None,
+            )
+
+        # Update task if provided
+        if task:
+            status_enum = ClaudeActivityStatus.WORKING
+            if activity_status:
+                status_enum = ClaudeActivityStatus(activity_status)
+            status_tracker.update_task(worktree.name, task, status_enum)
+            console.print(f"[green]Task updated:[/green] {task}")
+
+        # Update activity status if provided (without task)
+        elif activity_status:
+            status_map = {
+                "idle": ClaudeActivityStatus.IDLE,
+                "working": ClaudeActivityStatus.WORKING,
+                "blocked": ClaudeActivityStatus.BLOCKED,
+                "waiting": ClaudeActivityStatus.WAITING,
+                "completed": ClaudeActivityStatus.COMPLETED,
+                "error": ClaudeActivityStatus.ERROR,
+            }
+            wt_status = status_tracker.get_status(worktree.name)
+            if wt_status:
+                wt_status.activity_status = status_map[activity_status]
+                from datetime import datetime
+                wt_status.updated_at = datetime.now()
+                status_tracker._store.set_status(wt_status)
+                status_tracker._save_store()
+                console.print(f"[green]Status updated:[/green] {activity_status}")
+
+        # Update notes if provided
+        if notes:
+            status_tracker.set_notes(worktree.name, notes)
+            console.print(f"[green]Notes updated[/green]")
+
+        return
+
+    # Show status for all or specific worktree
+    if identifier:
+        try:
+            worktree = wt_manager.get(identifier)
+        except WorktreeNotFoundError as e:
+            raise click.ClickException(str(e)) from e
+
+        wt_status = status_tracker.get_status(worktree.name)
+
+        if as_json:
+            if wt_status:
+                console.print(json_module.dumps(wt_status.model_dump(mode="json"), indent=2))
+            else:
+                console.print("{}")
+            return
+
+        if not wt_status:
+            console.print(f"[yellow]No status tracked for '{identifier}'[/yellow]")
+            console.print(f"[dim]Initialize with: cwt status {identifier} --set-task 'Your task'[/dim]")
+            return
+
+        _print_worktree_status_detail(wt_status, worktree)
+
+    else:
+        # Show summary of all worktrees
+        summary = status_tracker.get_summary(worktree_names)
+
+        if as_json:
+            console.print(json_module.dumps(summary.model_dump(mode="json"), indent=2))
+            return
+
+        if not summary.statuses:
+            console.print("[yellow]No status information tracked yet.[/yellow]")
+            console.print()
+            console.print("[dim]Status tracking begins when:[/dim]")
+            console.print("[dim]  - You create a worktree with: cwt create <branch>[/dim]")
+            console.print("[dim]  - You send a command with: cwt send <worktree> 'command'[/dim]")
+            console.print("[dim]  - You set status with: cwt status <worktree> --set-task 'task'[/dim]")
+            return
+
+        console.print()
+        console.print("[bold]Claude Activity Across Worktrees[/bold]")
+        console.print()
+
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Worktree", style="bold")
+        table.add_column("Branch", style="green")
+        table.add_column("Status", justify="center")
+        table.add_column("Current Task")
+        table.add_column("Commands", justify="center")
+        table.add_column("Last Update")
+
+        for wt_status in summary.statuses:
+            status_style = {
+                "idle": "[dim]idle[/dim]",
+                "working": "[green]working[/green]",
+                "blocked": "[red]blocked[/red]",
+                "waiting": "[yellow]waiting[/yellow]",
+                "completed": "[blue]completed[/blue]",
+                "error": "[red]error[/red]",
+                "unknown": "[dim]unknown[/dim]",
+            }.get(wt_status.activity_status, wt_status.activity_status)
+
+            task_display = wt_status.current_task or "[dim]-[/dim]"
+            if len(task_display) > 40:
+                task_display = task_display[:37] + "..."
+
+            last_update = wt_status.updated_at.strftime("%H:%M %b %d") if wt_status.updated_at else "-"
+
+            table.add_row(
+                wt_status.worktree_name,
+                wt_status.branch,
+                status_style,
+                task_display,
+                str(len(wt_status.recent_commands)),
+                last_update,
+            )
+
+        console.print(table)
+        console.print()
+
+        # Summary stats
+        console.print(f"[bold]Summary:[/bold]")
+        console.print(f"  Working: {summary.active_claudes}  |  Idle: {summary.idle_claudes}  |  Blocked: {summary.blocked_claudes}")
+        console.print(f"  Total commands sent: {summary.total_commands_sent}")
+
+        if summary.most_recent_activity:
+            console.print(f"  Most recent activity: {summary.most_recent_activity.strftime('%Y-%m-%d %H:%M')}")
+
+
+def _print_worktree_status_detail(wt_status, worktree) -> None:
+    """Print detailed status for a single worktree."""
+    status_style = {
+        "idle": "[dim]idle[/dim]",
+        "working": "[green]working[/green]",
+        "blocked": "[red]blocked[/red]",
+        "waiting": "[yellow]waiting[/yellow]",
+        "completed": "[blue]completed[/blue]",
+        "error": "[red]error[/red]",
+        "unknown": "[dim]unknown[/dim]",
+    }.get(wt_status.activity_status, wt_status.activity_status)
+
+    console.print()
+    console.print(f"[bold]Status for '{worktree.name}'[/bold]")
+    console.print()
+    console.print(f"[bold]Branch:[/bold]     {wt_status.branch}")
+    console.print(f"[bold]Path:[/bold]       {wt_status.worktree_path}")
+    console.print(f"[bold]tmux:[/bold]       {wt_status.tmux_session or '[dim]none[/dim]'}")
+    console.print(f"[bold]Status:[/bold]     {status_style}")
+    console.print(f"[bold]Task:[/bold]       {wt_status.current_task or '[dim]none[/dim]'}")
+
+    if wt_status.notes:
+        console.print(f"[bold]Notes:[/bold]      {wt_status.notes}")
+
+    if wt_status.last_task_update:
+        console.print(f"[bold]Task set:[/bold]   {wt_status.last_task_update.strftime('%Y-%m-%d %H:%M')}")
+
+    console.print(f"[bold]Updated:[/bold]    {wt_status.updated_at.strftime('%Y-%m-%d %H:%M')}")
+
+    if wt_status.recent_commands:
+        console.print()
+        console.print(f"[bold]Recent Commands ({len(wt_status.recent_commands)}):[/bold]")
+
+        for cmd in wt_status.recent_commands[-5:]:  # Show last 5
+            source = f"[dim]from {cmd.source_worktree}[/dim]" if cmd.source_worktree else "[dim]manual[/dim]"
+            cmd_display = cmd.command[:60] + "..." if len(cmd.command) > 60 else cmd.command
+            time_str = cmd.timestamp.strftime("%H:%M")
+            console.print(f"  [{time_str}] {cmd_display} {source}")
 
 
 if __name__ == "__main__":
