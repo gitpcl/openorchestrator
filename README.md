@@ -1,6 +1,6 @@
 # Open Orchestrator
 
-A Git Worktree + Claude Code orchestration tool combining a Python CLI with Claude Code plugin integration for managing parallel development workflows.
+A Git Worktree + AI coding tool orchestration tool combining a Python CLI with plugin integration for managing parallel development workflows. Supports Claude Code, OpenCode, and Droid.
 
 ## Overview
 
@@ -10,7 +10,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 - **Git Worktree Management**: Create, list, switch, and delete worktrees with automatic branch management
 - **tmux Integration**: Auto-create tmux sessions with customizable layouts for each worktree
-- **Auto Claude Code Launch**: Automatically start Claude Code in new worktree sessions
+- **Multi-AI Tool Support**: Auto-launch Claude Code, OpenCode, or Droid in new sessions
 - **Project Detection**: Automatically detect project type (Python, Node.js, Rust, Go, PHP) and package manager
 - **Dependency Installation**: Auto-install dependencies when creating new worktrees
 - **Environment Setup**: Copy `.env` files with path adjustments
@@ -120,7 +120,8 @@ owt cleanup
 | `-p, --path <path>` | Custom path for the worktree |
 | `-f, --force` | Force creation even if branch exists elsewhere |
 | `--tmux / --no-tmux` | Create tmux session (default: enabled) |
-| `--claude / --no-claude` | Auto-start Claude Code (default: enabled) |
+| `--claude / --no-claude` | Auto-start AI tool (default: enabled) |
+| `--ai-tool <tool>` | AI tool to start: `claude`, `opencode`, `droid` (default: claude) |
 | `-l, --layout <layout>` | tmux layout: `main-vertical`, `three-pane`, `quad`, `even-horizontal`, `even-vertical` |
 | `--panes <n>` | Number of panes (default: 2) |
 | `-a, --attach` | Attach to tmux session after creation |
@@ -189,7 +190,8 @@ owt cleanup
 | `-d, --directory <path>` | Working directory (default: current) |
 | `-l, --layout <layout>` | Pane layout |
 | `-p, --panes <n>` | Number of panes |
-| `--claude / --no-claude` | Auto-start Claude Code (default: enabled) |
+| `--claude / --no-claude` | Auto-start AI tool (default: enabled) |
+| `--ai-tool <tool>` | AI tool to start: `claude`, `opencode`, `droid` (default: claude) |
 | `-a, --attach` | Attach after creation |
 
 #### `owt tmux list`
@@ -225,6 +227,7 @@ auto_cleanup_days = 14
 [tmux]
 default_layout = "main-vertical"
 auto_start_claude = true
+ai_tool = "claude"  # Options: claude, opencode, droid
 pane_count = 2
 
 [environment]
@@ -247,7 +250,8 @@ copy_env_file = true
 | Option | Default | Description |
 |--------|---------|-------------|
 | `default_layout` | `"main-vertical"` | Default tmux pane layout |
-| `auto_start_claude` | `true` | Auto-start Claude Code in first pane |
+| `auto_start_claude` | `true` | Auto-start AI tool in first pane |
+| `ai_tool` | `"claude"` | AI tool to start: `claude`, `opencode`, `droid` |
 | `pane_count` | `2` | Number of panes to create |
 
 Available layouts:

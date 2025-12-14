@@ -9,6 +9,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from open_orchestrator.config import AITool
 from .tmux_manager import (
     TmuxError,
     TmuxLayout,
@@ -69,14 +70,20 @@ def tmux_group():
 @click.option(
     "--claude/--no-claude",
     default=True,
-    help="Auto-start Claude Code in the main pane"
+    help="Auto-start AI tool in the main pane"
+)
+@click.option(
+    "--ai-tool",
+    type=click.Choice(["claude", "opencode", "droid"]),
+    default="claude",
+    help="AI coding tool to start (default: claude)"
 )
 @click.option(
     "-a", "--attach",
     is_flag=True,
     help="Attach to session after creation"
 )
-def create_session(session_name: str, directory: str, layout: str, panes: int, claude: bool, attach: bool):
+def create_session(session_name: str, directory: str, layout: str, panes: int, claude: bool, ai_tool: str, attach: bool):
     """Create a new tmux session.
 
     SESSION_NAME is the name for the new tmux session.
@@ -85,13 +92,15 @@ def create_session(session_name: str, directory: str, layout: str, panes: int, c
 
     try:
         layout_enum = get_layout_from_string(layout)
+        ai_tool_enum = AITool(ai_tool)
 
         config = TmuxSessionConfig(
             session_name=session_name,
             working_directory=directory,
             layout=layout_enum,
             pane_count=panes,
-            auto_start_claude=claude
+            auto_start_claude=claude,
+            ai_tool=ai_tool_enum,
         )
 
         session_info = manager.create_session(config)
@@ -102,7 +111,8 @@ def create_session(session_name: str, directory: str, layout: str, panes: int, c
         console.print(f"  Panes: {session_info.pane_count}")
 
         if claude:
-            console.print("  [cyan]Claude Code started in main pane[/cyan]")
+            tool_name = ai_tool_enum.value.title()
+            console.print(f"  [cyan]{tool_name} started in main pane[/cyan]")
 
         if attach:
             console.print("\n[dim]Attaching to session...[/dim]")

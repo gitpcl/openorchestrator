@@ -7,12 +7,14 @@ with git worktrees for parallel development workflows.
 
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
 import libtmux
 from libtmux.constants import PaneDirection
+
+from open_orchestrator.config import AITool
 
 
 class TmuxLayout(Enum):
@@ -34,6 +36,7 @@ class TmuxSessionConfig:
     layout: TmuxLayout = TmuxLayout.MAIN_VERTICAL
     pane_count: int = 2
     auto_start_claude: bool = True
+    ai_tool: AITool = field(default=AITool.CLAUDE)
     window_name: Optional[str] = None
 
 
@@ -143,7 +146,7 @@ class TmuxManager:
             self._setup_layout(window, config)
 
             if config.auto_start_claude:
-                self._start_claude_in_pane(window.active_pane)
+                self._start_ai_tool_in_pane(window.active_pane, config.ai_tool)
 
             return self._get_session_info(session)
 
@@ -269,9 +272,12 @@ class TmuxManager:
         window.select_layout("even-vertical")
         window.panes[0].select()
 
-    def _start_claude_in_pane(self, pane: libtmux.Pane) -> None:
-        """Start Claude Code in the specified pane."""
-        pane.send_keys("claude", enter=True)
+    def _start_ai_tool_in_pane(
+        self, pane: libtmux.Pane, ai_tool: AITool = AITool.CLAUDE
+    ) -> None:
+        """Start the specified AI tool in the pane."""
+        command = AITool.get_command(ai_tool)
+        pane.send_keys(command, enter=True)
 
     def _get_session_info(self, session: libtmux.Session) -> TmuxSessionInfo:
         """Extract session information from libtmux session object."""
@@ -380,7 +386,8 @@ class TmuxManager:
         worktree_path: str,
         layout: TmuxLayout = TmuxLayout.MAIN_VERTICAL,
         pane_count: int = 2,
-        auto_start_claude: bool = True
+        auto_start_claude: bool = True,
+        ai_tool: AITool = AITool.CLAUDE,
     ) -> TmuxSessionInfo:
         """
         Create a tmux session for a worktree.
@@ -393,7 +400,8 @@ class TmuxManager:
             worktree_path: Path to the worktree directory
             layout: Pane layout to use
             pane_count: Number of panes (for layouts that support variable counts)
-            auto_start_claude: Whether to start Claude Code automatically
+            auto_start_claude: Whether to start AI tool automatically
+            ai_tool: Which AI tool to start (default: claude)
 
         Returns:
             TmuxSessionInfo with created session details
@@ -406,7 +414,8 @@ class TmuxManager:
             layout=layout,
             pane_count=pane_count,
             auto_start_claude=auto_start_claude,
-            window_name=worktree_name
+            ai_tool=ai_tool,
+            window_name=worktree_name,
         )
 
         return self.create_session(config)

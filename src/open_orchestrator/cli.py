@@ -8,6 +8,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from open_orchestrator.config import AITool
 from open_orchestrator.core.worktree import (
     NotAGitRepositoryError,
     WorktreeAlreadyExistsError,
@@ -93,7 +94,13 @@ main.add_command(tmux_group)
 @click.option(
     "--claude/--no-claude",
     default=True,
-    help="Auto-start Claude Code in the tmux session (default: enabled).",
+    help="Auto-start AI tool in the tmux session (default: enabled).",
+)
+@click.option(
+    "--ai-tool",
+    type=click.Choice(["claude", "opencode", "droid"]),
+    default="claude",
+    help="AI coding tool to start (default: claude).",
 )
 @click.option(
     "-l",
@@ -131,6 +138,7 @@ def create_worktree(
     force: bool,
     tmux: bool,
     claude: bool,
+    ai_tool: str,
     layout: str,
     panes: int,
     attach: bool,
@@ -216,6 +224,9 @@ def create_worktree(
                     "even-vertical": TmuxLayout.EVEN_VERTICAL,
                 }
 
+                # Map string to AITool enum
+                ai_tool_enum = AITool(ai_tool)
+
                 with console.status("[bold blue]Creating tmux session..."):
                     tmux_session = tmux_manager.create_worktree_session(
                         worktree_name=worktree.name,
@@ -223,6 +234,7 @@ def create_worktree(
                         layout=layout_map[layout],
                         pane_count=panes,
                         auto_start_claude=claude,
+                        ai_tool=ai_tool_enum,
                     )
 
                 console.print()
@@ -232,7 +244,8 @@ def create_worktree(
                 console.print(f"[bold]Panes:[/bold]   {tmux_session.pane_count}")
 
                 if claude:
-                    console.print("[cyan]Claude Code started in main pane[/cyan]")
+                    tool_name = ai_tool_enum.value.title()
+                    console.print(f"[cyan]{tool_name} started in main pane[/cyan]")
 
                 # Initialize status tracking for the new worktree
                 status_tracker = StatusTracker()

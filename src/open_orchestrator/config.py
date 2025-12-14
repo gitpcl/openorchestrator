@@ -9,11 +9,25 @@ Loads configuration from .worktreerc files in the following priority:
 5. ~/.worktreerc
 """
 
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import toml
 from pydantic import BaseModel, Field
+
+
+class AITool(str, Enum):
+    """Supported AI coding tools."""
+
+    CLAUDE = "claude"
+    OPENCODE = "opencode"
+    DROID = "droid"
+
+    @classmethod
+    def get_command(cls, tool: "AITool") -> str:
+        """Get the shell command for an AI tool."""
+        return tool.value
 
 
 class WorktreeConfig(BaseModel):
@@ -42,7 +56,11 @@ class TmuxConfig(BaseModel):
     )
     auto_start_claude: bool = Field(
         default=True,
-        description="Automatically start Claude Code in new sessions",
+        description="Automatically start AI tool in new sessions",
+    )
+    ai_tool: AITool = Field(
+        default=AITool.CLAUDE,
+        description="AI coding tool to start (claude, opencode, droid)",
     )
     pane_count: int = Field(
         default=2,

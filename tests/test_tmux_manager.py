@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
 import libtmux.exc
 
+from open_orchestrator.config import AITool
 from open_orchestrator.core.tmux_manager import (
     TmuxError,
     TmuxLayout,
@@ -542,3 +543,156 @@ class TestTmuxLayoutSetup:
 
         window = mock_libtmux_session.active_window
         window.select_layout.assert_called_with("tiled")
+
+
+class TestAIToolSupport:
+    """Tests for multi-AI tool support."""
+
+    def test_ai_tool_enum_values(self):
+        """Test that all expected AI tools are defined."""
+        assert AITool.CLAUDE.value == "claude"
+        assert AITool.OPENCODE.value == "opencode"
+        assert AITool.DROID.value == "droid"
+
+    def test_ai_tool_get_command(self):
+        """Test command retrieval for each tool."""
+        assert AITool.get_command(AITool.CLAUDE) == "claude"
+        assert AITool.get_command(AITool.OPENCODE) == "opencode"
+        assert AITool.get_command(AITool.DROID) == "droid"
+
+    def test_session_config_default_ai_tool(self, temp_dir: Path):
+        """Test default AI tool is Claude."""
+        config = TmuxSessionConfig(
+            session_name="test",
+            working_directory=str(temp_dir)
+        )
+        assert config.ai_tool == AITool.CLAUDE
+
+    def test_session_config_custom_ai_tool(self, temp_dir: Path):
+        """Test setting custom AI tool."""
+        config = TmuxSessionConfig(
+            session_name="test",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.OPENCODE
+        )
+        assert config.ai_tool == AITool.OPENCODE
+
+    def test_session_config_droid_tool(self, temp_dir: Path):
+        """Test setting Droid as AI tool."""
+        config = TmuxSessionConfig(
+            session_name="test",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.DROID
+        )
+        assert config.ai_tool == AITool.DROID
+
+    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    def test_start_ai_tool_opencode(
+        self,
+        mock_server_prop,
+        temp_dir: Path,
+        mock_libtmux_session: MagicMock
+    ):
+        """Test starting OpenCode instead of Claude."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.OPENCODE,
+            auto_start_claude=True
+        )
+
+        manager.create_session(config)
+
+        # Verify opencode command was sent
+        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with(
+            "opencode",
+            enter=True
+        )
+
+    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    def test_start_ai_tool_droid(
+        self,
+        mock_server_prop,
+        temp_dir: Path,
+        mock_libtmux_session: MagicMock
+    ):
+        """Test starting Droid instead of Claude."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.DROID,
+            auto_start_claude=True
+        )
+
+        manager.create_session(config)
+
+        # Verify droid command was sent
+        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with(
+            "droid",
+            enter=True
+        )
+
+    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    def test_no_ai_tool_when_disabled(
+        self,
+        mock_server_prop,
+        temp_dir: Path,
+        mock_libtmux_session: MagicMock
+    ):
+        """Test no AI tool is started when auto_start_claude is False."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.OPENCODE,
+            auto_start_claude=False
+        )
+
+        manager.create_session(config)
+
+        # Verify no command was sent to the pane
+        mock_libtmux_session.active_window.active_pane.send_keys.assert_not_called()
+
+    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    def test_create_worktree_session_with_ai_tool(
+        self,
+        mock_server_prop,
+        temp_dir: Path,
+        mock_libtmux_session: MagicMock
+    ):
+        """Test creating worktree session with custom AI tool."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        result = manager.create_worktree_session(
+            worktree_name="feature-test",
+            worktree_path=str(temp_dir),
+            ai_tool=AITool.OPENCODE,
+            auto_start_claude=True
+        )
+
+        assert isinstance(result, TmuxSessionInfo)
+        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with(
+            "opencode",
+            enter=True
+        )
