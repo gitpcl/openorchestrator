@@ -1,5 +1,6 @@
 """CLI entry point for Claude Orchestrator."""
 
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -564,6 +565,86 @@ def cleanup_worktrees(threshold_days: int, dry_run: bool, force: bool, yes: bool
         console.print("[bold red]Errors:[/bold red]")
         for error in report.errors:
             console.print(f"  [red]{error}[/red]")
+
+
+@main.command("send")
+@click.argument("identifier")
+@click.argument("command")
+@click.option(
+    "-p",
+    "--pane",
+    type=int,
+    default=0,
+    help="Target pane index (default: 0, the main pane with Claude).",
+)
+@click.option(
+    "-w",
+    "--window",
+    type=int,
+    default=0,
+    help="Target window index (default: 0).",
+)
+@click.option(
+    "--no-enter",
+    is_flag=True,
+    help="Don't press Enter after sending the command.",
+)
+def send_to_worktree(
+    identifier: str,
+    command: str,
+    pane: int,
+    window: int,
+    no_enter: bool,
+) -> None:
+    """Send a command to another worktree's tmux session.
+
+    IDENTIFIER is the worktree name, branch, or path.
+    COMMAND is the text to send to the worktree's Claude session.
+
+    By default, sends to the main pane (pane 0) where Claude Code runs.
+
+    Example:
+        cwt send feature/auth "implement login validation"
+        cwt send my-worktree "run the tests"
+        cwt send feature/api "fix the bug in user service" --pane 1
+    """
+    wt_manager = get_worktree_manager()
+    tmux_manager = TmuxManager()
+
+    try:
+        worktree = wt_manager.get(identifier)
+    except WorktreeNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    session = tmux_manager.get_session_for_worktree(worktree.name)
+
+    if not session:
+        raise click.ClickException(
+            f"No tmux session found for worktree '{identifier}'. "
+            f"Create one with: cwt tmux create {tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}"
+        )
+
+    try:
+        if no_enter:
+            # Send without Enter - use raw tmux command
+            subprocess.run(
+                ["tmux", "send-keys", "-t", f"{session.session_name}:{window}.{pane}", command],
+                check=True
+            )
+        else:
+            tmux_manager.send_keys_to_pane(
+                session_name=session.session_name,
+                keys=command,
+                pane_index=pane,
+                window_index=window
+            )
+
+        console.print(f"[green]Sent to {session.session_name}:[/green] {command[:50]}{'...' if len(command) > 50 else ''}")
+
+    except TmuxError as e:
+        raise click.ClickException(str(e)) from e
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(f"Failed to send command: {e}") from e
 
 
 @main.command("sync")

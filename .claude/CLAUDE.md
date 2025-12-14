@@ -9,6 +9,7 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 | `cwt create <branch>` | Create worktree with tmux session and Claude Code |
 | `cwt list` | List all worktrees with status |
 | `cwt switch <name> --tmux` | Switch to worktree's tmux session |
+| `cwt send <name> "cmd"` | Send command to another worktree's Claude |
 | `cwt delete <name>` | Delete worktree and its tmux session |
 | `cwt cleanup` | Remove stale worktrees (dry-run by default) |
 | `cwt sync --all` | Sync all worktrees with upstream |
