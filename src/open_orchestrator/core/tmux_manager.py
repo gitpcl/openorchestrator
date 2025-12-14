@@ -14,7 +14,7 @@ from typing import Optional
 import libtmux
 from libtmux.constants import PaneDirection
 
-from open_orchestrator.config import AITool
+from open_orchestrator.config import AITool, DroidAutoLevel
 
 
 class TmuxLayout(Enum):
@@ -35,8 +35,12 @@ class TmuxSessionConfig:
     working_directory: str
     layout: TmuxLayout = TmuxLayout.MAIN_VERTICAL
     pane_count: int = 2
-    auto_start_claude: bool = True
+    auto_start_ai: bool = True
     ai_tool: AITool = field(default=AITool.CLAUDE)
+    # Tool-specific options
+    droid_auto: Optional[DroidAutoLevel] = None
+    droid_skip_permissions: bool = False
+    opencode_config: Optional[str] = None
     window_name: Optional[str] = None
 
 
@@ -145,8 +149,14 @@ class TmuxManager:
 
             self._setup_layout(window, config)
 
-            if config.auto_start_claude:
-                self._start_ai_tool_in_pane(window.active_pane, config.ai_tool)
+            if config.auto_start_ai:
+                self._start_ai_tool_in_pane(
+                    window.active_pane,
+                    config.ai_tool,
+                    droid_auto=config.droid_auto,
+                    droid_skip_permissions=config.droid_skip_permissions,
+                    opencode_config=config.opencode_config,
+                )
 
             return self._get_session_info(session)
 
@@ -273,10 +283,38 @@ class TmuxManager:
         window.panes[0].select()
 
     def _start_ai_tool_in_pane(
-        self, pane: libtmux.Pane, ai_tool: AITool = AITool.CLAUDE
+        self,
+        pane: libtmux.Pane,
+        ai_tool: AITool = AITool.CLAUDE,
+        droid_auto: Optional[DroidAutoLevel] = None,
+        droid_skip_permissions: bool = False,
+        opencode_config: Optional[str] = None,
     ) -> None:
-        """Start the specified AI tool in the pane."""
-        command = AITool.get_command(ai_tool)
+        """
+        Start the specified AI tool in the pane.
+
+        Args:
+            pane: The tmux pane to start the AI tool in
+            ai_tool: Which AI tool to start
+            droid_auto: Droid auto mode level (if using droid)
+            droid_skip_permissions: Skip permissions for droid
+            opencode_config: Custom config path for opencode
+
+        Raises:
+            TmuxError: If AI tool is not installed
+        """
+        if not AITool.is_installed(ai_tool):
+            hint = AITool.get_install_hint(ai_tool)
+            raise TmuxError(
+                f"AI tool '{ai_tool.value}' is not installed. {hint}"
+            )
+
+        command = AITool.get_command(
+            ai_tool,
+            droid_auto=droid_auto,
+            droid_skip_permissions=droid_skip_permissions,
+            opencode_config=opencode_config,
+        )
         pane.send_keys(command, enter=True)
 
     def _get_session_info(self, session: libtmux.Session) -> TmuxSessionInfo:
@@ -386,8 +424,11 @@ class TmuxManager:
         worktree_path: str,
         layout: TmuxLayout = TmuxLayout.MAIN_VERTICAL,
         pane_count: int = 2,
-        auto_start_claude: bool = True,
+        auto_start_ai: bool = True,
         ai_tool: AITool = AITool.CLAUDE,
+        droid_auto: Optional[DroidAutoLevel] = None,
+        droid_skip_permissions: bool = False,
+        opencode_config: Optional[str] = None,
     ) -> TmuxSessionInfo:
         """
         Create a tmux session for a worktree.
@@ -400,8 +441,11 @@ class TmuxManager:
             worktree_path: Path to the worktree directory
             layout: Pane layout to use
             pane_count: Number of panes (for layouts that support variable counts)
-            auto_start_claude: Whether to start AI tool automatically
+            auto_start_ai: Whether to start AI tool automatically
             ai_tool: Which AI tool to start (default: claude)
+            droid_auto: Droid auto mode level
+            droid_skip_permissions: Skip droid permissions check
+            opencode_config: OpenCode config path
 
         Returns:
             TmuxSessionInfo with created session details
@@ -413,8 +457,11 @@ class TmuxManager:
             working_directory=worktree_path,
             layout=layout,
             pane_count=pane_count,
-            auto_start_claude=auto_start_claude,
+            auto_start_ai=auto_start_ai,
             ai_tool=ai_tool,
+            droid_auto=droid_auto,
+            droid_skip_permissions=droid_skip_permissions,
+            opencode_config=opencode_config,
             window_name=worktree_name,
         )
 

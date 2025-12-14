@@ -55,6 +55,15 @@ owt create feature/add-login
 
 # Create a worktree from an existing branch
 owt create feature/existing-branch --no-create-branch
+
+# Create a worktree with OpenCode instead of Claude
+owt create feature/new-api --ai-tool opencode
+
+# Create a worktree with Droid in high autonomy mode
+owt create feature/refactor --ai-tool droid --droid-auto high
+
+# Create a worktree with OpenCode and custom config
+owt create feature/test --ai-tool opencode --opencode-config ~/.config/opencode.json
 ```
 
 ### List worktrees
@@ -122,6 +131,9 @@ owt cleanup
 | `--tmux / --no-tmux` | Create tmux session (default: enabled) |
 | `--claude / --no-claude` | Auto-start AI tool (default: enabled) |
 | `--ai-tool <tool>` | AI tool to start: `claude`, `opencode`, `droid` (default: claude) |
+| `--droid-auto <level>` | Droid autonomy level: `low`, `medium`, `high` |
+| `--droid-skip-permissions` | Skip Droid permissions check (use with caution) |
+| `--opencode-config <path>` | Path to OpenCode configuration file |
 | `-l, --layout <layout>` | tmux layout: `main-vertical`, `three-pane`, `quad`, `even-horizontal`, `even-vertical` |
 | `--panes <n>` | Number of panes (default: 2) |
 | `-a, --attach` | Attach to tmux session after creation |
@@ -192,6 +204,9 @@ owt cleanup
 | `-p, --panes <n>` | Number of panes |
 | `--claude / --no-claude` | Auto-start AI tool (default: enabled) |
 | `--ai-tool <tool>` | AI tool to start: `claude`, `opencode`, `droid` (default: claude) |
+| `--droid-auto <level>` | Droid autonomy level: `low`, `medium`, `high` |
+| `--droid-skip-permissions` | Skip Droid permissions check (use with caution) |
+| `--opencode-config <path>` | Path to OpenCode configuration file |
 | `-a, --attach` | Attach after creation |
 
 #### `owt tmux list`
@@ -226,13 +241,22 @@ auto_cleanup_days = 14
 
 [tmux]
 default_layout = "main-vertical"
-auto_start_claude = true
+auto_start_ai = true
 ai_tool = "claude"  # Options: claude, opencode, droid
 pane_count = 2
 
 [environment]
 auto_install_deps = true
 copy_env_file = true
+
+# Droid-specific configuration
+[droid]
+default_auto_level = "medium"  # low, medium, high
+skip_permissions_unsafe = false
+
+# OpenCode-specific configuration
+[opencode]
+config_path = "~/.config/opencode/opencode.json"
 ```
 
 ### Configuration Options
@@ -250,7 +274,7 @@ copy_env_file = true
 | Option | Default | Description |
 |--------|---------|-------------|
 | `default_layout` | `"main-vertical"` | Default tmux pane layout |
-| `auto_start_claude` | `true` | Auto-start AI tool in first pane |
+| `auto_start_ai` | `true` | Auto-start AI tool in first pane |
 | `ai_tool` | `"claude"` | AI tool to start: `claude`, `opencode`, `droid` |
 | `pane_count` | `2` | Number of panes to create |
 
@@ -267,6 +291,19 @@ Available layouts:
 |--------|---------|-------------|
 | `auto_install_deps` | `true` | Auto-install dependencies on worktree creation |
 | `copy_env_file` | `true` | Copy `.env` file to new worktrees |
+
+#### `[droid]` Section
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `default_auto_level` | `null` | Default autonomy level: `low`, `medium`, `high` |
+| `skip_permissions_unsafe` | `false` | Skip permissions check (use with caution) |
+
+#### `[opencode]` Section
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `config_path` | `null` | Path to OpenCode configuration file |
 
 ## Project Detection
 

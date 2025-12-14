@@ -1,8 +1,8 @@
 """
-Status tracking service for worktree Claude sessions.
+Status tracking service for worktree AI tool sessions.
 
 This module provides functionality to:
-- Track what Claude is doing in each worktree
+- Track what AI tools (Claude, OpenCode, Droid) are doing in each worktree
 - Record commands sent between worktrees
 - Generate status summaries across all worktrees
 """
@@ -13,12 +13,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
+from open_orchestrator.config import AITool
 from open_orchestrator.models.status import (
-    ClaudeActivityStatus,
+    AIActivityStatus,
     CommandRecord,
     StatusStore,
     StatusSummary,
-    WorktreeClaudeStatus,
+    WorktreeAIStatus,
 )
 
 
@@ -37,14 +38,14 @@ class StatusConfig:
 
 class StatusTracker:
     """
-    Tracks and persists Claude activity status for worktrees.
+    Tracks and persists AI tool activity status for worktrees.
 
-    This service maintains a JSON store of what Claude is doing
+    This service maintains a JSON store of what AI tools are doing
     in each worktree, allowing the main worktree to see activity
     across all parallel development sessions.
     """
 
-    DEFAULT_STATUS_FILENAME = "claude_status.json"
+    DEFAULT_STATUS_FILENAME = "ai_status.json"
 
     def __init__(self, config: Optional[StatusConfig] = None):
         self.config = config or StatusConfig()
@@ -80,11 +81,11 @@ class StatusTracker:
                 default=str
             )
 
-    def get_status(self, worktree_name: str) -> Optional[WorktreeClaudeStatus]:
+    def get_status(self, worktree_name: str) -> Optional[WorktreeAIStatus]:
         """Get status for a specific worktree."""
         return self._store.get_status(worktree_name)
 
-    def get_all_statuses(self) -> List[WorktreeClaudeStatus]:
+    def get_all_statuses(self) -> List[WorktreeAIStatus]:
         """Get statuses for all tracked worktrees."""
         return self._store.get_all_statuses()
 
@@ -93,8 +94,9 @@ class StatusTracker:
         worktree_name: str,
         worktree_path: str,
         branch: str,
-        tmux_session: Optional[str] = None
-    ) -> WorktreeClaudeStatus:
+        tmux_session: Optional[str] = None,
+        ai_tool: AITool | str = AITool.CLAUDE,
+    ) -> WorktreeAIStatus:
         """
         Initialize status tracking for a new worktree.
 
@@ -103,16 +105,20 @@ class StatusTracker:
             worktree_path: Absolute path to the worktree
             branch: Git branch name
             tmux_session: Associated tmux session name
+            ai_tool: AI tool being used (claude, opencode, droid)
 
         Returns:
-            The newly created WorktreeClaudeStatus
+            The newly created WorktreeAIStatus
         """
-        status = WorktreeClaudeStatus(
+        ai_tool_str = ai_tool.value if isinstance(ai_tool, AITool) else ai_tool
+
+        status = WorktreeAIStatus(
             worktree_name=worktree_name,
             worktree_path=worktree_path,
             branch=branch,
             tmux_session=tmux_session,
-            activity_status=ClaudeActivityStatus.IDLE,
+            ai_tool=ai_tool_str,
+            activity_status=AIActivityStatus.IDLE,
             created_at=datetime.now(),
             updated_at=datetime.now()
         )
@@ -124,8 +130,8 @@ class StatusTracker:
         self,
         worktree_name: str,
         task: str,
-        status: ClaudeActivityStatus = ClaudeActivityStatus.WORKING
-    ) -> Optional[WorktreeClaudeStatus]:
+        status: AIActivityStatus = AIActivityStatus.WORKING
+    ) -> Optional[WorktreeAIStatus]:
         """
         Update the current task for a worktree.
 
@@ -135,7 +141,7 @@ class StatusTracker:
             status: Activity status (default: WORKING)
 
         Returns:
-            Updated WorktreeClaudeStatus or None if not found
+            Updated WorktreeAIStatus or None if not found
         """
         wt_status = self._store.get_status(worktree_name)
 
@@ -154,7 +160,7 @@ class StatusTracker:
         source_worktree: Optional[str] = None,
         pane_index: int = 0,
         window_index: int = 0
-    ) -> Optional[WorktreeClaudeStatus]:
+    ) -> Optional[WorktreeAIStatus]:
         """
         Record a command sent to a worktree.
 
@@ -166,7 +172,7 @@ class StatusTracker:
             window_index: Target window index
 
         Returns:
-            Updated WorktreeClaudeStatus or None if not found
+            Updated WorktreeAIStatus or None if not found
         """
         wt_status = self._store.get_status(target_worktree)
 
@@ -181,14 +187,14 @@ class StatusTracker:
             max_history=self.config.max_command_history
         )
 
-        if wt_status.activity_status == ClaudeActivityStatus.IDLE:
-            wt_status.activity_status = ClaudeActivityStatus.WORKING
+        if wt_status.activity_status == AIActivityStatus.IDLE:
+            wt_status.activity_status = AIActivityStatus.WORKING
 
         self._store.set_status(wt_status)
         self._save_store()
         return wt_status
 
-    def mark_completed(self, worktree_name: str) -> Optional[WorktreeClaudeStatus]:
+    def mark_completed(self, worktree_name: str) -> Optional[WorktreeAIStatus]:
         """Mark a worktree's current task as completed."""
         wt_status = self._store.get_status(worktree_name)
 
@@ -200,7 +206,7 @@ class StatusTracker:
         self._save_store()
         return wt_status
 
-    def mark_idle(self, worktree_name: str) -> Optional[WorktreeClaudeStatus]:
+    def mark_idle(self, worktree_name: str) -> Optional[WorktreeAIStatus]:
         """Mark a worktree as idle."""
         wt_status = self._store.get_status(worktree_name)
 
@@ -216,7 +222,7 @@ class StatusTracker:
         self,
         worktree_name: str,
         notes: str
-    ) -> Optional[WorktreeClaudeStatus]:
+    ) -> Optional[WorktreeAIStatus]:
         """Set notes for a worktree."""
         wt_status = self._store.get_status(worktree_name)
 
@@ -248,7 +254,7 @@ class StatusTracker:
         worktree_names: Optional[List[str]] = None
     ) -> StatusSummary:
         """
-        Generate a summary of Claude status across worktrees.
+        Generate a summary of AI tool status across worktrees.
 
         Args:
             worktree_names: Optional list of worktree names to filter by.
@@ -273,12 +279,12 @@ class StatusTracker:
         )
 
         for status in all_statuses:
-            if status.activity_status == ClaudeActivityStatus.WORKING:
-                summary.active_claudes += 1
-            elif status.activity_status == ClaudeActivityStatus.IDLE:
-                summary.idle_claudes += 1
-            elif status.activity_status == ClaudeActivityStatus.BLOCKED:
-                summary.blocked_claudes += 1
+            if status.activity_status == AIActivityStatus.WORKING:
+                summary.active_ai_sessions += 1
+            elif status.activity_status == AIActivityStatus.IDLE:
+                summary.idle_ai_sessions += 1
+            elif status.activity_status == AIActivityStatus.BLOCKED:
+                summary.blocked_ai_sessions += 1
             else:
                 summary.unknown_status += 1
 

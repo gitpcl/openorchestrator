@@ -1,8 +1,8 @@
 """
-Pydantic models for worktree Claude status tracking.
+Pydantic models for worktree AI tool status tracking.
 
 This module provides data models for:
-- Tracking what Claude is doing in each worktree
+- Tracking what AI tools (Claude, OpenCode, Droid) are doing in each worktree
 - Aggregating status across all worktrees
 - Recording commands sent between worktrees
 """
@@ -15,8 +15,8 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
-class ClaudeActivityStatus(str, Enum):
-    """Status of Claude's activity in a worktree."""
+class AIActivityStatus(str, Enum):
+    """Status of AI tool activity in a worktree."""
 
     IDLE = "idle"
     WORKING = "working"
@@ -40,8 +40,8 @@ class CommandRecord(BaseModel):
     window_index: int = Field(default=0, description="Target window index")
 
 
-class WorktreeClaudeStatus(BaseModel):
-    """Status of Claude's activity in a worktree."""
+class WorktreeAIStatus(BaseModel):
+    """Status of AI tool activity in a worktree."""
 
     worktree_name: str = Field(..., description="Name of the worktree")
     worktree_path: str = Field(..., description="Absolute path to the worktree")
@@ -50,13 +50,17 @@ class WorktreeClaudeStatus(BaseModel):
         default=None,
         description="Associated tmux session name"
     )
-    activity_status: ClaudeActivityStatus = Field(
-        default=ClaudeActivityStatus.UNKNOWN,
+    ai_tool: str = Field(
+        default="claude",
+        description="AI tool being used (claude, opencode, droid)"
+    )
+    activity_status: AIActivityStatus = Field(
+        default=AIActivityStatus.UNKNOWN,
         description="Current activity status"
     )
     current_task: Optional[str] = Field(
         default=None,
-        description="Description of current task Claude is working on"
+        description="Description of current task AI is working on"
     )
     last_task_update: Optional[datetime] = Field(
         default=None,
@@ -107,7 +111,7 @@ class WorktreeClaudeStatus(BaseModel):
     def update_task(
         self,
         task: str,
-        status: ClaudeActivityStatus = ClaudeActivityStatus.WORKING
+        status: AIActivityStatus = AIActivityStatus.WORKING
     ) -> None:
         """Update the current task."""
         self.current_task = task
@@ -117,18 +121,18 @@ class WorktreeClaudeStatus(BaseModel):
 
     def mark_completed(self) -> None:
         """Mark the current task as completed."""
-        self.activity_status = ClaudeActivityStatus.COMPLETED
+        self.activity_status = AIActivityStatus.COMPLETED
         self.updated_at = datetime.now()
 
     def mark_idle(self) -> None:
         """Mark the worktree as idle."""
-        self.activity_status = ClaudeActivityStatus.IDLE
+        self.activity_status = AIActivityStatus.IDLE
         self.current_task = None
         self.updated_at = datetime.now()
 
 
 class StatusSummary(BaseModel):
-    """Summary of Claude status across all worktrees."""
+    """Summary of AI tool status across all worktrees."""
 
     timestamp: datetime = Field(
         default_factory=datetime.now,
@@ -136,20 +140,20 @@ class StatusSummary(BaseModel):
     )
     total_worktrees: int = Field(default=0, ge=0)
     worktrees_with_status: int = Field(default=0, ge=0)
-    active_claudes: int = Field(
+    active_ai_sessions: int = Field(
         default=0,
         ge=0,
-        description="Number of worktrees where Claude is working"
+        description="Number of worktrees where AI is working"
     )
-    idle_claudes: int = Field(
+    idle_ai_sessions: int = Field(
         default=0,
         ge=0,
-        description="Number of worktrees where Claude is idle"
+        description="Number of worktrees where AI is idle"
     )
-    blocked_claudes: int = Field(
+    blocked_ai_sessions: int = Field(
         default=0,
         ge=0,
-        description="Number of worktrees where Claude is blocked"
+        description="Number of worktrees where AI is blocked"
     )
     unknown_status: int = Field(
         default=0,
@@ -165,7 +169,7 @@ class StatusSummary(BaseModel):
         default=None,
         description="Most recent activity across all worktrees"
     )
-    statuses: List[WorktreeClaudeStatus] = Field(
+    statuses: List[WorktreeAIStatus] = Field(
         default_factory=list,
         description="Individual status for each worktree"
     )
@@ -174,21 +178,21 @@ class StatusSummary(BaseModel):
 class StatusStore(BaseModel):
     """Persistent storage for worktree statuses."""
 
-    version: str = Field(default="1.0", description="Storage format version")
+    version: str = Field(default="1.1", description="Storage format version")
     updated_at: datetime = Field(
         default_factory=datetime.now,
         description="When the store was last updated"
     )
-    statuses: dict[str, WorktreeClaudeStatus] = Field(
+    statuses: dict[str, WorktreeAIStatus] = Field(
         default_factory=dict,
         description="Map of worktree name to status"
     )
 
-    def get_status(self, worktree_name: str) -> Optional[WorktreeClaudeStatus]:
+    def get_status(self, worktree_name: str) -> Optional[WorktreeAIStatus]:
         """Get status for a specific worktree."""
         return self.statuses.get(worktree_name)
 
-    def set_status(self, status: WorktreeClaudeStatus) -> None:
+    def set_status(self, status: WorktreeAIStatus) -> None:
         """Set status for a worktree."""
         self.statuses[status.worktree_name] = status
         self.updated_at = datetime.now()
@@ -201,6 +205,6 @@ class StatusStore(BaseModel):
             return True
         return False
 
-    def get_all_statuses(self) -> List[WorktreeClaudeStatus]:
+    def get_all_statuses(self) -> List[WorktreeAIStatus]:
         """Get all worktree statuses."""
         return list(self.statuses.values())

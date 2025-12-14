@@ -5,7 +5,7 @@ This package contains data models for:
 - Worktree information
 - Project configuration
 - Maintenance operations (cleanup, sync)
-- Claude activity status tracking
+- AI tool activity status tracking
 """
 
 from open_orchestrator.models.maintenance import (
@@ -18,11 +18,11 @@ from open_orchestrator.models.maintenance import (
     WorktreeUsageStats,
 )
 from open_orchestrator.models.status import (
-    ClaudeActivityStatus,
+    AIActivityStatus,
     CommandRecord,
     StatusStore,
     StatusSummary,
-    WorktreeClaudeStatus,
+    WorktreeAIStatus,
 )
 
 __all__ = [
@@ -33,9 +33,9 @@ __all__ = [
     "WorktreeStatus",
     "WorktreeSyncResult",
     "WorktreeUsageStats",
-    "ClaudeActivityStatus",
+    "AIActivityStatus",
     "CommandRecord",
     "StatusStore",
     "StatusSummary",
-    "WorktreeClaudeStatus",
+    "WorktreeAIStatus",
 ]

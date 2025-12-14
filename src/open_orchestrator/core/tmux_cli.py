@@ -9,7 +9,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from open_orchestrator.config import AITool
+from open_orchestrator.config import AITool, DroidAutoLevel
 from .tmux_manager import (
     TmuxError,
     TmuxLayout,
@@ -79,11 +79,38 @@ def tmux_group():
     help="AI coding tool to start (default: claude)"
 )
 @click.option(
+    "--droid-auto",
+    type=click.Choice(["low", "medium", "high"]),
+    default=None,
+    help="Droid auto mode level (only used with --ai-tool droid)"
+)
+@click.option(
+    "--droid-skip-permissions",
+    is_flag=True,
+    help="Skip Droid permissions check (use with caution)"
+)
+@click.option(
+    "--opencode-config",
+    type=click.Path(exists=True),
+    help="Path to OpenCode configuration file"
+)
+@click.option(
     "-a", "--attach",
     is_flag=True,
     help="Attach to session after creation"
 )
-def create_session(session_name: str, directory: str, layout: str, panes: int, claude: bool, ai_tool: str, attach: bool):
+def create_session(
+    session_name: str,
+    directory: str,
+    layout: str,
+    panes: int,
+    claude: bool,
+    ai_tool: str,
+    droid_auto: str | None,
+    droid_skip_permissions: bool,
+    opencode_config: str | None,
+    attach: bool,
+):
     """Create a new tmux session.
 
     SESSION_NAME is the name for the new tmux session.
@@ -93,14 +120,18 @@ def create_session(session_name: str, directory: str, layout: str, panes: int, c
     try:
         layout_enum = get_layout_from_string(layout)
         ai_tool_enum = AITool(ai_tool)
+        droid_auto_enum = DroidAutoLevel(droid_auto) if droid_auto else None
 
         config = TmuxSessionConfig(
             session_name=session_name,
             working_directory=directory,
             layout=layout_enum,
             pane_count=panes,
-            auto_start_claude=claude,
+            auto_start_ai=claude,
             ai_tool=ai_tool_enum,
+            droid_auto=droid_auto_enum,
+            droid_skip_permissions=droid_skip_permissions,
+            opencode_config=opencode_config,
         )
 
         session_info = manager.create_session(config)

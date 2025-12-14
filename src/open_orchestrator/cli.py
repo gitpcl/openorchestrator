@@ -8,7 +8,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from open_orchestrator.config import AITool
+from open_orchestrator.config import AITool, DroidAutoLevel
 from open_orchestrator.core.worktree import (
     NotAGitRepositoryError,
     WorktreeAlreadyExistsError,
@@ -17,7 +17,7 @@ from open_orchestrator.core.worktree import (
     WorktreeNotFoundError,
 )
 from open_orchestrator.core.status import StatusTracker
-from open_orchestrator.models.status import ClaudeActivityStatus
+from open_orchestrator.models.status import AIActivityStatus
 from open_orchestrator.core.tmux_manager import (
     TmuxError,
     TmuxLayout,
@@ -103,6 +103,22 @@ main.add_command(tmux_group)
     help="AI coding tool to start (default: claude).",
 )
 @click.option(
+    "--droid-auto",
+    type=click.Choice(["low", "medium", "high"]),
+    default=None,
+    help="Droid auto mode level (only used with --ai-tool droid).",
+)
+@click.option(
+    "--droid-skip-permissions",
+    is_flag=True,
+    help="Skip Droid permissions check (use with caution).",
+)
+@click.option(
+    "--opencode-config",
+    type=click.Path(exists=True),
+    help="Path to OpenCode configuration file.",
+)
+@click.option(
     "-l",
     "--layout",
     type=click.Choice(["main-vertical", "three-pane", "quad", "even-horizontal", "even-vertical"]),
@@ -139,6 +155,9 @@ def create_worktree(
     tmux: bool,
     claude: bool,
     ai_tool: str,
+    droid_auto: Optional[str],
+    droid_skip_permissions: bool,
+    opencode_config: Optional[str],
     layout: str,
     panes: int,
     attach: bool,
@@ -224,8 +243,9 @@ def create_worktree(
                     "even-vertical": TmuxLayout.EVEN_VERTICAL,
                 }
 
-                # Map string to AITool enum
+                # Map strings to enums
                 ai_tool_enum = AITool(ai_tool)
+                droid_auto_enum = DroidAutoLevel(droid_auto) if droid_auto else None
 
                 with console.status("[bold blue]Creating tmux session..."):
                     tmux_session = tmux_manager.create_worktree_session(
@@ -233,8 +253,11 @@ def create_worktree(
                         worktree_path=str(worktree.path),
                         layout=layout_map[layout],
                         pane_count=panes,
-                        auto_start_claude=claude,
+                        auto_start_ai=claude,
                         ai_tool=ai_tool_enum,
+                        droid_auto=droid_auto_enum,
+                        droid_skip_permissions=droid_skip_permissions,
+                        opencode_config=opencode_config,
                     )
 
                 console.print()
@@ -254,6 +277,7 @@ def create_worktree(
                     worktree_path=str(worktree.path),
                     branch=worktree.branch,
                     tmux_session=tmux_session.session_name,
+                    ai_tool=ai_tool_enum,
                 )
 
             except TmuxSessionExistsError:
@@ -867,10 +891,10 @@ def show_status(
     notes: Optional[str],
     as_json: bool,
 ) -> None:
-    """Show or update Claude activity status across worktrees.
+    """Show or update AI tool activity status across worktrees.
 
-    View what Claude is working on in each worktree, or update the status
-    for a specific worktree.
+    View what AI tools (Claude, OpenCode, Droid) are working on in each worktree,
+    or update the status for a specific worktree.
 
     Without arguments, shows status for all worktrees.
     With IDENTIFIER, shows or updates status for a specific worktree.
@@ -915,21 +939,21 @@ def show_status(
 
         # Update task if provided
         if task:
-            status_enum = ClaudeActivityStatus.WORKING
+            status_enum = AIActivityStatus.WORKING
             if activity_status:
-                status_enum = ClaudeActivityStatus(activity_status)
+                status_enum = AIActivityStatus(activity_status)
             status_tracker.update_task(worktree.name, task, status_enum)
             console.print(f"[green]Task updated:[/green] {task}")
 
         # Update activity status if provided (without task)
         elif activity_status:
             status_map = {
-                "idle": ClaudeActivityStatus.IDLE,
-                "working": ClaudeActivityStatus.WORKING,
-                "blocked": ClaudeActivityStatus.BLOCKED,
-                "waiting": ClaudeActivityStatus.WAITING,
-                "completed": ClaudeActivityStatus.COMPLETED,
-                "error": ClaudeActivityStatus.ERROR,
+                "idle": AIActivityStatus.IDLE,
+                "working": AIActivityStatus.WORKING,
+                "blocked": AIActivityStatus.BLOCKED,
+                "waiting": AIActivityStatus.WAITING,
+                "completed": AIActivityStatus.COMPLETED,
+                "error": AIActivityStatus.ERROR,
             }
             wt_status = status_tracker.get_status(worktree.name)
             if wt_status:
@@ -988,7 +1012,7 @@ def show_status(
             return
 
         console.print()
-        console.print("[bold]Claude Activity Across Worktrees[/bold]")
+        console.print("[bold]AI Tool Activity Across Worktrees[/bold]")
         console.print()
 
         table = Table(show_header=True, header_style="bold cyan")
@@ -1030,7 +1054,7 @@ def show_status(
 
         # Summary stats
         console.print(f"[bold]Summary:[/bold]")
-        console.print(f"  Working: {summary.active_claudes}  |  Idle: {summary.idle_claudes}  |  Blocked: {summary.blocked_claudes}")
+        console.print(f"  Working: {summary.active_ai_sessions}  |  Idle: {summary.idle_ai_sessions}  |  Blocked: {summary.blocked_ai_sessions}")
         console.print(f"  Total commands sent: {summary.total_commands_sent}")
 
         if summary.most_recent_activity:

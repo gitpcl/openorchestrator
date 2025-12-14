@@ -9,12 +9,21 @@ Loads configuration from .worktreerc files in the following priority:
 5. ~/.worktreerc
 """
 
+import shutil
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import toml
 from pydantic import BaseModel, Field
+
+
+class DroidAutoLevel(str, Enum):
+    """Droid auto mode levels for autonomy control."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 class AITool(str, Enum):
@@ -25,9 +34,86 @@ class AITool(str, Enum):
     DROID = "droid"
 
     @classmethod
-    def get_command(cls, tool: "AITool") -> str:
-        """Get the shell command for an AI tool."""
+    def get_binary_name(cls, tool: "AITool") -> str:
+        """Get the binary/executable name for an AI tool."""
         return tool.value
+
+    @classmethod
+    def get_command(
+        cls,
+        tool: "AITool",
+        droid_auto: DroidAutoLevel | None = None,
+        droid_skip_permissions: bool = False,
+        opencode_config: str | None = None,
+    ) -> str:
+        """
+        Get the shell command for an AI tool with options.
+
+        Args:
+            tool: The AI tool to get command for
+            droid_auto: Droid auto mode level (low, medium, high)
+            droid_skip_permissions: Skip permissions check for Droid
+            opencode_config: Custom config path for OpenCode
+
+        Returns:
+            Complete command string to execute
+        """
+        if tool == cls.DROID:
+            cmd_parts = ["droid"]
+            if droid_auto:
+                cmd_parts.append(f"--auto {droid_auto.value}")
+            if droid_skip_permissions:
+                cmd_parts.append("--skip-permissions-unsafe")
+            return " ".join(cmd_parts)
+
+        if tool == cls.OPENCODE and opencode_config:
+            return f"OPENCODE_CONFIG={opencode_config} opencode"
+
+        return tool.value
+
+    @classmethod
+    def is_installed(cls, tool: "AITool") -> bool:
+        """Check if an AI tool is installed on the system."""
+        binary = cls.get_binary_name(tool)
+        return shutil.which(binary) is not None
+
+    @classmethod
+    def get_install_hint(cls, tool: "AITool") -> str:
+        """Get installation hint for an AI tool."""
+        hints = {
+            cls.CLAUDE: "Install Claude Code: npm install -g @anthropic-ai/claude-code",
+            cls.OPENCODE: "Install OpenCode: go install github.com/opencode-ai/opencode@latest",
+            cls.DROID: "Install Droid: See https://docs.factory.ai/cli",
+        }
+        return hints.get(tool, f"Please install {tool.value} manually")
+
+
+class ClaudeConfig(BaseModel):
+    """Claude-specific configuration."""
+
+    pass  # No special config needed yet
+
+
+class OpenCodeConfig(BaseModel):
+    """OpenCode-specific configuration."""
+
+    config_path: str | None = Field(
+        default=None,
+        description="Path to OpenCode configuration file",
+    )
+
+
+class DroidConfig(BaseModel):
+    """Droid-specific configuration."""
+
+    default_auto_level: DroidAutoLevel | None = Field(
+        default=None,
+        description="Default auto mode level (low, medium, high)",
+    )
+    skip_permissions_unsafe: bool = Field(
+        default=False,
+        description="Skip permissions check (use with caution)",
+    )
 
 
 class WorktreeConfig(BaseModel):
@@ -54,7 +140,7 @@ class TmuxConfig(BaseModel):
         default="main-vertical",
         description="Default tmux pane layout",
     )
-    auto_start_claude: bool = Field(
+    auto_start_ai: bool = Field(
         default=True,
         description="Automatically start AI tool in new sessions",
     )
@@ -117,6 +203,10 @@ class Config(BaseModel):
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
+    # AI tool-specific configurations
+    claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
+    opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
+    droid: DroidConfig = Field(default_factory=DroidConfig)
 
 
 def load_config(config_path: Optional[str] = None) -> Config:
