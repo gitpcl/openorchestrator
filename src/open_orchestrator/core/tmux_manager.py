@@ -309,8 +309,12 @@ class TmuxManager:
                 f"AI tool '{ai_tool.value}' is not installed. {hint}"
             )
 
+        # Get executable path (may be full path if not in PATH)
+        executable = AITool.get_executable_path(ai_tool)
+
         command = AITool.get_command(
             ai_tool,
+            executable_path=executable,
             droid_auto=droid_auto,
             droid_skip_permissions=droid_skip_permissions,
             opencode_config=opencode_config,

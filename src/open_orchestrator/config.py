@@ -39,9 +39,29 @@ class AITool(str, Enum):
         return tool.value
 
     @classmethod
+    def get_known_paths(cls, tool: "AITool") -> list[Path]:
+        """Get known installation paths for an AI tool."""
+        home = Path.home()
+        paths: dict[AITool, list[Path]] = {
+            cls.CLAUDE: [
+                home / ".claude" / "local" / "claude",
+            ],
+            cls.OPENCODE: [
+                home / "go" / "bin" / "opencode",
+                home / ".local" / "bin" / "opencode",
+            ],
+            cls.DROID: [
+                home / ".local" / "bin" / "droid",
+                Path("/usr/local/bin/droid"),
+            ],
+        }
+        return paths.get(tool, [])
+
+    @classmethod
     def get_command(
         cls,
         tool: "AITool",
+        executable_path: str | None = None,
         droid_auto: DroidAutoLevel | None = None,
         droid_skip_permissions: bool = False,
         opencode_config: str | None = None,
@@ -51,6 +71,7 @@ class AITool(str, Enum):
 
         Args:
             tool: The AI tool to get command for
+            executable_path: Full path to executable (used when not in PATH)
             droid_auto: Droid auto mode level (low, medium, high)
             droid_skip_permissions: Skip permissions check for Droid
             opencode_config: Custom config path for OpenCode
@@ -58,8 +79,11 @@ class AITool(str, Enum):
         Returns:
             Complete command string to execute
         """
+        # Use full path if provided, otherwise use tool name
+        binary = executable_path or tool.value
+
         if tool == cls.DROID:
-            cmd_parts = ["droid"]
+            cmd_parts = [binary]
             if droid_auto:
                 cmd_parts.append(f"--auto {droid_auto.value}")
             if droid_skip_permissions:
@@ -67,15 +91,42 @@ class AITool(str, Enum):
             return " ".join(cmd_parts)
 
         if tool == cls.OPENCODE and opencode_config:
-            return f"OPENCODE_CONFIG={opencode_config} opencode"
+            return f"OPENCODE_CONFIG={opencode_config} {binary}"
 
-        return tool.value
+        return binary
 
     @classmethod
     def is_installed(cls, tool: "AITool") -> bool:
         """Check if an AI tool is installed on the system."""
         binary = cls.get_binary_name(tool)
-        return shutil.which(binary) is not None
+
+        # Check PATH first
+        if shutil.which(binary) is not None:
+            return True
+
+        # Check known installation paths
+        for path in cls.get_known_paths(tool):
+            if path.exists() and path.is_file():
+                return True
+
+        return False
+
+    @classmethod
+    def get_executable_path(cls, tool: "AITool") -> str | None:
+        """Get the actual executable path for an AI tool."""
+        binary = cls.get_binary_name(tool)
+
+        # Check PATH first
+        path_binary = shutil.which(binary)
+        if path_binary:
+            return path_binary
+
+        # Check known installation paths
+        for path in cls.get_known_paths(tool):
+            if path.exists() and path.is_file():
+                return str(path)
+
+        return None
 
     @classmethod
     def get_install_hint(cls, tool: "AITool") -> str:

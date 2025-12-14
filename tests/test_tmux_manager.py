@@ -586,12 +586,14 @@ class TestAIToolSupport:
         )
         assert config.ai_tool == AITool.DROID
 
+    @patch.object(AITool, 'get_executable_path', return_value='opencode')
     @patch.object(AITool, 'is_installed', return_value=True)
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
     def test_start_ai_tool_opencode(
         self,
         mock_server_prop,
         mock_is_installed,
+        mock_get_path,
         temp_dir: Path,
         mock_libtmux_session: MagicMock
     ):
@@ -617,12 +619,14 @@ class TestAIToolSupport:
             enter=True
         )
 
+    @patch.object(AITool, 'get_executable_path', return_value='droid')
     @patch.object(AITool, 'is_installed', return_value=True)
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
     def test_start_ai_tool_droid(
         self,
         mock_server_prop,
         mock_is_installed,
+        mock_get_path,
         temp_dir: Path,
         mock_libtmux_session: MagicMock
     ):
@@ -674,12 +678,14 @@ class TestAIToolSupport:
         # Verify no command was sent to the pane
         mock_libtmux_session.active_window.active_pane.send_keys.assert_not_called()
 
+    @patch.object(AITool, 'get_executable_path', return_value='opencode')
     @patch.object(AITool, 'is_installed', return_value=True)
     @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
     def test_create_worktree_session_with_ai_tool(
         self,
         mock_server_prop,
         mock_is_installed,
+        mock_get_path,
         temp_dir: Path,
         mock_libtmux_session: MagicMock
     ):
@@ -703,15 +709,16 @@ class TestAIToolSupport:
             enter=True
         )
 
+    @patch.object(AITool, 'get_known_paths', return_value=[])
     @patch('shutil.which', return_value=None)
-    def test_ai_tool_not_installed(self, mock_which):
+    def test_ai_tool_not_installed(self, mock_which, mock_known_paths):
         """Test is_installed returns False when tool is not found."""
         assert AITool.is_installed(AITool.OPENCODE) is False
         mock_which.assert_called_with("opencode")
 
     @patch('shutil.which', return_value='/usr/local/bin/claude')
     def test_ai_tool_installed(self, mock_which):
-        """Test is_installed returns True when tool is found."""
+        """Test is_installed returns True when tool is found in PATH."""
         assert AITool.is_installed(AITool.CLAUDE) is True
         mock_which.assert_called_with("claude")
 
