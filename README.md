@@ -163,28 +163,91 @@ Claude Orchestrator automatically detects your project type and package manager:
 | Go | `go.mod` | go |
 | PHP | `composer.json` | composer |
 
-## Claude Code Integration
+## Usage Modes
 
-### Slash Commands
+Claude Orchestrator can be used in two ways:
 
-Claude Orchestrator provides slash commands for use within Claude Code:
+### 1. Standalone CLI Tool
 
-- `/worktree` - Main command wrapper
-- `/wt-create` - Quick create shortcut
-- `/wt-list` - List with formatting
-- `/wt-cleanup` - Cleanup stale worktrees
+Use `cwt` directly from the terminal to manage worktrees and tmux sessions:
 
-### Hooks
+```bash
+# Create a worktree with auto-setup
+cwt create feature/my-feature
 
-Claude Orchestrator can inject worktree context into your Claude Code sessions via hooks:
+# List all worktrees
+cwt list
+
+# Attach to a worktree's tmux session
+cwt switch feature/my-feature --tmux
+
+# Clean up stale worktrees
+cwt cleanup --dry-run
+```
+
+This mode is ideal for developers who want worktree management without Claude Code integration.
+
+### 2. Claude Code Plugin Integration
+
+For developers using Claude Code, the tool provides slash commands and context hooks that allow Claude to manage worktrees on your behalf.
+
+#### Setup
+
+Copy the `.claude/` directory to your project (or symlink it):
+
+```bash
+# From your project root
+cp -r /path/to/claude-orchestrator/.claude .
+```
+
+Or add the permissions to your existing `.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(cwt:*)",
+      "Bash(git worktree:*)",
+      "Bash(tmux:*)"
+    ]
+  }
+}
+```
+
+#### Slash Commands
+
+Once configured, Claude Code can use these slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/worktree` | Main worktree management (create, list, switch, delete) |
+| `/wt-create` | Quick worktree creation shortcut |
+| `/wt-list` | List all worktrees with status |
+| `/wt-cleanup` | Clean up stale worktrees |
+
+Example usage in Claude Code:
+```
+/worktree create feature/add-authentication
+```
+
+#### Context Hook (Optional)
+
+To automatically inject worktree context into Claude Code prompts, add the hook to your `.claude/settings.json`:
 
 ```json
 {
   "hooks": {
-    "UserPromptSubmit": "python scripts/context-injector.py"
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "python3 scripts/context-injector.py"
+      }
+    ]
   }
 }
 ```
+
+This will show `[Worktree: name | Branch: branch]` in your prompts when working in a worktree.
 
 ## Development
 
@@ -222,18 +285,21 @@ claude-orchestrator/
 │   │   ├── project_detector.py    # Project type detection
 │   │   ├── environment.py         # Dependency & .env setup
 │   │   ├── tmux_manager.py        # tmux session management
-│   │   └── cleanup.py             # Worktree cleanup/maintenance
+│   │   ├── tmux_cli.py            # tmux CLI commands
+│   │   ├── cleanup.py             # Worktree cleanup/maintenance
+│   │   └── sync.py                # Upstream sync operations
 │   ├── models/
-│   │   ├── worktree_info.py       # Pydantic models
-│   │   └── project_config.py      # Configuration models
-│   └── utils/
-│       ├── git_utils.py           # Git helper functions
-│       ├── path_utils.py          # Path utilities
-│       └── logger.py              # Structured logging
+│   │   ├── worktree_info.py       # Worktree info models
+│   │   ├── project_config.py      # Project configuration models
+│   │   └── maintenance.py         # Cleanup & sync models
+│   └── utils/                     # Utility functions
 ├── tests/
+├── scripts/
+│   └── context-injector.py        # Claude Code context hook
 ├── .claude/
+│   ├── CLAUDE.md                  # Project instructions for Claude Code
 │   ├── commands/                  # Claude Code slash commands
-│   └── settings.json              # Hooks configuration
+│   └── settings.json              # Permissions configuration
 ├── pyproject.toml
 └── .worktreerc.example
 ```
