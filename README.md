@@ -29,7 +29,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/open-orchestrator.git
+git clone https://github.com/gitpcl/openorchestrator.git
 cd open-orchestrator
 
 # Install with uv
@@ -410,7 +410,7 @@ This will show `[Worktree: name | Branch: branch]` in your prompts when working 
 
 ```bash
 # Clone and install with dev dependencies
-git clone https://github.com/yourusername/open-orchestrator.git
+git clone https://github.com/gitpcl/openorchestrator.git
 cd open-orchestrator
 uv pip install -e ".[dev]"
 
