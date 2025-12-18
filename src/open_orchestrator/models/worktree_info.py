@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +14,7 @@ class WorktreeInfo(BaseModel):
     head_commit: str = Field(description="Short SHA of the HEAD commit")
     is_main: bool = Field(default=False, description="Whether this is the main worktree")
     is_detached: bool = Field(default=False, description="Whether HEAD is detached")
-    created_at: Optional[datetime] = Field(
+    created_at: datetime | None = Field(
         default=None, description="When the worktree was created"
     )
 
@@ -45,6 +44,6 @@ class WorktreeCreateResult(BaseModel):
     deps_installed: bool = Field(
         default=False, description="Whether dependencies were installed"
     )
-    tmux_session: Optional[str] = Field(
+    tmux_session: str | None = Field(
         default=None, description="Name of the tmux session if created"
     )

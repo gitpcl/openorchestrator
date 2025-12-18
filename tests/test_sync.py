@@ -9,11 +9,8 @@ Tests cover:
 - Error handling for various edge cases
 """
 
-import subprocess
-import tempfile
 from datetime import datetime
-from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 

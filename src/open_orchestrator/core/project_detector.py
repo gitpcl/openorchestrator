@@ -5,11 +5,11 @@ associated package managers by analyzing project files and directory structure.
 """
 
 import logging
+import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from ..models.project_config import PackageManager, ProjectConfig, ProjectType
-
 logger = logging.getLogger(__name__)
 
 
@@ -100,7 +100,8 @@ class ProjectDetector:
 
         # Try each project type in order
         for project_type, markers, manager_detector in self._detection_order:
-            detected_marker = self._find_marker(project_root, markers)
+            markers_map = cast(dict[str, PackageManager | None], markers)
+            detected_marker = self._find_marker(project_root, markers_map)
 
             if detected_marker:
                 marker_file, default_manager = detected_marker
@@ -108,7 +109,7 @@ class ProjectDetector:
 
                 # Use custom manager detector if available
                 if manager_detector:
-                    package_manager = manager_detector(project_root, markers)
+                    package_manager = manager_detector(project_root, markers_map)
                 else:
                     package_manager = default_manager or PackageManager.UNKNOWN
 
@@ -117,7 +118,7 @@ class ProjectDetector:
                     project_type=project_type,
                     package_manager=package_manager,
                     marker_file=marker_file,
-                    markers=markers,
+                    markers=markers_map,
                 )
 
         # No project type detected
@@ -131,8 +132,8 @@ class ProjectDetector:
     def _find_marker(
         self,
         project_root: Path,
-        markers: dict[str, Optional[PackageManager]],
-    ) -> Optional[tuple[str, Optional[PackageManager]]]:
+        markers: dict[str, PackageManager | None],
+    ) -> tuple[str, PackageManager | None] | None:
         """Find the first matching marker file in the project.
 
         Args:
@@ -150,11 +151,11 @@ class ProjectDetector:
     def _detect_python_manager(
         self,
         project_root: Path,
-        markers: dict[str, Optional[PackageManager]],
+        markers: dict[str, PackageManager | None],
     ) -> PackageManager:
         """Detect the Python package manager from project files.
 
-        Priority order: uv > poetry > pipenv > pip
+        Priority order: uv > poetry > pipenv > pip (but only default to uv when available)
 
         Args:
             project_root: Project root directory.
@@ -180,30 +181,32 @@ class ProjectDetector:
                 content = pyproject_path.read_text()
 
                 # Check for uv-specific markers
-                if "[tool.uv]" in content or "uv" in content.lower():
+                if "[tool.uv]" in content:
                     return PackageManager.UV
 
                 # Check for poetry
                 if "[tool.poetry]" in content:
                     return PackageManager.POETRY
 
-                # Default to uv for modern pyproject.toml projects
-                return PackageManager.UV
+                # If uv is installed system-wide, prefer it; otherwise fall back to pip
+                if shutil.which("uv") is not None:
+                    return PackageManager.UV
+                return PackageManager.PIP
 
             except OSError as e:
                 logger.warning(f"Could not read pyproject.toml: {e}")
 
-        # Fallback to pip if requirements.txt exists
+        # Fallbacks based on common files
         if (project_root / "requirements.txt").exists():
             return PackageManager.PIP
 
-        # Default to uv as modern Python standard
-        return PackageManager.UV
+        # As a last resort, prefer pip
+        return PackageManager.PIP
 
     def _detect_node_manager(
         self,
         project_root: Path,
-        markers: dict[str, Optional[PackageManager]],
+        markers: dict[str, PackageManager | None],
     ) -> PackageManager:
         """Detect the Node.js package manager from project files.
 
@@ -259,7 +262,7 @@ class ProjectDetector:
         project_type: ProjectType,
         package_manager: PackageManager,
         marker_file: str,
-        markers: dict[str, Optional[PackageManager]],
+        markers: dict[str, PackageManager | None],
     ) -> ProjectConfig:
         """Build a ProjectConfig from detected information.
 
@@ -352,13 +355,14 @@ class ProjectDetector:
         configs = []
 
         for project_type, markers, manager_detector in self._detection_order:
-            detected_marker = self._find_marker(project_root, markers)
+            markers_map = cast(dict[str, PackageManager | None], markers)
+            detected_marker = self._find_marker(project_root, markers_map)
 
             if detected_marker:
                 marker_file, default_manager = detected_marker
 
                 if manager_detector:
-                    package_manager = manager_detector(project_root, markers)
+                    package_manager = manager_detector(project_root, markers_map)
                 else:
                     package_manager = default_manager or PackageManager.UNKNOWN
 
@@ -367,7 +371,7 @@ class ProjectDetector:
                     project_type=project_type,
                     package_manager=package_manager,
                     marker_file=marker_file,
-                    markers=markers,
+                    markers=markers_map,
                 )
                 configs.append(config)
 

@@ -18,16 +18,16 @@ from open_orchestrator.core.cleanup import (
     UsageTracker,
     WorktreeUsageStats,
 )
+from open_orchestrator.core.status import (
+    StatusConfig,
+    StatusTracker,
+)
 from open_orchestrator.core.sync import (
     SyncConfig,
     SyncReport,
     SyncService,
     SyncStatus,
     WorktreeSyncResult,
-)
-from open_orchestrator.core.status import (
-    StatusConfig,
-    StatusTracker,
 )
 
 __all__ = [

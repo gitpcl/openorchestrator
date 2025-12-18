@@ -11,27 +11,28 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
 
 from open_orchestrator.config import AITool
 from open_orchestrator.models.status import (
     AIActivityStatus,
-    CommandRecord,
     StatusStore,
     StatusSummary,
     WorktreeAIStatus,
 )
+from open_orchestrator.utils.io import atomic_write_text, shared_file_lock
 
 
 @dataclass
 class StatusConfig:
     """Configuration for status tracking."""
 
-    storage_path: Optional[Path] = None
+    storage_path: Path | None = None
     max_command_history: int = 20
     auto_cleanup_orphans: bool = True
+    store_commands: bool = True
+    redact_commands: bool = True
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.max_command_history < 1:
             raise ValueError("max_command_history must be at least 1")
 
@@ -47,10 +48,10 @@ class StatusTracker:
 
     DEFAULT_STATUS_FILENAME = "ai_status.json"
 
-    def __init__(self, config: Optional[StatusConfig] = None):
+    def __init__(self, config: StatusConfig | None = None):
         self.config = config or StatusConfig()
         self._storage_path = self.config.storage_path or self._get_default_path()
-        self._store: Optional[StatusStore] = None
+        self._store: StatusStore = StatusStore()
         self._load_store()
 
     def _get_default_path(self) -> Path:
@@ -61,31 +62,29 @@ class StatusTracker:
         """Load status store from persistent storage."""
         if self._storage_path.exists():
             try:
-                with open(self._storage_path, "r") as f:
-                    data = json.load(f)
-                    self._store = StatusStore.model_validate(data)
-            except (json.JSONDecodeError, IOError, ValueError):
+                with open(self._storage_path) as f:
+                    with shared_file_lock(f):
+                        data = json.load(f)
+                        self._store = StatusStore.model_validate(data)
+            except (OSError, json.JSONDecodeError, ValueError):
                 self._store = StatusStore()
         else:
             self._store = StatusStore()
 
     def _save_store(self) -> None:
-        """Persist status store to storage."""
-        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+        """Persist status store to storage using atomic write and 0o600 perms."""
+        data = json.dumps(
+            self._store.model_dump(mode="json"),
+            indent=2,
+            default=str,
+        )
+        atomic_write_text(self._storage_path, data, perms=0o600)
 
-        with open(self._storage_path, "w") as f:
-            json.dump(
-                self._store.model_dump(mode="json"),
-                f,
-                indent=2,
-                default=str
-            )
-
-    def get_status(self, worktree_name: str) -> Optional[WorktreeAIStatus]:
+    def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Get status for a specific worktree."""
         return self._store.get_status(worktree_name)
 
-    def get_all_statuses(self) -> List[WorktreeAIStatus]:
+    def get_all_statuses(self) -> list[WorktreeAIStatus]:
         """Get statuses for all tracked worktrees."""
         return self._store.get_all_statuses()
 
@@ -94,7 +93,7 @@ class StatusTracker:
         worktree_name: str,
         worktree_path: str,
         branch: str,
-        tmux_session: Optional[str] = None,
+        tmux_session: str | None = None,
         ai_tool: AITool | str = AITool.CLAUDE,
     ) -> WorktreeAIStatus:
         """
@@ -131,7 +130,7 @@ class StatusTracker:
         worktree_name: str,
         task: str,
         status: AIActivityStatus = AIActivityStatus.WORKING
-    ) -> Optional[WorktreeAIStatus]:
+    ) -> WorktreeAIStatus | None:
         """
         Update the current task for a worktree.
 
@@ -157,10 +156,10 @@ class StatusTracker:
         self,
         target_worktree: str,
         command: str,
-        source_worktree: Optional[str] = None,
+        source_worktree: str | None = None,
         pane_index: int = 0,
         window_index: int = 0
-    ) -> Optional[WorktreeAIStatus]:
+    ) -> WorktreeAIStatus | None:
         """
         Record a command sent to a worktree.
 
@@ -179,13 +178,19 @@ class StatusTracker:
         if not wt_status:
             return None
 
-        wt_status.add_command(
-            command=command,
-            source_worktree=source_worktree,
-            pane_index=pane_index,
-            window_index=window_index,
-            max_history=self.config.max_command_history
-        )
+        if self.config.redact_commands:
+            command_to_store = self._sanitize_command(command)
+        else:
+            command_to_store = command
+
+        if self.config.store_commands:
+            wt_status.add_command(
+                command=command_to_store,
+                source_worktree=source_worktree,
+                pane_index=pane_index,
+                window_index=window_index,
+                max_history=self.config.max_command_history
+            )
 
         if wt_status.activity_status == AIActivityStatus.IDLE:
             wt_status.activity_status = AIActivityStatus.WORKING
@@ -194,7 +199,7 @@ class StatusTracker:
         self._save_store()
         return wt_status
 
-    def mark_completed(self, worktree_name: str) -> Optional[WorktreeAIStatus]:
+    def mark_completed(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Mark a worktree's current task as completed."""
         wt_status = self._store.get_status(worktree_name)
 
@@ -206,7 +211,7 @@ class StatusTracker:
         self._save_store()
         return wt_status
 
-    def mark_idle(self, worktree_name: str) -> Optional[WorktreeAIStatus]:
+    def mark_idle(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Mark a worktree as idle."""
         wt_status = self._store.get_status(worktree_name)
 
@@ -222,7 +227,7 @@ class StatusTracker:
         self,
         worktree_name: str,
         notes: str
-    ) -> Optional[WorktreeAIStatus]:
+    ) -> WorktreeAIStatus | None:
         """Set notes for a worktree."""
         wt_status = self._store.get_status(worktree_name)
 
@@ -251,7 +256,7 @@ class StatusTracker:
 
     def get_summary(
         self,
-        worktree_names: Optional[List[str]] = None
+        worktree_names: list[str] | None = None
     ) -> StatusSummary:
         """
         Generate a summary of AI tool status across worktrees.
@@ -299,7 +304,7 @@ class StatusTracker:
 
         return summary
 
-    def cleanup_orphans(self, valid_worktree_names: List[str]) -> List[str]:
+    def cleanup_orphans(self, valid_worktree_names: list[str]) -> list[str]:
         """
         Remove status entries for worktrees that no longer exist.
 
@@ -322,7 +327,40 @@ class StatusTracker:
 
         return removed
 
-    def get_current_worktree_name(self) -> Optional[str]:
+    def set_status(self, status: WorktreeAIStatus) -> None:
+        """Public API to persist a WorktreeAIStatus update."""
+        self._store.set_status(status)
+        self._save_store()
+
+    def _sanitize_command(self, text: str) -> str:
+        """Best-effort redaction of secrets in commands."""
+        import re as _re
+        redactions = [
+            # Authorization: Bearer <token>
+            (r"(Authorization\s*:\s*Bearer\s+)[^\s]+", r"\1[REDACTED]"),
+            # password=... or password: ... (with optional quotes)
+            (r'(?i)(password\s*[:=]\s*)["\']?([^"\'\s]+)["\']?', r"\1[REDACTED]"),
+            # api key/token patterns (with optional quotes)
+            (r'(?i)(api[_-]?key\s*[:=]\s*)["\']?([^"\'\s]+)["\']?', r"\1[REDACTED]"),
+            (r'(?i)(token\s*[:=]\s*)["\']?([^"\'\s]+)["\']?', r"\1[REDACTED]"),
+            (r'(?i)(secret\s*[:=]\s*)["\']?([^"\'\s]+)["\']?', r"\1[REDACTED]"),
+            # URLs with embedded credentials (user:pass@host)
+            (r"(https?://)[^/:@\s]+:[^/:@\s]+@", r"\1[REDACTED]:[REDACTED]@"),
+            # JWT tokens (three base64 segments separated by dots)
+            (r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", "[JWT REDACTED]"),
+            # AWS Access Key ID pattern
+            (r"AKIA[0-9A-Z]{16}", "AKIA[REDACTED]"),
+            # AWS Secret Access Key (40 character base64)
+            (r"(?i)(aws_secret_access_key\s*[:=]\s*)[A-Za-z0-9/+=]{40}", r"\1[REDACTED]"),
+            # Private key block markers
+            (r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC )?PRIVATE KEY-----", "[PRIVATE KEY REDACTED]"),
+        ]
+        redacted = text
+        for pat, repl in redactions:
+            redacted = _re.sub(pat, repl, redacted)
+        return redacted
+
+    def get_current_worktree_name(self) -> str | None:
         """
         Get the worktree name for the current directory.
 

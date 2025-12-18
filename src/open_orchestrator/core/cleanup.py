@@ -8,13 +8,14 @@ This module provides functionality to:
 """
 
 import json
-import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from pydantic import BaseModel
+
+from open_orchestrator.utils.io import shared_file_lock
 
 
 class WorktreeUsageStats(BaseModel):
@@ -25,7 +26,7 @@ class WorktreeUsageStats(BaseModel):
     created_at: datetime
     last_accessed: datetime
     access_count: int = 0
-    last_commit_date: Optional[datetime] = None
+    last_commit_date: datetime | None = None
     has_uncommitted_changes: bool = False
     has_unpushed_commits: bool = False
 
@@ -40,9 +41,9 @@ class CleanupReport(BaseModel):
     stale_worktrees_found: int
     worktrees_cleaned: int
     worktrees_skipped: int
-    errors: List[str] = []
-    cleaned_paths: List[str] = []
-    skipped_paths: List[str] = []
+    errors: list[str] = []
+    cleaned_paths: list[str] = []
+    skipped_paths: list[str] = []
 
 
 @dataclass
@@ -52,9 +53,9 @@ class CleanupConfig:
     stale_threshold_days: int = 14
     protect_uncommitted: bool = True
     protect_unpushed: bool = True
-    stats_file_path: Optional[Path] = None
+    stats_file_path: Path | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.stale_threshold_days < 1:
             raise ValueError("stale_threshold_days must be at least 1")
 
@@ -64,9 +65,9 @@ class UsageTracker:
 
     DEFAULT_STATS_FILENAME = ".worktree_stats.json"
 
-    def __init__(self, stats_file_path: Optional[Path] = None):
+    def __init__(self, stats_file_path: Path | None = None):
         self._stats_file = stats_file_path or self._get_default_stats_path()
-        self._usage_data: Dict[str, Dict[str, Any]] = {}
+        self._usage_data: dict[str, dict[str, Any]] = {}
         self._load_stats()
 
     def _get_default_stats_path(self) -> Path:
@@ -77,17 +78,17 @@ class UsageTracker:
         """Load usage statistics from persistent storage."""
         if self._stats_file.exists():
             try:
-                with open(self._stats_file, 'r') as f:
-                    self._usage_data = json.load(f)
-            except (json.JSONDecodeError, IOError) as e:
+                with open(self._stats_file) as f:
+                    with shared_file_lock(f):
+                        self._usage_data = json.load(f)
+            except (OSError, json.JSONDecodeError):
                 self._usage_data = {}
 
     def _save_stats(self) -> None:
-        """Persist usage statistics to storage."""
-        self._stats_file.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(self._stats_file, 'w') as f:
-            json.dump(self._usage_data, f, indent=2, default=str)
+        """Persist usage statistics to storage (atomic, 0o600)."""
+        from open_orchestrator.utils.io import atomic_write_text
+        data = json.dumps(self._usage_data, indent=2, default=str)
+        atomic_write_text(self._stats_file, data, perms=0o600)
 
     def record_access(self, worktree_path: str, branch_name: str) -> None:
         """Record an access event for a worktree."""
@@ -109,11 +110,11 @@ class UsageTracker:
 
         self._save_stats()
 
-    def get_stats(self, worktree_path: str) -> Optional[Dict[str, Any]]:
+    def get_stats(self, worktree_path: str) -> dict[str, Any] | None:
         """Get usage statistics for a specific worktree."""
         return self._usage_data.get(str(worktree_path))
 
-    def get_all_stats(self) -> Dict[str, Dict[str, Any]]:
+    def get_all_stats(self) -> dict[str, dict[str, Any]]:
         """Get all tracked usage statistics."""
         return self._usage_data.copy()
 
@@ -125,7 +126,7 @@ class UsageTracker:
             del self._usage_data[path_key]
             self._save_stats()
 
-    def get_last_accessed(self, worktree_path: str) -> Optional[datetime]:
+    def get_last_accessed(self, worktree_path: str) -> datetime | None:
         """Get the last access time for a worktree."""
         stats = self.get_stats(worktree_path)
 
@@ -145,17 +146,17 @@ class CleanupService:
 
     def __init__(
         self,
-        config: Optional[CleanupConfig] = None,
-        usage_tracker: Optional[UsageTracker] = None
+        config: CleanupConfig | None = None,
+        usage_tracker: UsageTracker | None = None
     ):
         self.config = config or CleanupConfig()
         self.usage_tracker = usage_tracker or UsageTracker(self.config.stats_file_path)
 
     def get_stale_worktrees(
         self,
-        worktree_paths: List[str],
-        threshold_days: Optional[int] = None
-    ) -> List[WorktreeUsageStats]:
+        worktree_paths: list[str],
+        threshold_days: int | None = None
+    ) -> list[WorktreeUsageStats]:
         """
         Identify worktrees that are considered stale.
 
@@ -178,7 +179,7 @@ class CleanupService:
 
         return stale_worktrees
 
-    def _get_worktree_stats(self, worktree_path: str) -> Optional[WorktreeUsageStats]:
+    def _get_worktree_stats(self, worktree_path: str) -> WorktreeUsageStats | None:
         """Get comprehensive stats for a worktree."""
         path = Path(worktree_path)
 
@@ -259,7 +260,7 @@ class CleanupService:
         except Exception:
             return True
 
-    def _get_last_commit_date(self, worktree_path: Path) -> Optional[datetime]:
+    def _get_last_commit_date(self, worktree_path: Path) -> datetime | None:
         """Get the date of the last commit in the worktree."""
         try:
             import subprocess
@@ -296,9 +297,9 @@ class CleanupService:
 
     def cleanup(
         self,
-        worktree_paths: List[str],
+        worktree_paths: list[str],
         dry_run: bool = True,
-        threshold_days: Optional[int] = None,
+        threshold_days: int | None = None,
         force: bool = False
     ) -> CleanupReport:
         """
@@ -362,7 +363,7 @@ class CleanupService:
         if result.returncode != 0:
             raise RuntimeError(f"git worktree remove failed: {result.stderr}")
 
-    def get_usage_report(self, worktree_paths: List[str]) -> List[WorktreeUsageStats]:
+    def get_usage_report(self, worktree_paths: list[str]) -> list[WorktreeUsageStats]:
         """Generate a usage report for all worktrees."""
         stats_list = []
 

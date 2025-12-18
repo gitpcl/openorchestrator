@@ -8,7 +8,6 @@ Tests cover:
 - Usage statistics tracking
 """
 
-import json
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path

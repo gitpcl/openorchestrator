@@ -9,8 +9,6 @@ This module provides data models for:
 
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -32,7 +30,7 @@ class CommandRecord(BaseModel):
 
     timestamp: datetime = Field(..., description="When the command was sent")
     command: str = Field(..., description="The command that was sent")
-    source_worktree: Optional[str] = Field(
+    source_worktree: str | None = Field(
         default=None,
         description="Worktree that sent the command (None if manual)"
     )
@@ -46,7 +44,7 @@ class WorktreeAIStatus(BaseModel):
     worktree_name: str = Field(..., description="Name of the worktree")
     worktree_path: str = Field(..., description="Absolute path to the worktree")
     branch: str = Field(..., description="Current git branch")
-    tmux_session: Optional[str] = Field(
+    tmux_session: str | None = Field(
         default=None,
         description="Associated tmux session name"
     )
@@ -58,19 +56,19 @@ class WorktreeAIStatus(BaseModel):
         default=AIActivityStatus.UNKNOWN,
         description="Current activity status"
     )
-    current_task: Optional[str] = Field(
+    current_task: str | None = Field(
         default=None,
         description="Description of current task AI is working on"
     )
-    last_task_update: Optional[datetime] = Field(
+    last_task_update: datetime | None = Field(
         default=None,
         description="When the task was last updated"
     )
-    recent_commands: List[CommandRecord] = Field(
+    recent_commands: list[CommandRecord] = Field(
         default_factory=list,
         description="Recent commands sent to this worktree"
     )
-    notes: Optional[str] = Field(
+    notes: str | None = Field(
         default=None,
         description="Additional notes or context"
     )
@@ -89,7 +87,7 @@ class WorktreeAIStatus(BaseModel):
     def add_command(
         self,
         command: str,
-        source_worktree: Optional[str] = None,
+        source_worktree: str | None = None,
         pane_index: int = 0,
         window_index: int = 0,
         max_history: int = 20
@@ -165,11 +163,11 @@ class StatusSummary(BaseModel):
         ge=0,
         description="Total commands sent across all worktrees"
     )
-    most_recent_activity: Optional[datetime] = Field(
+    most_recent_activity: datetime | None = Field(
         default=None,
         description="Most recent activity across all worktrees"
     )
-    statuses: List[WorktreeAIStatus] = Field(
+    statuses: list[WorktreeAIStatus] = Field(
         default_factory=list,
         description="Individual status for each worktree"
     )
@@ -188,7 +186,7 @@ class StatusStore(BaseModel):
         description="Map of worktree name to status"
     )
 
-    def get_status(self, worktree_name: str) -> Optional[WorktreeAIStatus]:
+    def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Get status for a specific worktree."""
         return self.statuses.get(worktree_name)
 
@@ -205,6 +203,6 @@ class StatusStore(BaseModel):
             return True
         return False
 
-    def get_all_statuses(self) -> List[WorktreeAIStatus]:
+    def get_all_statuses(self) -> list[WorktreeAIStatus]:
         """Get all worktree statuses."""
         return list(self.statuses.values())

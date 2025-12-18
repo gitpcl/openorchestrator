@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from subprocess import CompletedProcess
 
 from pydantic import BaseModel
 
@@ -38,7 +38,7 @@ class WorktreeSyncResult(BaseModel):
     commits_pulled: int = 0
     commits_behind: int = 0
     commits_ahead: int = 0
-    upstream_branch: Optional[str] = None
+    upstream_branch: str | None = None
 
 
 class SyncReport(BaseModel):
@@ -50,7 +50,7 @@ class SyncReport(BaseModel):
     failed: int
     up_to_date: int
     with_conflicts: int
-    results: List[WorktreeSyncResult] = []
+    results: list[WorktreeSyncResult] = []
 
 
 @dataclass
@@ -72,7 +72,7 @@ class SyncService:
     tracking for git worktrees.
     """
 
-    def __init__(self, config: Optional[SyncConfig] = None):
+    def __init__(self, config: SyncConfig | None = None):
         self.config = config or SyncConfig()
 
     def sync_worktree(self, worktree_path: str) -> WorktreeSyncResult:
@@ -130,6 +130,17 @@ class SyncService:
                 if stashed:
                     self._run_git_command(path, ["stash", "pop"])
 
+                if commits_ahead > 0:
+                    return WorktreeSyncResult(
+                        worktree_path=worktree_path,
+                        branch_name=branch_name,
+                        status=SyncStatus.UP_TO_DATE,
+                        message=f"Local branch is ahead by {commits_ahead} commits. Push to sync.",
+                        commits_behind=0,
+                        commits_ahead=commits_ahead,
+                        upstream_branch=upstream
+                    )
+
                 return WorktreeSyncResult(
                     worktree_path=worktree_path,
                     branch_name=branch_name,
@@ -186,7 +197,7 @@ class SyncService:
                 upstream_branch=upstream
             )
 
-    def sync_all(self, worktree_paths: List[str]) -> SyncReport:
+    def sync_all(self, worktree_paths: list[str]) -> SyncReport:
         """
         Sync all provided worktrees with their upstream branches.
 
@@ -288,7 +299,7 @@ class SyncService:
         self,
         worktree_path: str,
         remote: str = "origin",
-        branch: Optional[str] = None
+        branch: str | None = None
     ) -> bool:
         """
         Setup upstream tracking for a worktree.
@@ -319,8 +330,8 @@ class SyncService:
     def _run_git_command(
         self,
         worktree_path: Path,
-        args: List[str]
-    ) -> subprocess.CompletedProcess:
+        args: list[str]
+    ) -> CompletedProcess[str]:
         """Run a git command in the worktree directory."""
         return subprocess.run(
             ["git"] + args,
@@ -335,7 +346,7 @@ class SyncService:
         result = self._run_git_command(worktree_path, ["branch", "--show-current"])
         return result.stdout.strip() or "HEAD"
 
-    def _get_upstream_branch(self, worktree_path: Path) -> Optional[str]:
+    def _get_upstream_branch(self, worktree_path: Path) -> str | None:
         """Get the upstream branch for the current branch."""
         result = self._run_git_command(
             worktree_path,
@@ -385,7 +396,7 @@ class SyncService:
 
         return 0, 0
 
-    def _pull_changes(self, worktree_path: Path) -> subprocess.CompletedProcess:
+    def _pull_changes(self, worktree_path: Path) -> CompletedProcess[str]:
         """Pull changes from upstream."""
         args = ["pull"]
 

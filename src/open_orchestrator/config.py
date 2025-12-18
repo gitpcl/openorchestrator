@@ -9,10 +9,10 @@ Loads configuration from .worktreerc files in the following priority:
 5. ~/.worktreerc
 """
 
+import shlex
 import shutil
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import toml
 from pydantic import BaseModel, Field
@@ -91,7 +91,8 @@ class AITool(str, Enum):
             return " ".join(cmd_parts)
 
         if tool == cls.OPENCODE and opencode_config:
-            return f"OPENCODE_CONFIG={opencode_config} {binary}"
+            quoted = shlex.quote(opencode_config)
+            return f"OPENCODE_CONFIG={quoted} {binary}"
 
         return binary
 
@@ -260,7 +261,7 @@ class Config(BaseModel):
     droid: DroidConfig = Field(default_factory=DroidConfig)
 
 
-def load_config(config_path: Optional[str] = None) -> Config:
+def load_config(config_path: str | None = None) -> Config:
     """
     Load configuration from file or use defaults.
 

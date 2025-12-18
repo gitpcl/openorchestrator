@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from open_orchestrator.config import AITool, DroidAutoLevel
+
 from .tmux_manager import (
     TmuxError,
     TmuxLayout,
@@ -42,7 +43,7 @@ def get_layout_from_string(layout_str: str) -> TmuxLayout:
 
 
 @click.group(name="tmux")
-def tmux_group():
+def tmux_group() -> None:
     """Manage tmux sessions for worktrees."""
     pass
 
@@ -110,7 +111,7 @@ def create_session(
     droid_skip_permissions: bool,
     opencode_config: str | None,
     attach: bool,
-):
+) -> None:
     """Create a new tmux session.
 
     SESSION_NAME is the name for the new tmux session.
@@ -161,7 +162,7 @@ def create_session(
 
 @tmux_group.command(name="attach")
 @click.argument("session_name")
-def attach_session(session_name: str):
+def attach_session(session_name: str) -> None:
     """Attach to an existing tmux session.
 
     SESSION_NAME is the name of the session to attach to.
@@ -202,7 +203,7 @@ def attach_session(session_name: str):
     is_flag=True,
     help="Output as JSON"
 )
-def list_sessions(all: bool, output_json: bool):
+def list_sessions(all: bool, output_json: bool) -> None:
     """List tmux sessions."""
     manager = TmuxManager()
 
@@ -264,7 +265,7 @@ def list_sessions(all: bool, output_json: bool):
     is_flag=True,
     help="Kill without confirmation"
 )
-def kill_session(session_name: str, force: bool):
+def kill_session(session_name: str, force: bool) -> None:
     """Kill a tmux session.
 
     SESSION_NAME is the name of the session to kill.
@@ -315,7 +316,7 @@ def kill_session(session_name: str, force: bool):
     default=0,
     help="Target window index"
 )
-def send_keys(session_name: str, keys: str, pane: int, window: int):
+def send_keys(session_name: str, keys: str, pane: int, window: int) -> None:
     """Send keys to a pane in a session.
 
     SESSION_NAME is the target session.

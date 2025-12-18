@@ -2,7 +2,6 @@
 
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -64,15 +63,15 @@ class ProjectConfig(BaseModel):
         default=False,
         description="Whether a lock file was detected"
     )
-    lock_file_path: Optional[Path] = Field(
+    lock_file_path: Path | None = Field(
         default=None,
         description="Path to the lock file if detected"
     )
-    manifest_file_path: Optional[Path] = Field(
+    manifest_file_path: Path | None = Field(
         default=None,
         description="Path to the project manifest file"
     )
-    env_file_path: Optional[Path] = Field(
+    env_file_path: Path | None = Field(
         default=None,
         description="Path to the .env file if detected"
     )

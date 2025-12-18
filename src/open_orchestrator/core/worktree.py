@@ -2,8 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Optional
-
+from typing import Any, Optional
 from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError
 
@@ -29,7 +28,7 @@ class NotAGitRepositoryError(WorktreeError):
 class WorktreeManager:
     """Manages git worktree operations for a repository."""
 
-    def __init__(self, repo_path: Optional[Path] = None):
+    def __init__(self, repo_path: Path | None = None):
         """
         Initialize the WorktreeManager.
 
@@ -83,7 +82,7 @@ class WorktreeManager:
         worktree_name = f"{self.project_name}-{sanitized_branch}"
         return self.git_root.parent / worktree_name
 
-    def _find_worktree(self, identifier: str) -> Optional[WorktreeInfo]:
+    def _find_worktree(self, identifier: str) -> WorktreeInfo | None:
         """
         Find a worktree by name, branch, or path.
 
@@ -114,14 +113,14 @@ class WorktreeManager:
         Returns:
             List of WorktreeInfo objects for each worktree.
         """
-        worktrees = []
+        worktrees: list[WorktreeInfo] = []
 
         try:
             output = self.repo.git.worktree("list", "--porcelain")
         except GitCommandError:
             return worktrees
 
-        current_wt: dict = {}
+        current_wt: dict[str, Any] = {}
         for line in output.split("\n"):
             line = line.strip()
 
@@ -147,7 +146,7 @@ class WorktreeManager:
 
         return worktrees
 
-    def _parse_worktree_entry(self, entry: dict) -> WorktreeInfo:
+    def _parse_worktree_entry(self, entry: dict[str, Any]) -> WorktreeInfo:
         """
         Parse a worktree entry dictionary into a WorktreeInfo object.
 
@@ -177,11 +176,35 @@ class WorktreeManager:
             is_detached=is_detached,
         )
 
+    def _validate_branch_name(self, branch: str) -> None:
+        """
+        Validate that the branch name is safe and valid.
+
+        Args:
+            branch: The branch name to validate.
+
+        Raises:
+            WorktreeError: If the branch name is invalid or unsafe.
+        """
+        if not branch:
+            raise WorktreeError("Branch name cannot be empty")
+
+        if branch.startswith("-"):
+            raise WorktreeError(f"Branch name cannot start with '-': {branch}")
+
+        # Basic character validation - allow alphanumeric, /, -, ., _
+        if not re.match(r"^[\w\-\./]+$", branch):
+            raise WorktreeError(f"Branch name contains invalid characters: {branch}")
+
+        # Prevent directory traversal attempts
+        if ".." in branch:
+            raise WorktreeError(f"Branch name cannot contain '..': {branch}")
+
     def create(
         self,
         branch: str,
-        base_branch: Optional[str] = None,
-        path: Optional[Path] = None,
+        base_branch: str | None = None,
+        path: Path | None = None,
         force: bool = False,
     ) -> WorktreeInfo:
         """
@@ -200,6 +223,10 @@ class WorktreeManager:
             WorktreeAlreadyExistsError: If a worktree already exists at the target path.
             WorktreeError: If worktree creation fails.
         """
+        self._validate_branch_name(branch)
+        if base_branch:
+            self._validate_branch_name(base_branch)
+
         worktree_path = path or self._generate_worktree_path(branch)
 
         if worktree_path.exists():
@@ -217,9 +244,15 @@ class WorktreeManager:
 
         try:
             if branch_exists:
-                self.repo.git.worktree("add", str(worktree_path), branch)
+                # Use -- to separate options from arguments
+                self.repo.git.worktree("add", str(worktree_path), "--", branch)
             else:
+                if not base_branch and getattr(self.repo, "head", None) and self.repo.head.is_detached:
+                    raise WorktreeError(
+                        "Detached HEAD detected. Specify a base branch with --base to create the new branch."
+                    )
                 base = base_branch or self.repo.active_branch.name
+                # Use -- to separate options from arguments
                 self.repo.git.worktree("add", "-b", branch, str(worktree_path), base)
 
         except GitCommandError as e:

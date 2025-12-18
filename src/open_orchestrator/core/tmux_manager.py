@@ -9,7 +9,6 @@ import os
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 import libtmux
 from libtmux.constants import PaneDirection
@@ -38,10 +37,10 @@ class TmuxSessionConfig:
     auto_start_ai: bool = True
     ai_tool: AITool = field(default=AITool.CLAUDE)
     # Tool-specific options
-    droid_auto: Optional[DroidAutoLevel] = None
+    droid_auto: DroidAutoLevel | None = None
     droid_skip_permissions: bool = False
-    opencode_config: Optional[str] = None
-    window_name: Optional[str] = None
+    opencode_config: str | None = None
+    window_name: str | None = None
 
 
 @dataclass
@@ -54,7 +53,7 @@ class TmuxSessionInfo:
     pane_count: int
     created_at: str
     attached: bool
-    working_directory: Optional[str] = None
+    working_directory: str | None = None
 
 
 class TmuxError(Exception):
@@ -87,9 +86,9 @@ class TmuxManager:
 
     SESSION_PREFIX = "owt"
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize TmuxManager with libtmux server connection."""
-        self._server: Optional[libtmux.Server] = None
+        self._server: libtmux.Server | None = None
 
     @property
     def server(self) -> libtmux.Server:
@@ -150,8 +149,11 @@ class TmuxManager:
             self._setup_layout(window, config)
 
             if config.auto_start_ai:
+                pane = window.active_pane
+                if pane is None:
+                    raise TmuxError("No active pane available to start AI tool")
                 self._start_ai_tool_in_pane(
-                    window.active_pane,
+                    pane,
                     config.ai_tool,
                     droid_auto=config.droid_auto,
                     droid_skip_permissions=config.droid_skip_permissions,
@@ -286,9 +288,9 @@ class TmuxManager:
         self,
         pane: libtmux.Pane,
         ai_tool: AITool = AITool.CLAUDE,
-        droid_auto: Optional[DroidAutoLevel] = None,
+        droid_auto: DroidAutoLevel | None = None,
         droid_skip_permissions: bool = False,
-        opencode_config: Optional[str] = None,
+        opencode_config: str | None = None,
     ) -> None:
         """
         Start the specified AI tool in the pane.
@@ -331,8 +333,8 @@ class TmuxManager:
             working_dir = windows[0].panes[0].pane_current_path
 
         return TmuxSessionInfo(
-            session_name=session.name,
-            session_id=session.id,
+            session_name=str(session.name),
+            session_id=str(session.id),
             window_count=len(windows),
             pane_count=total_panes,
             created_at=session.created.strftime("%Y-%m-%d %H:%M:%S") if hasattr(session, 'created') else "unknown",
@@ -394,7 +396,8 @@ class TmuxManager:
 
         result = []
         for session in sessions:
-            if filter_prefix and not session.name.startswith(self.SESSION_PREFIX):
+            name = session.name or ""
+            if filter_prefix and not name.startswith(self.SESSION_PREFIX):
                 continue
 
             result.append(self._get_session_info(session))
@@ -430,9 +433,9 @@ class TmuxManager:
         pane_count: int = 2,
         auto_start_ai: bool = True,
         ai_tool: AITool = AITool.CLAUDE,
-        droid_auto: Optional[DroidAutoLevel] = None,
+        droid_auto: DroidAutoLevel | None = None,
         droid_skip_permissions: bool = False,
-        opencode_config: Optional[str] = None,
+        opencode_config: str | None = None,
     ) -> TmuxSessionInfo:
         """
         Create a tmux session for a worktree.
@@ -471,7 +474,7 @@ class TmuxManager:
 
         return self.create_session(config)
 
-    def get_session_for_worktree(self, worktree_name: str) -> Optional[TmuxSessionInfo]:
+    def get_session_for_worktree(self, worktree_name: str) -> TmuxSessionInfo | None:
         """
         Find existing tmux session for a worktree.
 
@@ -496,7 +499,7 @@ class TmuxManager:
         """Check if currently running inside a tmux session."""
         return "TMUX" in os.environ
 
-    def get_current_session_name(self) -> Optional[str]:
+    def get_current_session_name(self) -> str | None:
         """Get the name of the current tmux session if inside tmux."""
         if not self.is_inside_tmux():
             return None

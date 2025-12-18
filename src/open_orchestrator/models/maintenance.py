@@ -9,7 +9,6 @@ This module provides data models for:
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,7 +41,7 @@ class WorktreeUsageStats(BaseModel):
     created_at: datetime = Field(..., description="When the worktree was created")
     last_accessed: datetime = Field(..., description="Last access timestamp")
     access_count: int = Field(default=0, ge=0, description="Number of times accessed")
-    last_commit_date: Optional[datetime] = Field(
+    last_commit_date: datetime | None = Field(
         default=None,
         description="Date of the most recent commit"
     )
@@ -93,15 +92,15 @@ class CleanupReport(BaseModel):
         ge=0,
         description="Number of worktrees skipped due to protection"
     )
-    errors: List[str] = Field(
+    errors: list[str] = Field(
         default_factory=list,
         description="List of errors encountered during cleanup"
     )
-    cleaned_paths: List[str] = Field(
+    cleaned_paths: list[str] = Field(
         default_factory=list,
         description="Paths of worktrees that were cleaned"
     )
-    skipped_paths: List[str] = Field(
+    skipped_paths: list[str] = Field(
         default_factory=list,
         description="Paths of worktrees that were skipped with reasons"
     )
@@ -129,7 +128,7 @@ class WorktreeSyncResult(BaseModel):
         ge=0,
         description="Number of commits ahead of upstream"
     )
-    upstream_branch: Optional[str] = Field(
+    upstream_branch: str | None = Field(
         default=None,
         description="Name of the upstream branch"
     )
@@ -167,7 +166,7 @@ class SyncReport(BaseModel):
         ge=0,
         description="Number of syncs with merge conflicts"
     )
-    results: List[WorktreeSyncResult] = Field(
+    results: list[WorktreeSyncResult] = Field(
         default_factory=list,
         description="Individual results for each worktree"
     )
@@ -181,7 +180,7 @@ class UsageStatsSummary(BaseModel):
     stale_worktrees: int = Field(default=0, ge=0)
     dirty_worktrees: int = Field(default=0, ge=0)
     total_access_count: int = Field(default=0, ge=0)
-    oldest_worktree: Optional[datetime] = None
-    newest_worktree: Optional[datetime] = None
-    most_recently_accessed: Optional[datetime] = None
-    least_recently_accessed: Optional[datetime] = None
+    oldest_worktree: datetime | None = None
+    newest_worktree: datetime | None = None
+    most_recently_accessed: datetime | None = None
+    least_recently_accessed: datetime | None = None

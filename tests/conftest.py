@@ -3,12 +3,11 @@ Pytest configuration and shared fixtures for Open Orchestrator tests.
 """
 
 import json
-import os
 import subprocess
 import tempfile
+from collections.abc import Generator
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Generator
 from unittest.mock import MagicMock, patch
 
 import pytest

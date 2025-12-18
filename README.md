@@ -184,6 +184,7 @@ owt cleanup
 | `-p, --pane <n>` | Target pane index (default: 0) |
 | `-w, --window <n>` | Target window index (default: 0) |
 | `--no-enter` | Don't press Enter after sending |
+| `--no-log` | Don't persist command in status history |
 
 #### `owt status`
 
@@ -442,12 +443,15 @@ open-orchestrator/
 │   │   ├── tmux_manager.py        # tmux session management
 │   │   ├── tmux_cli.py            # tmux CLI commands
 │   │   ├── cleanup.py             # Worktree cleanup/maintenance
-│   │   └── sync.py                # Upstream sync operations
+│   │   ├── sync.py                # Upstream sync operations
+│   │   └── status.py              # AI activity status tracking
 │   ├── models/
 │   │   ├── worktree_info.py       # Worktree info models
 │   │   ├── project_config.py      # Project configuration models
-│   │   └── maintenance.py         # Cleanup & sync models
-│   └── utils/                     # Utility functions
+│   │   ├── maintenance.py         # Cleanup & sync models
+│   │   └── status.py              # AI status models
+│   └── utils/
+│       └── io.py                  # Safe file I/O utilities
 ├── tests/
 ├── scripts/
 │   └── context-injector.py        # Claude Code context hook

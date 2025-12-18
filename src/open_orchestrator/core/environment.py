@@ -10,7 +10,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from subprocess import CompletedProcess
 
 from ..models.project_config import PackageManager, ProjectConfig
 
@@ -95,7 +95,7 @@ class EnvironmentSetup:
     def setup_worktree(
         self,
         worktree_path: str | Path,
-        source_path: Optional[str | Path] = None,
+        source_path: str | Path | None = None,
         install_deps: bool = True,
         copy_env: bool = True,
     ) -> None:
@@ -136,7 +136,7 @@ class EnvironmentSetup:
         self,
         worktree_path: str | Path,
         timeout: int = 300,
-    ) -> subprocess.CompletedProcess:
+    ) -> CompletedProcess[str]:
         """Install project dependencies in the worktree.
 
         Args:
@@ -211,9 +211,9 @@ class EnvironmentSetup:
     def setup_env_file(
         self,
         worktree_path: str | Path,
-        source_path: Optional[str | Path] = None,
+        source_path: str | Path | None = None,
         adjust_paths: bool = True,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """Copy and optionally adjust .env file for the worktree.
 
         This method copies the .env file from the source project to the
@@ -253,6 +253,14 @@ class EnvironmentSetup:
             else:
                 shutil.copy2(source_env, target_env)
 
+            try:
+                os.chmod(target_env, 0o600)
+            except PermissionError:
+                logger.warning(
+                    f"Could not set restrictive permissions on {target_env}. "
+                    f"Manual chmod may be required for security."
+                )
+
             logger.info(f".env file set up at: {target_env}")
             return target_env
 
@@ -281,10 +289,19 @@ class EnvironmentSetup:
         source_str = str(source_path)
         worktree_str = str(worktree_path)
 
-        # Simple path replacement for absolute paths
-        adjusted = content.replace(source_str, worktree_str)
+        # First, rewrite known path-like keys conservatively
+        adjusted = content
+        for pat in self.ENV_PATH_PATTERNS:
+            adjusted = re.sub(
+                pat,
+                lambda m: m.group(1) + m.group(2).replace(source_str, worktree_str),
+                adjusted,
+            )
 
-        # Log if any paths were adjusted
+        # Fallback: simple absolute-path replacement for any remaining references
+        if source_str in adjusted:
+            adjusted = adjusted.replace(source_str, worktree_str)
+
         if adjusted != content:
             logger.debug(
                 f"Adjusted paths in .env: {source_str} -> {worktree_str}"
@@ -295,8 +312,8 @@ class EnvironmentSetup:
     def copy_additional_config_files(
         self,
         worktree_path: str | Path,
-        source_path: Optional[str | Path] = None,
-        files: Optional[list[str]] = None,
+        source_path: str | Path | None = None,
+        files: list[str] | None = None,
     ) -> list[Path]:
         """Copy additional configuration files to the worktree.
 

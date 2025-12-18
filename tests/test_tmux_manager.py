@@ -2,10 +2,10 @@
 
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
 import libtmux.exc
+import pytest
 
 from open_orchestrator.config import AITool
 from open_orchestrator.core.tmux_manager import (

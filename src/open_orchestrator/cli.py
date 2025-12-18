@@ -2,13 +2,25 @@
 
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.console import Console
 from rich.table import Table
 
 from open_orchestrator.config import AITool, DroidAutoLevel
+from open_orchestrator.core.environment import (
+    EnvironmentSetup,
+    EnvironmentSetupError,
+)
+from open_orchestrator.core.project_detector import ProjectDetector
+from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.tmux_cli import tmux_group
+from open_orchestrator.core.tmux_manager import (
+    TmuxError,
+    TmuxLayout,
+    TmuxManager,
+    TmuxSessionExistsError,
+)
 from open_orchestrator.core.worktree import (
     NotAGitRepositoryError,
     WorktreeAlreadyExistsError,
@@ -16,25 +28,13 @@ from open_orchestrator.core.worktree import (
     WorktreeManager,
     WorktreeNotFoundError,
 )
-from open_orchestrator.core.status import StatusTracker
-from open_orchestrator.models.status import AIActivityStatus
-from open_orchestrator.core.tmux_manager import (
-    TmuxError,
-    TmuxLayout,
-    TmuxManager,
-    TmuxSessionExistsError,
-)
-from open_orchestrator.core.tmux_cli import tmux_group
-from open_orchestrator.core.project_detector import ProjectDetector
-from open_orchestrator.core.environment import (
-    EnvironmentSetup,
-    EnvironmentSetupError,
-)
+from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
+from open_orchestrator.models.worktree_info import WorktreeInfo
 
 console = Console()
 
 
-def get_worktree_manager(repo_path: Optional[Path] = None) -> WorktreeManager:
+def get_worktree_manager(repo_path: Path | None = None) -> WorktreeManager:
     """
     Get a WorktreeManager instance with error handling.
 
@@ -149,15 +149,15 @@ main.add_command(tmux_group)
 )
 def create_worktree(
     branch: str,
-    base_branch: Optional[str],
-    path: Optional[Path],
+    base_branch: str | None,
+    path: Path | None,
     force: bool,
     tmux: bool,
     claude: bool,
     ai_tool: str,
-    droid_auto: Optional[str],
+    droid_auto: str | None,
     droid_skip_permissions: bool,
-    opencode_config: Optional[str],
+    opencode_config: str | None,
     layout: str,
     panes: int,
     attach: bool,
@@ -193,7 +193,7 @@ def create_worktree(
             )
 
         console.print()
-        console.print(f"[bold green]Worktree created successfully!")
+        console.print("[bold green]Worktree created successfully!")
         console.print()
         console.print(f"[bold]Branch:[/bold]  {worktree.branch}")
         console.print(f"[bold]Path:[/bold]    {worktree.short_path}")
@@ -210,23 +210,28 @@ def create_worktree(
 
                     if deps and project_config.package_manager:
                         console.print()
-                        with console.status(f"[bold blue]Installing dependencies ({project_config.package_manager.value})..."):
+                        with console.status(
+                            f"[bold blue]Installing dependencies "
+                            f"({project_config.package_manager.value})..."
+                        ):
                             try:
                                 env_setup.install_dependencies(str(worktree.path))
-                                console.print(f"[green]Dependencies installed[/green]")
+                                console.print("[green]Dependencies installed[/green]")
                             except EnvironmentSetupError as e:
-                                console.print(f"[yellow]Warning: Could not install dependencies: {e}[/yellow]")
+                                console.print(
+                                    f"[yellow]Warning: Could not install dependencies: {e}[/yellow]"
+                                )
 
                     if env:
                         try:
-                            env_file = env_setup.setup_env_file(str(worktree.path), main_repo_path)
+                            env_file = env_setup.setup_env_file(str(worktree.path), Path(main_repo_path))
                             if env_file:
-                                console.print(f"[green].env file copied and adjusted[/green]")
+                                console.print("[green].env file copied and adjusted[/green]")
                         except EnvironmentSetupError as e:
                             console.print(f"[yellow]Warning: Could not setup .env: {e}[/yellow]")
                 else:
                     if deps:
-                        console.print(f"[yellow]Could not detect project type for dependency installation[/yellow]")
+                        console.print("[yellow]Could not detect project type for dependency installation[/yellow]")
 
             except Exception as e:
                 console.print(f"[yellow]Warning: Environment setup failed: {e}[/yellow]")
@@ -261,7 +266,7 @@ def create_worktree(
                     )
 
                 console.print()
-                console.print(f"[bold green]tmux session created!")
+                console.print("[bold green]tmux session created!")
                 console.print(f"[bold]Session:[/bold] {tmux_session.session_name}")
                 console.print(f"[bold]Layout:[/bold]  {layout}")
                 console.print(f"[bold]Panes:[/bold]   {tmux_session.pane_count}")
@@ -283,12 +288,20 @@ def create_worktree(
             except TmuxSessionExistsError:
                 console.print("[yellow]tmux session already exists[/yellow]")
             except TmuxError as e:
-                console.print(f"[yellow]Warning: Could not create tmux session: {e}[/yellow]")
+                console.print(f"[red]Error: Could not create tmux session: {e}[/red]")
+                console.print("[yellow]Rolling back worktree creation...[/yellow]")
+                try:
+                    wt_manager.delete(worktree.name, force=True)
+                    console.print("[green]Worktree deleted.[/green]")
+                except WorktreeError as we:
+                    console.print(f"[red]Failed to delete worktree: {we}[/red]")
+                raise click.ClickException(f"Failed to create tmux session: {e}") from e
 
         console.print()
 
-        if attach and tmux_session:
+        if attach and tmux_session and tmux_manager is not None:
             console.print("[dim]Attaching to tmux session...[/dim]")
+            # Note: attach() replaces the current process and does not return
             tmux_manager.attach(tmux_session.session_name)
         elif tmux_session:
             console.print(f"[dim]Attach with: owt tmux attach {tmux_session.session_name}[/dim]")
@@ -408,7 +421,7 @@ def delete_worktree(identifier: str, force: bool, yes: bool, keep_tmux: bool) ->
 
     if not yes:
         console.print()
-        console.print(f"[bold]About to delete worktree:[/bold]")
+        console.print("[bold]About to delete worktree:[/bold]")
         console.print(f"  Branch: {worktree.branch}")
         console.print(f"  Path:   {worktree.path}")
 
@@ -479,7 +492,12 @@ def switch_worktree(identifier: str, tmux: bool) -> None:
                     tmux_manager.attach(session.session_name)
             else:
                 console.print(f"[yellow]No tmux session found for worktree '{identifier}'[/yellow]")
-                console.print(f"[dim]Create one with: owt tmux create {tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}[/dim]")
+                hint = (
+                    f"[dim]Create one with: owt tmux create "
+                    f"{tmux_manager._generate_session_name(worktree.name)} "
+                    f"-d {worktree.path}[/dim]"
+                )
+                console.print(hint)
                 raise SystemExit(1)
         else:
             click.echo(worktree.path)
@@ -608,7 +626,7 @@ def cleanup_worktrees(threshold_days: int, dry_run: bool, force: bool, yes: bool
     )
 
     console.print()
-    console.print(f"[bold green]Cleanup complete![/bold green]")
+    console.print("[bold green]Cleanup complete![/bold green]")
     console.print(f"  Cleaned:  {report.worktrees_cleaned}")
     console.print(f"  Skipped:  {report.worktrees_skipped}")
 
@@ -641,12 +659,18 @@ def cleanup_worktrees(threshold_days: int, dry_run: bool, force: bool, yes: bool
     is_flag=True,
     help="Don't press Enter after sending the command.",
 )
+@click.option(
+    "--no-log",
+    is_flag=True,
+    help="Do not persist this command in status history.",
+)
 def send_to_worktree(
     identifier: str,
     command: str,
     pane: int,
     window: int,
     no_enter: bool,
+    no_log: bool,
 ) -> None:
     """Send a command to another worktree's tmux session.
 
@@ -673,10 +697,12 @@ def send_to_worktree(
     session = tmux_manager.get_session_for_worktree(worktree.name)
 
     if not session:
-        raise click.ClickException(
+        msg = (
             f"No tmux session found for worktree '{identifier}'. "
-            f"Create one with: owt tmux create {tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}"
+            f"Create one with: owt tmux create "
+            f"{tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}"
         )
+        raise click.ClickException(msg)
 
     # Get the source worktree (the one sending the command)
     source_worktree = status_tracker.get_current_worktree_name()
@@ -707,13 +733,15 @@ def send_to_worktree(
                 tmux_session=session.session_name,
             )
 
-        status_tracker.record_command(
-            target_worktree=worktree.name,
-            command=command,
-            source_worktree=source_worktree,
-            pane_index=pane,
-            window_index=window,
-        )
+        # Record command unless --no-log is specified
+        if not no_log:
+            status_tracker.record_command(
+                target_worktree=worktree.name,
+                command=command,
+                source_worktree=source_worktree,
+                pane_index=pane,
+                window_index=window,
+            )
 
         console.print(f"[green]Sent to {session.session_name}:[/green] {command[:50]}{'...' if len(command) > 50 else ''}")
 
@@ -744,7 +772,7 @@ def send_to_worktree(
     help="Don't auto-stash uncommitted changes before syncing.",
 )
 def sync_worktrees(
-    identifier: Optional[str],
+    identifier: str | None,
     sync_all: bool,
     strategy: str,
     no_stash: bool,
@@ -813,7 +841,7 @@ def sync_worktrees(
 
         console.print(table)
         console.print()
-        console.print(f"[bold]Summary:[/bold]")
+        console.print("[bold]Summary:[/bold]")
         console.print(f"  Successful:    {report.successful}")
         console.print(f"  Up to date:    {report.up_to_date}")
         console.print(f"  With conflicts: {report.with_conflicts}")
@@ -833,18 +861,18 @@ def sync_worktrees(
         console.print()
 
         if result.status == SyncStatus.SUCCESS:
-            console.print(f"[bold green]Sync complete![/bold green]")
+            console.print("[bold green]Sync complete![/bold green]")
             console.print(f"  Pulled: {result.commits_pulled} commit(s)")
         elif result.status == SyncStatus.UP_TO_DATE:
-            console.print(f"[bold blue]Already up to date.[/bold blue]")
+            console.print("[bold blue]Already up to date.[/bold blue]")
             if result.commits_ahead > 0:
                 console.print(f"  [dim]{result.commits_ahead} commit(s) ahead of upstream[/dim]")
         elif result.status == SyncStatus.CONFLICTS:
-            console.print(f"[bold red]Merge conflicts detected![/bold red]")
+            console.print("[bold red]Merge conflicts detected![/bold red]")
             console.print(f"  {result.message}")
             console.print("[dim]Resolve conflicts and commit manually.[/dim]")
         elif result.status == SyncStatus.NO_UPSTREAM:
-            console.print(f"[bold yellow]No upstream branch configured.[/bold yellow]")
+            console.print("[bold yellow]No upstream branch configured.[/bold yellow]")
             console.print("[dim]Set upstream with: git branch --set-upstream-to=origin/<branch>[/dim]")
         else:
             console.print(f"[bold red]Sync failed:[/bold red] {result.message}")
@@ -884,11 +912,11 @@ def sync_worktrees(
     help="Output as JSON.",
 )
 def show_status(
-    identifier: Optional[str],
+    identifier: str | None,
     show_all: bool,
-    task: Optional[str],
-    activity_status: Optional[str],
-    notes: Optional[str],
+    task: str | None,
+    activity_status: str | None,
+    notes: str | None,
     as_json: bool,
 ) -> None:
     """Show or update AI tool activity status across worktrees.
@@ -960,14 +988,13 @@ def show_status(
                 wt_status.activity_status = status_map[activity_status]
                 from datetime import datetime
                 wt_status.updated_at = datetime.now()
-                status_tracker._store.set_status(wt_status)
-                status_tracker._save_store()
+                status_tracker.set_status(wt_status)
                 console.print(f"[green]Status updated:[/green] {activity_status}")
 
         # Update notes if provided
         if notes:
             status_tracker.set_notes(worktree.name, notes)
-            console.print(f"[green]Notes updated[/green]")
+            console.print("[green]Notes updated[/green]")
 
         return
 
@@ -1053,15 +1080,20 @@ def show_status(
         console.print()
 
         # Summary stats
-        console.print(f"[bold]Summary:[/bold]")
-        console.print(f"  Working: {summary.active_ai_sessions}  |  Idle: {summary.idle_ai_sessions}  |  Blocked: {summary.blocked_ai_sessions}")
+        console.print("[bold]Summary:[/bold]")
+        console.print(
+            f"  Working: {summary.active_ai_sessions}  |  "
+            f"Idle: {summary.idle_ai_sessions}"
+        )
+        console.print(f"  Blocked: {summary.blocked_ai_sessions}")
         console.print(f"  Total commands sent: {summary.total_commands_sent}")
 
         if summary.most_recent_activity:
-            console.print(f"  Most recent activity: {summary.most_recent_activity.strftime('%Y-%m-%d %H:%M')}")
+            latest = summary.most_recent_activity.strftime('%Y-%m-%d %H:%M')
+            console.print(f"  Most recent activity: {latest}")
 
 
-def _print_worktree_status_detail(wt_status, worktree) -> None:
+def _print_worktree_status_detail(wt_status: WorktreeAIStatus, worktree: WorktreeInfo) -> None:
     """Print detailed status for a single worktree."""
     status_style = {
         "idle": "[dim]idle[/dim]",
