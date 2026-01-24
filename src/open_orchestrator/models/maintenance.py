@@ -10,7 +10,7 @@ This module provides data models for:
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WorktreeStatus(str, Enum):
@@ -36,6 +36,8 @@ class SyncStatus(str, Enum):
 class WorktreeUsageStats(BaseModel):
     """Usage statistics for a single worktree."""
 
+    model_config = ConfigDict(use_enum_values=True)
+
     worktree_path: str = Field(..., description="Absolute path to the worktree")
     branch_name: str = Field(..., description="Git branch name")
     created_at: datetime = Field(..., description="When the worktree was created")
@@ -57,9 +59,6 @@ class WorktreeUsageStats(BaseModel):
         default=WorktreeStatus.UNKNOWN,
         description="Current status of the worktree"
     )
-
-    class Config:
-        use_enum_values = True
 
 
 class CleanupReport(BaseModel):
@@ -109,6 +108,8 @@ class CleanupReport(BaseModel):
 class WorktreeSyncResult(BaseModel):
     """Result of syncing a single worktree."""
 
+    model_config = ConfigDict(use_enum_values=True)
+
     worktree_path: str = Field(..., description="Path to the worktree")
     branch_name: str = Field(..., description="Current branch name")
     status: SyncStatus = Field(..., description="Result status of the sync")
@@ -132,9 +133,6 @@ class WorktreeSyncResult(BaseModel):
         default=None,
         description="Name of the upstream branch"
     )
-
-    class Config:
-        use_enum_values = True
 
 
 class SyncReport(BaseModel):

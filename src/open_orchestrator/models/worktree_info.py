@@ -3,11 +3,13 @@
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WorktreeInfo(BaseModel):
     """Information about a git worktree."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     path: Path = Field(description="Absolute path to the worktree directory")
     branch: str = Field(description="Branch name checked out in this worktree")
@@ -17,9 +19,6 @@ class WorktreeInfo(BaseModel):
     created_at: datetime | None = Field(
         default=None, description="When the worktree was created"
     )
-
-    class Config:
-        arbitrary_types_allowed = True
 
     @property
     def name(self) -> str:

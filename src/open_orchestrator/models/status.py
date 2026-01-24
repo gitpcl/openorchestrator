@@ -10,7 +10,7 @@ This module provides data models for:
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AIActivityStatus(str, Enum):
@@ -40,6 +40,8 @@ class CommandRecord(BaseModel):
 
 class WorktreeAIStatus(BaseModel):
     """Status of AI tool activity in a worktree."""
+
+    model_config = ConfigDict(use_enum_values=True)
 
     worktree_name: str = Field(..., description="Name of the worktree")
     worktree_path: str = Field(..., description="Absolute path to the worktree")
@@ -80,9 +82,6 @@ class WorktreeAIStatus(BaseModel):
         default_factory=datetime.now,
         description="When this status was last updated"
     )
-
-    class Config:
-        use_enum_values = True
 
     def add_command(
         self,
