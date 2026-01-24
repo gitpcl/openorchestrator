@@ -405,6 +405,160 @@ To automatically inject worktree context into Claude Code prompts, add the hook 
 
 This will show `[Worktree: name | Branch: branch]` in your prompts when working in a worktree.
 
+## Orchestration Workflow
+
+Open Orchestrator's key value proposition is **single-terminal orchestration** - control multiple AI coding sessions from one terminal window without constantly switching contexts.
+
+### The Problem
+
+Traditional parallel development requires:
+- Multiple terminal windows/tabs open
+- Manual context switching between sessions
+- Lost focus from constant window management
+- No visibility into what AI agents are working on
+- Difficulty coordinating work across branches
+
+### The Solution: Single-Terminal Control
+
+Open Orchestrator lets you:
+1. **Create isolated worktrees** with dedicated AI sessions
+2. **Send commands** to any worktree from your main terminal
+3. **Track AI activity** across all worktrees in real-time
+4. **Orchestrate work** without leaving your current context
+
+### Example Workflow
+
+**Scenario:** You're working on a frontend feature but need to quickly test API changes in parallel.
+
+```bash
+# In your main terminal (working on frontend)
+$ cd my-project
+
+# Create a worktree for API work (auto-creates tmux + AI session)
+$ owt create feature/api-refactor
+✅ Created worktree: feature/api-refactor
+✅ tmux session: owt-api-refactor
+✅ Claude Code started in pane 0
+
+# Send a command to the API worktree's AI session
+$ owt send api-refactor "Review the authentication endpoints and suggest improvements"
+📤 Sent to api-refactor (pane 0)
+
+# Check what all AI sessions are doing
+$ owt status
+┌─────────────────┬──────────┬───────────────────────────┬─────────────┐
+│ Worktree        │ Status   │ Current Task              │ Last Active │
+├─────────────────┼──────────┼───────────────────────────┼─────────────┤
+│ main            │ working  │ Frontend auth UI          │ 2m ago      │
+│ api-refactor    │ working  │ Reviewing auth endpoints  │ just now    │
+│ feature/cleanup │ idle     │ -                         │ 3h ago      │
+└─────────────────┴──────────┴───────────────────────────┴─────────────┘
+
+# Continue working in your main terminal
+# AI in api-refactor is working independently
+# You'll see status updates when you check again
+
+# Later: Get results from the API worktree
+$ owt switch api-refactor --tmux
+# [Now attached to api-refactor session, see Claude's analysis]
+```
+
+### Send/Receive Notification Pattern
+
+The `owt send` command creates a **fire-and-forget notification system** between worktrees:
+
+#### Sending Commands
+
+```bash
+# Basic send
+$ owt send <worktree-name> "command or instruction"
+
+# Send to specific tmux pane
+$ owt send api-refactor "run tests" --pane 1
+
+# Send without auto-entering (for multi-line prep)
+$ owt send frontend "implement login form" --no-enter
+
+# Send without logging to status history
+$ owt send cleanup "check for stale code" --no-log
+```
+
+#### How It Works
+
+1. **Command Sent:** Your command is transmitted to the target worktree's tmux session
+2. **AI Receives:** If AI tool is active in that pane, it receives the instruction
+3. **Status Logged:** Command is logged in `~/.open-orchestrator/ai_status.json` (unless `--no-log`)
+4. **You Continue:** Return immediately to your current work
+5. **Check Later:** Use `owt status` to see progress
+
+#### Real-World Use Cases
+
+**Use Case 1: Parallel Code Review**
+```bash
+# You're fixing bugs, but want AI to review another branch
+$ owt create feature/review-auth
+$ owt send review-auth "Review the authentication code for security issues"
+# Continue fixing bugs while AI reviews independently
+```
+
+**Use Case 2: Background Testing**
+```bash
+# Start long-running tests in another worktree
+$ owt send test-branch "Run full integration test suite"
+$ owt status test-branch  # Check later if tests passed
+```
+
+**Use Case 3: Research Tasks**
+```bash
+# Ask AI to research while you implement
+$ owt send research "Find best practices for rate limiting in Express.js"
+# AI researches in background, you check results when ready
+```
+
+**Use Case 4: Multi-Branch Coordination**
+```bash
+# Coordinate work across multiple features
+$ owt send frontend "Implement login UI using design system"
+$ owt send backend "Add OAuth endpoints with JWT tokens"
+$ owt send docs "Document the new authentication flow"
+$ owt status --all  # See all AI agents working
+```
+
+### Status Tracking
+
+Track AI activity across all worktrees from a single terminal:
+
+```bash
+# View all worktree status
+$ owt status
+
+# View specific worktree status
+$ owt status api-refactor
+
+# Set custom status for a worktree
+$ owt status --set-task "Implementing auth flow" --set-status working
+
+# Add notes to a worktree
+$ owt status --notes "Waiting for API design approval"
+
+# Export status as JSON (for scripts/dashboards)
+$ owt status --json
+```
+
+**Status Fields:**
+- **Status:** `idle`, `working`, `blocked`, `waiting`, `completed`, `error`
+- **Current Task:** What the AI is working on
+- **Command History:** Recent commands sent to this worktree
+- **Last Active:** Timestamp of last activity
+
+### Benefits
+
+✅ **Stay in Flow:** No context switching - send tasks and continue working
+✅ **Parallel Execution:** Multiple AI sessions work simultaneously
+✅ **Visibility:** Always know what each AI is doing via `owt status`
+✅ **Async Coordination:** Fire-and-forget task delegation
+✅ **Audit Trail:** Full command history logged for each worktree
+
 ## Development
 
 ### Setup development environment

@@ -56,19 +56,23 @@ uv run ruff check src/
 ```
 src/open_orchestrator/
 ├── cli.py              # CLI entry point (click)
+├── config.py           # Configuration management
 ├── core/
 │   ├── worktree.py     # Git worktree operations
 │   ├── tmux_manager.py # tmux session management
+│   ├── tmux_cli.py     # tmux CLI commands
 │   ├── project_detector.py  # Project type detection
 │   ├── environment.py  # Dependency & .env setup
 │   ├── cleanup.py      # Worktree cleanup service
 │   ├── sync.py         # Upstream sync service
 │   └── status.py       # Claude activity status tracking
-└── models/
-    ├── worktree_info.py    # Worktree models
-    ├── project_config.py   # Project config models
-    ├── maintenance.py      # Cleanup/sync models
-    └── status.py           # Claude status models
+├── models/
+│   ├── worktree_info.py    # Worktree models
+│   ├── project_config.py   # Project config models
+│   ├── maintenance.py      # Cleanup/sync models
+│   └── status.py           # Claude status models
+└── utils/
+    └── io.py               # Safe file I/O utilities
 ```
 
 ## Guidelines
