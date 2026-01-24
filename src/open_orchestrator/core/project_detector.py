@@ -7,9 +7,10 @@ associated package managers by analyzing project files and directory structure.
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional, cast
+from typing import cast
 
 from ..models.project_config import PackageManager, ProjectConfig, ProjectType
+
 logger = logging.getLogger(__name__)
 
 

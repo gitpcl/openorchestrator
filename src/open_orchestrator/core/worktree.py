@@ -2,7 +2,8 @@
 
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError
 

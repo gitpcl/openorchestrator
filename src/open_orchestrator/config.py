@@ -9,6 +9,7 @@ Loads configuration from .worktreerc files in the following priority:
 5. ~/.worktreerc
 """
 
+import logging
 import shlex
 import shutil
 from enum import Enum
@@ -16,6 +17,8 @@ from pathlib import Path
 
 import toml
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class DroidAutoLevel(str, Enum):
@@ -284,8 +287,9 @@ def load_config(config_path: str | None = None) -> Config:
             try:
                 data = toml.load(path)
                 return Config(**data)
-            except Exception:
-                # If config file is invalid, continue to next
+            except Exception as e:
+                # Log config file load failures for debugging and security awareness
+                logger.warning(f"Failed to load config from {path}: {e}")
                 continue
 
     return Config()
