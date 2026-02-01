@@ -13,8 +13,15 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Multi-AI Tool Support**: Auto-launch Claude Code, OpenCode, or Droid in new sessions
 - **Project Detection**: Automatically detect project type (Python, Node.js, Rust, Go, PHP) and package manager
 - **Dependency Installation**: Auto-install dependencies when creating new worktrees
-- **Environment Setup**: Copy `.env` files with path adjustments
+- **Environment Setup**: Copy `.env` files and `CLAUDE.md` with path adjustments
 - **Cleanup Service**: Detect and clean up stale worktrees with safety checks
+- **Live Dashboard**: Real-time TUI monitoring of all worktrees and AI sessions
+- **Token Tracking**: Monitor AI token usage and estimated costs per worktree
+- **GitHub PR Integration**: Link worktrees to PRs, track PR status, clean up merged PRs
+- **Status Change Hooks**: Trigger notifications, webhooks, or scripts on status changes
+- **Session Management**: Copy Claude sessions between worktrees, resume previous sessions
+- **Shell Completion**: Auto-completion for bash, zsh, and fish shells
+- **No-tmux Mode**: Manage AI processes without tmux for simpler setups
 
 ## Installation
 
@@ -56,6 +63,9 @@ owt create feature/add-login
 # Create a worktree from an existing branch
 owt create feature/existing-branch --no-create-branch
 
+# Create a worktree with Claude in plan mode (safe exploration)
+owt create feature/research --plan-mode
+
 # Create a worktree with OpenCode instead of Claude
 owt create feature/new-api --ai-tool opencode
 
@@ -94,6 +104,16 @@ owt cleanup --dry-run
 owt cleanup
 ```
 
+### Monitor with live dashboard
+
+```bash
+# Launch live dashboard
+owt dashboard
+
+# Check token usage
+owt tokens show
+```
+
 ## CLI Command Reference
 
 ### Worktree Commands
@@ -108,6 +128,60 @@ owt cleanup
 | `owt sync <name>` | Sync a worktree with its upstream branch |
 | `owt send <name> "cmd"` | Send a command to another worktree's Claude session |
 | `owt status [name]` | Show Claude activity status across all worktrees |
+| `owt dashboard` | Launch live TUI dashboard to monitor all worktrees |
+
+### Session & Token Commands
+
+| Command | Description |
+|---------|-------------|
+| `owt copy-session <src> <dest>` | Copy Claude session data between worktrees |
+| `owt resume <name>` | Get resume command for a worktree's Claude session |
+| `owt session [name]` | Show Claude session information for worktrees |
+| `owt tokens show [name]` | Show token usage for worktree(s) |
+| `owt tokens update <name>` | Manually update token usage |
+| `owt tokens reset <name>` | Reset token usage to zero |
+
+### GitHub PR Commands
+
+| Command | Description |
+|---------|-------------|
+| `owt pr link <name> --pr <num>` | Link a worktree to a GitHub PR |
+| `owt pr unlink <name>` | Remove PR association from worktree |
+| `owt pr status [name]` | Show PR status for worktree(s) |
+| `owt pr list` | List all worktrees with linked PRs |
+| `owt pr refresh <name>` | Refresh PR info from GitHub |
+| `owt pr cleanup` | Delete worktrees with merged PRs |
+
+### Hook Commands
+
+| Command | Description |
+|---------|-------------|
+| `owt hooks list` | List configured status change hooks |
+| `owt hooks add` | Add a new hook (interactive) |
+| `owt hooks remove <id>` | Remove a hook by ID |
+| `owt hooks enable <id>` | Enable a disabled hook |
+| `owt hooks disable <id>` | Disable a hook |
+| `owt hooks test <id>` | Test a hook execution |
+| `owt hooks history` | View hook execution history |
+| `owt hooks clear-history` | Clear hook execution history |
+
+### Process Commands (No-tmux Mode)
+
+| Command | Description |
+|---------|-------------|
+| `owt process start <name>` | Start AI tool as background process |
+| `owt process stop <name>` | Stop AI tool process |
+| `owt process list` | List running AI tool processes |
+| `owt process logs <name>` | View logs for an AI tool process |
+
+### Shell Completion
+
+| Command | Description |
+|---------|-------------|
+| `owt completion bash` | Generate bash completion script |
+| `owt completion zsh` | Generate zsh completion script |
+| `owt completion fish` | Generate fish completion script |
+| `owt completion install` | Show installation instructions |
 
 ### tmux Commands
 
@@ -139,6 +213,8 @@ owt cleanup
 | `-a, --attach` | Attach to tmux session after creation |
 | `--deps / --no-deps` | Install dependencies (default: enabled) |
 | `--env / --no-env` | Copy .env file (default: enabled) |
+| `--plan-mode` | Start Claude in plan mode (safe exploration) |
+| `--sync-claude-md / --no-sync-claude-md` | Copy CLAUDE.md files (default: enabled) |
 
 #### `owt list`
 
@@ -168,6 +244,7 @@ owt cleanup
 | `--dry-run / --no-dry-run` | Preview mode (default: dry-run) |
 | `-f, --force` | Include worktrees with uncommitted changes |
 | `-y, --yes` | Skip confirmation prompt |
+| `--json` | Output results in JSON format |
 
 #### `owt sync`
 
@@ -176,6 +253,16 @@ owt cleanup
 | `-a, --all` | Sync all worktrees |
 | `--strategy <merge\|rebase>` | Pull strategy (default: merge) |
 | `--no-stash` | Don't auto-stash uncommitted changes |
+| `--json` | Output results in JSON format |
+
+#### `owt dashboard`
+
+| Option | Description |
+|--------|-------------|
+| `-r, --refresh <secs>` | Refresh rate in seconds (default: 2.0) |
+| `--no-tokens` | Hide token usage columns |
+| `--no-commands` | Hide command count column |
+| `-c, --compact` | Compact mode (no summary panel) |
 
 #### `owt send`
 
@@ -549,7 +636,140 @@ $ owt status --json
 - **Status:** `idle`, `working`, `blocked`, `waiting`, `completed`, `error`
 - **Current Task:** What the AI is working on
 - **Command History:** Recent commands sent to this worktree
+- **Token Usage:** Input/output tokens and estimated cost
 - **Last Active:** Timestamp of last activity
+
+### Live Dashboard
+
+Monitor all worktrees in real-time with a live terminal UI:
+
+```bash
+# Launch the dashboard (updates every 2 seconds)
+$ owt dashboard
+
+# Faster refresh rate
+$ owt dashboard -r 1
+
+# Compact mode (minimal UI)
+$ owt dashboard --compact
+
+# Hide token usage columns
+$ owt dashboard --no-tokens
+```
+
+The dashboard shows:
+- Real-time status indicators (● working, ○ idle, ■ blocked)
+- Current task for each worktree
+- Token usage and estimated costs
+- Command counts and last activity times
+
+### Token Tracking
+
+Track AI token usage and costs across worktrees:
+
+```bash
+# View token usage for all worktrees
+$ owt tokens show
+
+# View for specific worktree
+$ owt tokens show feature/api
+
+# Manually update token usage (when parsing Claude output)
+$ owt tokens update feature/api --input 1000 --output 500
+
+# Reset token usage
+$ owt tokens reset feature/api
+```
+
+Token tracking includes:
+- Input and output token counts
+- Cache read/write tokens
+- Estimated cost (based on Claude Opus pricing)
+
+### GitHub PR Integration
+
+Link worktrees to GitHub PRs for better tracking:
+
+```bash
+# Link a worktree to a PR
+$ owt pr link feature/auth --pr 123
+
+# View PR status
+$ owt pr status feature/auth
+
+# List all worktrees with linked PRs
+$ owt pr list
+
+# Refresh PR info from GitHub
+$ owt pr refresh feature/auth
+
+# Clean up worktrees with merged PRs
+$ owt pr cleanup
+```
+
+PRs are auto-detected from branch names matching patterns like `feature/123-description`.
+
+### Status Change Hooks
+
+Trigger actions when AI status changes:
+
+```bash
+# List configured hooks
+$ owt hooks list
+
+# Add a new hook (interactive)
+$ owt hooks add
+
+# Test a hook
+$ owt hooks test <hook-id>
+
+# View hook execution history
+$ owt hooks history
+```
+
+Hook types:
+- **Shell commands:** Run any command on status change
+- **Notifications:** Desktop notifications (macOS/Linux)
+- **Webhooks:** POST to URLs (Slack, Discord, etc.)
+- **Logging:** Log status changes to file
+
+### Shell Completion
+
+Install tab completion for your shell:
+
+```bash
+# Show installation instructions
+$ owt completion install
+
+# Bash: Add to ~/.bashrc
+eval "$(owt completion bash)"
+
+# Zsh: Add to ~/.zshrc
+eval "$(owt completion zsh)"
+
+# Fish: Save to completions
+owt completion fish > ~/.config/fish/completions/owt.fish
+```
+
+### No-tmux Mode
+
+For simpler setups without tmux:
+
+```bash
+# Start AI tool as background process
+$ owt process start feature/api
+
+# List running processes
+$ owt process list
+
+# View process logs
+$ owt process logs feature/api
+
+# Stop a process
+$ owt process stop feature/api
+```
+
+Processes are tracked via PID files and logs are saved to `~/.cache/open-orchestrator/logs/`.
 
 ### Benefits
 
@@ -593,20 +813,32 @@ open-orchestrator/
 │   ├── core/
 │   │   ├── worktree.py            # Git worktree operations
 │   │   ├── project_detector.py    # Project type detection
-│   │   ├── environment.py         # Dependency & .env setup
+│   │   ├── environment.py         # Dependency, .env & CLAUDE.md setup
 │   │   ├── tmux_manager.py        # tmux session management
 │   │   ├── tmux_cli.py            # tmux CLI commands
 │   │   ├── cleanup.py             # Worktree cleanup/maintenance
 │   │   ├── sync.py                # Upstream sync operations
-│   │   └── status.py              # AI activity status tracking
+│   │   ├── status.py              # AI activity status tracking
+│   │   ├── hooks.py               # Status change hooks
+│   │   ├── session.py             # Claude session management
+│   │   ├── pr_linker.py           # GitHub PR integration
+│   │   ├── process_manager.py     # Non-tmux process management
+│   │   └── dashboard.py           # Live TUI dashboard
 │   ├── models/
 │   │   ├── worktree_info.py       # Worktree info models
 │   │   ├── project_config.py      # Project configuration models
 │   │   ├── maintenance.py         # Cleanup & sync models
-│   │   └── status.py              # AI status models
+│   │   ├── status.py              # AI status & token usage models
+│   │   ├── hooks.py               # Hook configuration models
+│   │   ├── session.py             # Session data models
+│   │   └── pr_info.py             # PR info models
 │   └── utils/
 │       └── io.py                  # Safe file I/O utilities
 ├── tests/
+│   ├── test_cli.py                # CLI command tests
+│   ├── test_worktree.py           # Worktree manager tests
+│   ├── test_environment.py        # Environment setup tests
+│   └── test_status.py             # Status tracker tests
 ├── scripts/
 │   └── context-injector.py        # Claude Code context hook
 ├── .claude/
