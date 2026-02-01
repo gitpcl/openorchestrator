@@ -49,6 +49,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/open_orchestrator"]
+artifacts = ["src/open_orchestrator/skills/**/*.md"]
 
 [tool.ruff]
 line-length = 130

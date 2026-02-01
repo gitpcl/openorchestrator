@@ -1,0 +1,630 @@
+---
+name: open-orchestrator
+description: "Git worktree + AI coding tool orchestration for parallel development. Use when: (1) Creating isolated development environments, (2) Managing multiple AI coding sessions, (3) Delegating tasks to parallel worktrees, (4) Orchestrating Claude Code/OpenCode/Droid across branches, (5) Cleaning up stale worktrees, (6) Syncing worktrees with upstream, (7) Monitoring with live dashboard, (8) Tracking token usage and costs, (9) Linking worktrees to GitHub PRs, (10) Managing status change hooks/notifications, (11) Copying/resuming Claude sessions. Triggers: worktree, parallel development, multi-branch, AI orchestration, owt commands, dashboard, token tracking, PR integration, hooks, session management, completion."
+---
+
+# Open Orchestrator - Git Worktree + AI Orchestration
+
+Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees, each with its own tmux session and AI coding tool instance (Claude Code, OpenCode, or Droid).
+
+## Quick Reference
+
+| Command | Description |
+|---------|-------------|
+| `owt create <branch>` | Create worktree + tmux session + AI tool |
+| `owt create <branch> --plan-mode` | Create with Claude in plan mode |
+| `owt list [--all]` | List worktrees with status |
+| `owt switch <name>` | Switch to worktree (use `--tmux` for session) |
+| `owt delete <name>` | Delete worktree and cleanup |
+| `owt send <name> "task"` | Send command to AI in another worktree |
+| `owt status [name]` | Track AI activity across worktrees |
+| `owt cleanup [--dry-run]` | Remove stale worktrees |
+| `owt sync [--all]` | Sync worktrees with upstream |
+| `owt dashboard` | Live TUI monitoring of all worktrees |
+| `owt tokens show` | View token usage and costs |
+| `owt pr link <name> --pr <num>` | Link worktree to GitHub PR |
+| `owt pr status` | Show PR status for all worktrees |
+| `owt hooks list` | List status change hooks |
+| `owt copy-session <src> <dest>` | Copy Claude session between worktrees |
+| `owt resume <name>` | Resume Claude session in worktree |
+| `owt process start <name>` | Start AI tool without tmux |
+| `owt process list` | List running AI processes |
+| `owt completion install` | Install shell auto-completion |
+
+## Core Workflow
+
+### 1. Create a Parallel Worktree
+
+```bash
+# Create worktree for a feature branch with AI tool
+owt create feature/new-auth
+
+# Create with Claude in plan mode (safe exploration)
+owt create feature/new-auth --plan-mode
+
+# Create with specific AI tool
+owt create feature/api-refactor --tool opencode
+
+# Create with specific tmux layout
+owt create bugfix/login --layout three-pane
+
+# Create with CLAUDE.md synced from main repo
+owt create feature/new-auth --sync-claude-md
+```
+
+This will:
+- Create git worktree in configured base directory
+- Create/checkout the branch
+- Auto-detect project type (Python, Node, Rust, Go, PHP)
+- Install dependencies using detected package manager
+- Copy and adjust `.env` files
+- Copy `CLAUDE.md` from main repo (if `--sync-claude-md` or config enabled)
+- Create tmux session with AI tool ready
+
+### 2. Delegate Tasks to Parallel Sessions
+
+```bash
+# Send a task to the AI in another worktree
+owt send feature/new-auth "Implement JWT authentication middleware"
+
+# Send to multiple worktrees
+owt send feature/api "Add rate limiting to all endpoints"
+owt send feature/tests "Write integration tests for user registration"
+```
+
+### 3. Monitor AI Activity
+
+```bash
+# Check status of all worktrees
+owt status
+
+# Check specific worktree
+owt status feature/new-auth
+
+# Output as JSON for scripting
+owt status --json
+
+# Example output:
+# ┌──────────────┬─────────┬────────────────────────────┐
+# │ Worktree     │ Status  │ Current Task               │
+# ├──────────────┼─────────┼────────────────────────────┤
+# │ feature/auth │ WORKING │ Implementing JWT middleware│
+# │ feature/api  │ IDLE    │ -                          │
+# │ bugfix/login │ BLOCKED │ Waiting for clarification  │
+# └──────────────┴─────────┴────────────────────────────┘
+```
+
+### 4. Switch Between Worktrees
+
+```bash
+# Switch to worktree directory
+owt switch feature/new-auth
+
+# Attach to tmux session directly
+owt switch feature/new-auth --tmux
+```
+
+### 5. Cleanup and Maintenance
+
+```bash
+# Preview stale worktrees
+owt cleanup --dry-run
+
+# Remove worktrees older than 14 days (default)
+owt cleanup
+
+# Output cleanup report as JSON
+owt cleanup --json
+
+# Sync all worktrees with upstream
+owt sync --all
+
+# Sync specific worktree
+owt sync feature/new-auth
+
+# Output sync report as JSON
+owt sync --all --json
+```
+
+## Live Dashboard
+
+Monitor all worktrees in real-time with an interactive TUI dashboard.
+
+```bash
+# Launch live dashboard (updates every 2 seconds)
+owt dashboard
+
+# Custom refresh rate (1 second)
+owt dashboard -r 1
+owt dashboard --refresh 1
+
+# Compact mode (minimal UI without summary panel)
+owt dashboard --compact
+
+# Hide token usage columns
+owt dashboard --no-tokens
+
+# Combine options
+owt dashboard -r 1 --compact --no-tokens
+```
+
+The dashboard shows:
+- Worktree name and branch
+- AI status (WORKING, IDLE, BLOCKED, etc.)
+- Current task description
+- Token usage and estimated costs
+- PR link status (if linked)
+
+## Token Tracking
+
+Track token usage and costs per worktree.
+
+```bash
+# View token usage for all worktrees
+owt tokens show
+
+# View specific worktree
+owt tokens show feature/new-auth
+
+# Manually update token counts (if auto-tracking disabled)
+owt tokens update feature/new-auth --input 1000 --output 500
+
+# Reset token counts for a worktree
+owt tokens reset feature/new-auth
+
+# Reset all worktrees
+owt tokens reset --all
+
+# Output as JSON
+owt tokens show --json
+```
+
+## GitHub PR Integration
+
+Link worktrees to GitHub pull requests for integrated workflow.
+
+```bash
+# Link worktree to PR
+owt pr link feature/new-auth --pr 123
+
+# Show PR status for all linked worktrees
+owt pr status
+
+# Show status for specific worktree
+owt pr status feature/new-auth
+
+# Refresh PR info from GitHub
+owt pr refresh feature/new-auth
+
+# Refresh all linked worktrees
+owt pr refresh --all
+
+# Clean up worktrees whose PRs have been merged
+owt pr cleanup
+
+# Preview what would be cleaned
+owt pr cleanup --dry-run
+```
+
+## Status Change Hooks
+
+Configure notifications and webhooks when AI status changes.
+
+```bash
+# List configured hooks
+owt hooks list
+
+# Add a new hook (interactive)
+owt hooks add
+
+# Add hook with parameters
+owt hooks add --event status_change --action notify --target slack
+
+# Test hook execution
+owt hooks test <hook-id>
+
+# View hook execution history
+owt hooks history
+
+# Remove a hook
+owt hooks remove <hook-id>
+```
+
+Hook configuration is stored in `~/.open-orchestrator/hooks.json`.
+
+### Hook Events
+- `status_change` - When AI status changes (IDLE → WORKING, etc.)
+- `task_complete` - When a task is marked complete
+- `blocked` - When AI becomes blocked
+- `error` - When an error occurs
+
+### Hook Actions
+- `notify` - Send desktop notification
+- `webhook` - POST to URL
+- `command` - Run shell command
+
+## Session Management
+
+Copy and resume Claude sessions across worktrees.
+
+```bash
+# Copy session from one worktree to another
+owt copy-session feature/auth feature/auth-v2
+
+# Get command to resume session in a worktree
+owt resume feature/new-auth
+
+# View session info
+owt session feature/new-auth
+
+# Example output shows session ID and resume command:
+# Session ID: abc123
+# Resume with: claude --resume abc123
+```
+
+## No-tmux Mode (Process Management)
+
+Run AI tools as background processes without tmux.
+
+```bash
+# Start AI tool as background process
+owt process start feature/new-auth
+
+# Start with specific AI tool
+owt process start feature/new-auth --tool opencode
+
+# List running AI processes
+owt process list
+
+# View process logs
+owt process logs feature/new-auth
+
+# Follow logs in real-time
+owt process logs feature/new-auth --follow
+
+# Stop a process
+owt process stop feature/new-auth
+
+# Stop all processes
+owt process stop --all
+```
+
+## Shell Completion
+
+Enable auto-completion for bash, zsh, or fish.
+
+```bash
+# Show installation instructions for your shell
+owt completion install
+
+# Generate bash completion script
+owt completion bash
+
+# Generate zsh completion script
+owt completion zsh
+
+# Generate fish completion script
+owt completion fish
+
+# Install to default location (auto-detected shell)
+owt completion install --auto
+```
+
+## Configuration
+
+### Config File Locations (Priority Order)
+1. `--config` flag
+2. `.worktreerc` in current directory
+3. `.worktreerc.toml`
+4. `~/.config/open-orchestrator/config.toml`
+5. `~/.worktreerc`
+
+### Sample Configuration
+
+```toml
+[worktree]
+base_directory = "../"                    # Relative to repo root
+naming_pattern = "{project}-{branch}"     # Worktree naming
+auto_cleanup_days = 14                    # Stale threshold
+sync_claude_md = true                     # Copy CLAUDE.md to new worktrees
+
+[tmux]
+default_layout = "main-vertical"          # main-vertical, three-pane, quad
+auto_start_ai = true
+ai_tool = "claude"                        # claude, opencode, droid
+pane_count = 2
+
+[environment]
+auto_install_deps = true
+copy_env_file = true
+adjust_env_paths = true
+
+[dashboard]
+refresh_rate = 2                          # Seconds between updates
+show_tokens = true                        # Show token usage columns
+compact = false                           # Use compact UI mode
+
+[tokens]
+auto_track = true                         # Automatically track token usage
+cost_per_1k_input = 0.003                 # Cost per 1K input tokens
+cost_per_1k_output = 0.015                # Cost per 1K output tokens
+
+[droid]
+default_auto_level = "medium"             # low, medium, high
+
+[opencode]
+config_path = "~/.config/opencode.json"
+```
+
+### Hook Configuration
+
+Hooks are stored in `~/.open-orchestrator/hooks.json`:
+
+```json
+{
+  "hooks": [
+    {
+      "id": "slack-notify",
+      "event": "status_change",
+      "action": "webhook",
+      "target": "https://hooks.slack.com/...",
+      "filter": {
+        "status": ["BLOCKED", "ERROR"]
+      }
+    }
+  ]
+}
+```
+
+## tmux Layouts
+
+| Layout | Description |
+|--------|-------------|
+| `main-vertical` | Large left pane (editor), smaller right panes |
+| `three-pane` | Main top pane, two bottom panes |
+| `quad` | Four equal panes |
+| `even-horizontal` | Equal horizontal split |
+| `even-vertical` | Equal vertical split |
+
+## Project Detection
+
+Automatically detects project type and package manager:
+
+| Type | Detection | Package Manager Priority |
+|------|-----------|-------------------------|
+| Python | `pyproject.toml`, `uv.lock`, `requirements.txt` | uv > poetry > pipenv > pip |
+| Node.js | `package.json`, `bun.lockb`, `pnpm-lock.yaml` | bun > pnpm > yarn > npm |
+| Rust | `Cargo.toml` | cargo |
+| Go | `go.mod` | go |
+| PHP | `composer.json` | composer |
+
+## AI Tool Support
+
+### Claude Code (Default)
+```bash
+owt create feature/x --tool claude
+
+# With plan mode for safe exploration
+owt create feature/x --tool claude --plan-mode
+```
+
+### OpenCode (Go-based)
+```bash
+owt create feature/x --tool opencode
+```
+
+### Droid (Factory AI with Autonomy Levels)
+```bash
+# Default autonomy (medium)
+owt create feature/x --tool droid
+
+# High autonomy
+owt create feature/x --tool droid --auto-level high
+```
+
+## Common Patterns
+
+### Pattern 1: Parallel Feature Development
+```bash
+# Main worktree: Core feature
+owt create feature/payments
+
+# Delegate related work
+owt send feature/payments "Build Stripe integration service"
+owt create feature/payments-tests
+owt send feature/payments-tests "Write tests for payment service"
+```
+
+### Pattern 2: Bug Investigation + Fix
+```bash
+# Create investigation worktree
+owt create bugfix/memory-leak
+
+# Send investigation task
+owt send bugfix/memory-leak "Profile memory usage and identify leaks in user service"
+
+# Check status periodically
+owt status bugfix/memory-leak
+```
+
+### Pattern 3: Refactoring Across Modules
+```bash
+owt create refactor/api-layer
+owt create refactor/data-layer
+owt create refactor/tests
+
+owt send refactor/api-layer "Migrate REST endpoints to use new DTO pattern"
+owt send refactor/data-layer "Implement repository pattern for database access"
+owt send refactor/tests "Update all integration tests for new patterns"
+```
+
+### Pattern 4: PR-Centric Development
+```bash
+# Create worktree and link to PR
+owt create feature/payments
+owt pr link feature/payments --pr 456
+
+# Delegate work
+owt send feature/payments "Implement payment processing"
+
+# Monitor with PR status visible
+owt status
+
+# After PR merged, cleanup
+owt pr cleanup
+```
+
+### Pattern 5: Monitored Parallel Development
+```bash
+# Terminal 1: Launch dashboard for real-time monitoring
+owt dashboard
+
+# Terminal 2+: Create and delegate work
+owt create feature/auth
+owt create feature/api
+owt send feature/auth "Build OAuth flow"
+owt send feature/api "Add REST endpoints"
+
+# Dashboard auto-updates showing all activity
+```
+
+### Pattern 6: No-tmux Workflow
+```bash
+# Create worktree without tmux session
+owt create feature/simple --no-tmux
+
+# Start AI as background process
+owt process start feature/simple
+
+# Check progress via logs
+owt process logs feature/simple
+
+# When done, stop the process
+owt process stop feature/simple
+```
+
+### Pattern 7: Session Continuity
+```bash
+# Work on feature, then need to restart
+owt create feature/complex-refactor
+owt send feature/complex-refactor "Start refactoring auth module"
+
+# Later, resume the exact session
+owt resume feature/complex-refactor
+# Outputs: claude --resume abc123
+
+# Or copy session to new worktree
+owt copy-session feature/complex-refactor feature/complex-refactor-v2
+```
+
+## tmux Commands
+
+Direct tmux management when needed:
+
+```bash
+# List all owt sessions
+owt tmux list
+
+# Attach to session
+owt tmux attach feature-new-auth
+
+# Kill specific session
+owt tmux kill feature-new-auth
+
+# Create session manually
+owt tmux create feature-new-auth --layout quad
+```
+
+## Status Tracking
+
+Status is persisted in `~/.open-orchestrator/ai_status.json`:
+
+```bash
+# View detailed status
+owt status --verbose
+
+# Status values:
+# - IDLE: AI ready for tasks
+# - WORKING: AI actively processing
+# - BLOCKED: Waiting for input/clarification
+# - WAITING: Paused, awaiting external dependency
+# - COMPLETED: Task finished
+# - ERROR: Something went wrong
+```
+
+## JSON Output
+
+Most commands support `--json` for machine-readable output:
+
+```bash
+owt status --json
+owt list --json
+owt cleanup --json
+owt sync --all --json
+owt tokens show --json
+owt pr status --json
+```
+
+## Troubleshooting
+
+### Worktree Creation Fails
+```bash
+# Check git worktree state
+git worktree list
+
+# Prune stale entries
+git worktree prune
+
+# Retry creation
+owt create feature/x
+```
+
+### AI Tool Not Starting
+```bash
+# Verify tool installation
+which claude
+which opencode
+which droid
+
+# Check tmux session
+owt tmux list
+tmux attach -t owt-feature-x
+```
+
+### Dependencies Not Installing
+```bash
+# Check project detection
+owt create feature/x --verbose
+
+# Manual install in worktree
+cd $(owt switch feature/x --path-only)
+uv sync  # or npm install, etc.
+```
+
+### Dashboard Not Showing Data
+```bash
+# Check status file exists
+cat ~/.open-orchestrator/ai_status.json
+
+# Verify worktrees exist
+owt list --all
+
+# Try verbose mode
+owt dashboard --verbose
+```
+
+## Integration with Claude Code
+
+Use the slash commands in Claude Code sessions:
+
+- `/worktree` - Main orchestration command
+- `/wt-create` - Quick worktree creation
+- `/wt-list` - List all worktrees
+- `/wt-status` - Check AI activity
+- `/wt-cleanup` - Clean stale worktrees
+
+## References
+
+- [CLI Reference](references/cli-reference.md) - Complete command documentation
+- [Configuration](references/configuration.md) - All config options
+- [Workflows](references/workflows.md) - Advanced workflow patterns

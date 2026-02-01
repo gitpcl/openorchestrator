@@ -51,6 +51,11 @@ from open_orchestrator.core.session import (
     SessionManager,
     SessionNotFoundError,
 )
+from open_orchestrator.core.skill_installer import (
+    SkillInstallError,
+    SkillInstaller,
+    SkillNotFoundError,
+)
 from open_orchestrator.core.status import (
     StatusConfig,
     StatusTracker,
@@ -97,6 +102,9 @@ __all__ = [
     "SyncService",
     "SyncStatus",
     "WorktreeSyncResult",
+    "SkillInstallError",
+    "SkillInstaller",
+    "SkillNotFoundError",
     "StatusConfig",
     "StatusTracker",
 ]

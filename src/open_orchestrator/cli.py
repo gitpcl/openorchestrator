@@ -180,6 +180,163 @@ def completion_install(shell: str) -> None:
     console.print("[dim]Restart your shell or source your config to enable completions.[/dim]")
 
 
+# =============================================================================
+# Skill Management Commands
+# =============================================================================
+
+
+@main.group("skill")
+def skill_group() -> None:
+    """Manage Claude Code skill installation.
+
+    Install, uninstall, and check the status of the Open Orchestrator
+    skill for Claude Code.
+    """
+
+
+@skill_group.command("install")
+@click.option(
+    "--symlink/--copy",
+    default=True,
+    help="Create symlink (default) or copy the skill file.",
+)
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    help="Overwrite existing skill installation.",
+)
+def skill_install(symlink: bool, force: bool) -> None:
+    """Install the Open Orchestrator skill to ~/.claude/skills/.
+
+    By default, creates a symlink to the skill file in the package,
+    which automatically stays up-to-date when you upgrade the package.
+
+    Use --copy to create an independent copy instead.
+
+    Example:
+        owt skill install              # Create symlink (recommended)
+        owt skill install --copy       # Create copy
+        owt skill install --force      # Overwrite existing
+    """
+    from open_orchestrator.core.skill_installer import (
+        SkillInstallError,
+        SkillInstaller,
+        SkillNotFoundError,
+    )
+
+    installer = SkillInstaller()
+
+    try:
+        target_path = installer.install(symlink=symlink, force=force)
+        console.print()
+        console.print(f"[green]✓[/green] Created {installer.target_dir}/")
+
+        if symlink:
+            source_path = installer.get_source_path()
+            console.print(f"[green]✓[/green] Linked {installer.SKILL_FILE} → {source_path}")
+        else:
+            console.print(f"[green]✓[/green] Copied {installer.SKILL_FILE} to {target_path}")
+
+        console.print(f"[green]✓[/green] Skill installed successfully!")
+        console.print()
+        console.print("[dim]Restart Claude Code to use the skill.[/dim]")
+
+    except SkillNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+    except SkillInstallError as e:
+        raise click.ClickException(str(e)) from e
+
+
+@skill_group.command("uninstall")
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Skip confirmation prompt.",
+)
+def skill_uninstall(yes: bool) -> None:
+    """Remove the Open Orchestrator skill from ~/.claude/skills/.
+
+    Example:
+        owt skill uninstall
+        owt skill uninstall -y
+    """
+    from open_orchestrator.core.skill_installer import SkillInstallError, SkillInstaller
+
+    installer = SkillInstaller()
+
+    if not installer.is_installed():
+        console.print("[yellow]Skill is not installed.[/yellow]")
+        return
+
+    if not yes:
+        console.print(f"[bold]About to remove:[/bold] {installer.target_file}")
+        console.print()
+        if not click.confirm("Are you sure?"):
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+    try:
+        installer.uninstall()
+        console.print()
+        console.print(f"[green]✓[/green] Removed {installer.target_dir}/")
+        console.print(f"[green]✓[/green] Skill uninstalled successfully!")
+
+    except SkillInstallError as e:
+        raise click.ClickException(str(e)) from e
+
+
+@skill_group.command("status")
+def skill_status() -> None:
+    """Check if skill is installed and up-to-date.
+
+    Shows installation status, location, and whether the skill
+    matches the current package version.
+
+    Example:
+        owt skill status
+    """
+    from open_orchestrator.core.skill_installer import SkillInstaller, SkillNotFoundError
+
+    installer = SkillInstaller()
+
+    console.print()
+    console.print("[bold]Open Orchestrator Skill[/bold]")
+    console.print()
+
+    if not installer.is_installed():
+        console.print("  [bold]Status:[/bold]   [yellow]Not installed[/yellow]")
+        console.print()
+        console.print("[dim]Install with: owt skill install[/dim]")
+        return
+
+    install_type = "symlink" if installer.is_symlink() else "copy"
+    console.print(f"  [bold]Status:[/bold]   [green]Installed[/green] ({install_type})")
+
+    try:
+        source_path = installer.get_source_path()
+        console.print(f"  [bold]Source:[/bold]   {source_path}")
+    except SkillNotFoundError:
+        console.print("  [bold]Source:[/bold]   [red]Not found in package[/red]")
+
+    console.print(f"  [bold]Target:[/bold]   {installer.target_file}")
+
+    if installer.is_symlink():
+        symlink_target = installer.get_symlink_target()
+        if symlink_target:
+            console.print(f"  [bold]Links to:[/bold] {symlink_target}")
+
+    try:
+        up_to_date = installer.is_up_to_date()
+        if up_to_date:
+            console.print("  [bold]Up-to-date:[/bold] [green]✓[/green]")
+        else:
+            console.print("  [bold]Up-to-date:[/bold] [yellow]✗ (run 'owt skill install --force' to update)[/yellow]")
+    except SkillNotFoundError:
+        console.print("  [bold]Up-to-date:[/bold] [red]Cannot verify (source missing)[/red]")
+
+
 @main.command("create")
 @click.argument("branch")
 @click.option(

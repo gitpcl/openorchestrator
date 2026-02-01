@@ -28,6 +28,10 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 | `owt tokens show` | Show token usage across worktrees |
 | `owt process start <wt>` | Start AI tool without tmux |
 | `owt process list` | List running AI tool processes |
+| `owt skill install` | Install Claude Code skill (symlink) |
+| `owt skill install --copy` | Install Claude Code skill (copy) |
+| `owt skill status` | Check skill installation status |
+| `owt skill uninstall` | Remove Claude Code skill |
 
 ## tmux Commands
 
@@ -84,7 +88,8 @@ src/open_orchestrator/
 │   ├── session.py      # Claude session copying & resume
 │   ├── pr_linker.py    # GitHub PR linking integration
 │   ├── process_manager.py  # Non-tmux process management
-│   └── dashboard.py    # Live TUI dashboard
+│   ├── dashboard.py    # Live TUI dashboard
+│   └── skill_installer.py  # Claude Code skill installation
 ├── models/
 │   ├── worktree_info.py    # Worktree models
 │   ├── project_config.py   # Project config models
@@ -93,6 +98,9 @@ src/open_orchestrator/
 │   ├── hooks.py            # Hook configuration models
 │   ├── session.py          # Session data models
 │   └── pr_info.py          # PR info models
+├── skills/
+│   └── open-orchestrator/
+│       └── SKILL.md        # Claude Code skill definition
 └── utils/
     └── io.py               # Safe file I/O utilities
 ```
