@@ -183,6 +183,15 @@ owt tokens show
 | `owt completion fish` | Generate fish completion script |
 | `owt completion install` | Show installation instructions |
 
+### Claude Code Skill
+
+| Command | Description |
+|---------|-------------|
+| `owt skill install` | Install skill to ~/.claude/skills/ (symlink) |
+| `owt skill install --copy` | Install skill as copy (not symlink) |
+| `owt skill status` | Check skill installation status |
+| `owt skill uninstall` | Remove skill from ~/.claude/skills/ |
+
 ### tmux Commands
 
 | Command | Description |
@@ -751,6 +760,34 @@ eval "$(owt completion zsh)"
 owt completion fish > ~/.config/fish/completions/owt.fish
 ```
 
+### Claude Code Skill Installation
+
+Install the Open Orchestrator skill for Claude Code to get intelligent command suggestions:
+
+```bash
+# Install skill (creates symlink - recommended)
+$ owt skill install
+✓ Created ~/.claude/skills/open-orchestrator/
+✓ Linked SKILL.md → /path/to/open-orchestrator/src/open_orchestrator/skills/open-orchestrator/SKILL.md
+✓ Skill installed successfully!
+
+# Or install as copy (independent file)
+$ owt skill install --copy
+
+# Check installation status
+$ owt skill status
+Open Orchestrator Skill
+  Status:   Installed (symlink)
+  Source:   /path/to/package/skills/open-orchestrator/SKILL.md
+  Target:   ~/.claude/skills/open-orchestrator/SKILL.md
+  Up-to-date: ✓
+
+# Uninstall
+$ owt skill uninstall
+```
+
+The skill provides Claude Code with context about Open Orchestrator commands, enabling it to suggest appropriate `owt` commands when you mention worktrees, parallel development, or AI orchestration.
+
 ### No-tmux Mode
 
 For simpler setups without tmux:
@@ -823,7 +860,11 @@ open-orchestrator/
 │   │   ├── session.py             # Claude session management
 │   │   ├── pr_linker.py           # GitHub PR integration
 │   │   ├── process_manager.py     # Non-tmux process management
-│   │   └── dashboard.py           # Live TUI dashboard
+│   │   ├── dashboard.py           # Live TUI dashboard
+│   │   └── skill_installer.py     # Claude Code skill installation
+│   ├── skills/
+│   │   └── open-orchestrator/
+│   │       └── SKILL.md           # Claude Code skill definition
 │   ├── models/
 │   │   ├── worktree_info.py       # Worktree info models
 │   │   ├── project_config.py      # Project configuration models
