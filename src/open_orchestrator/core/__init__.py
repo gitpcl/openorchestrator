@@ -18,6 +18,18 @@ from open_orchestrator.core.cleanup import (
     UsageTracker,
     WorktreeUsageStats,
 )
+from open_orchestrator.core.dashboard import (
+    Dashboard,
+    DashboardConfig,
+)
+from open_orchestrator.core.process_manager import (
+    ProcessAlreadyRunningError,
+    ProcessError,
+    ProcessInfo,
+    ProcessManager,
+    ProcessManagerConfig,
+    ProcessNotFoundError,
+)
 from open_orchestrator.core.hooks import (
     get_hook_type_for_status,
     HookError,
@@ -57,6 +69,8 @@ __all__ = [
     "CleanupService",
     "UsageTracker",
     "WorktreeUsageStats",
+    "Dashboard",
+    "DashboardConfig",
     "get_hook_type_for_status",
     "HookError",
     "HookExecutionError",
@@ -67,6 +81,12 @@ __all__ = [
     "PRLinkerConfig",
     "PRLinkError",
     "PRNotFoundError",
+    "ProcessAlreadyRunningError",
+    "ProcessError",
+    "ProcessInfo",
+    "ProcessManager",
+    "ProcessManagerConfig",
+    "ProcessNotFoundError",
     "SessionConfig",
     "SessionCopyError",
     "SessionError",

@@ -1314,6 +1314,15 @@ def show_status(
         console.print(f"  Blocked: {summary.blocked_ai_sessions}")
         console.print(f"  Total commands sent: {summary.total_commands_sent}")
 
+        # Token usage summary
+        if summary.total_input_tokens > 0 or summary.total_output_tokens > 0:
+            console.print()
+            console.print("[bold]Token Usage:[/bold]")
+            total_tokens = summary.total_input_tokens + summary.total_output_tokens
+            console.print(f"  Total: {total_tokens:,} tokens")
+            console.print(f"  Input: {summary.total_input_tokens:,}  |  Output: {summary.total_output_tokens:,}")
+            console.print(f"  Estimated cost: ${summary.total_estimated_cost_usd:.4f}")
+
         if summary.most_recent_activity:
             latest = summary.most_recent_activity.strftime('%Y-%m-%d %H:%M')
             console.print(f"  Most recent activity: {latest}")
@@ -1345,6 +1354,17 @@ def _print_worktree_status_detail(wt_status: WorktreeAIStatus, worktree: Worktre
 
     if wt_status.last_task_update:
         console.print(f"[bold]Task set:[/bold]   {wt_status.last_task_update.strftime('%Y-%m-%d %H:%M')}")
+
+    # Token usage
+    tokens = wt_status.token_usage
+    if tokens.total_tokens > 0:
+        console.print()
+        console.print("[bold]Token Usage:[/bold]")
+        console.print(f"  Total: {tokens.total_tokens:,} tokens")
+        console.print(f"  Input: {tokens.input_tokens:,}  |  Output: {tokens.output_tokens:,}")
+        if tokens.cache_read_tokens > 0 or tokens.cache_write_tokens > 0:
+            console.print(f"  Cache: {tokens.cache_read_tokens:,} read  |  {tokens.cache_write_tokens:,} write")
+        console.print(f"  Estimated cost: ${tokens.estimated_cost_usd:.4f}")
 
     console.print(f"[bold]Updated:[/bold]    {wt_status.updated_at.strftime('%Y-%m-%d %H:%M')}")
 
@@ -2355,6 +2375,450 @@ def cleanup_merged_prs(dry_run: bool, yes: bool) -> None:
         console.print("[bold red]Errors:[/bold red]")
         for error in errors:
             console.print(f"  [red]{error}[/red]")
+
+
+# =============================================================================
+# Process Management Commands (no-tmux mode)
+# =============================================================================
+
+
+@main.group("process")
+def process_group() -> None:
+    """Manage AI tool processes without tmux.
+
+    Alternative to tmux-based session management for users who prefer
+    simpler process handling or don't have tmux installed.
+    """
+
+
+@process_group.command("start")
+@click.argument("worktree_name")
+@click.option(
+    "--ai-tool",
+    type=click.Choice(["claude", "opencode", "droid"]),
+    default="claude",
+    help="AI coding tool to start (default: claude).",
+)
+@click.option(
+    "--plan-mode",
+    is_flag=True,
+    help="Start Claude in plan mode.",
+)
+@click.option(
+    "--droid-auto",
+    type=click.Choice(["low", "medium", "high"]),
+    default=None,
+    help="Droid auto mode level.",
+)
+def process_start(
+    worktree_name: str,
+    ai_tool: str,
+    plan_mode: bool,
+    droid_auto: str | None,
+) -> None:
+    """Start an AI tool process for a worktree.
+
+    Starts the AI tool as a background process without tmux.
+    Output is logged to ~/.cache/open-orchestrator/logs/
+    """
+    from open_orchestrator.core.process_manager import (
+        ProcessAlreadyRunningError,
+        ProcessError,
+        ProcessManager,
+    )
+
+    wt_manager = get_worktree_manager()
+    process_manager = ProcessManager()
+
+    try:
+        worktree = wt_manager.get(worktree_name)
+    except WorktreeNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    ai_tool_enum = AITool(ai_tool)
+    droid_auto_enum = DroidAutoLevel(droid_auto) if droid_auto else None
+
+    try:
+        proc_info = process_manager.start_ai_tool(
+            worktree_name=worktree.name,
+            worktree_path=str(worktree.path),
+            ai_tool=ai_tool_enum,
+            plan_mode=plan_mode,
+            droid_auto=droid_auto_enum,
+        )
+
+        console.print(f"[bold green]Started {ai_tool} for {worktree_name}[/bold green]")
+        console.print(f"  PID: {proc_info.pid}")
+        if proc_info.log_file:
+            console.print(f"  Log: {proc_info.log_file}")
+
+    except ProcessAlreadyRunningError as e:
+        raise click.ClickException(str(e)) from e
+    except ProcessError as e:
+        raise click.ClickException(str(e)) from e
+
+
+@process_group.command("stop")
+@click.argument("worktree_name")
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    help="Force kill (SIGKILL instead of SIGTERM).",
+)
+def process_stop(worktree_name: str, force: bool) -> None:
+    """Stop an AI tool process for a worktree."""
+    from open_orchestrator.core.process_manager import (
+        ProcessError,
+        ProcessManager,
+        ProcessNotFoundError,
+    )
+
+    process_manager = ProcessManager()
+
+    try:
+        stopped = process_manager.stop_ai_tool(worktree_name, force=force)
+        if stopped:
+            console.print(f"[green]Stopped process for {worktree_name}[/green]")
+        else:
+            console.print(f"[yellow]Process was already stopped[/yellow]")
+    except ProcessNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+    except ProcessError as e:
+        raise click.ClickException(str(e)) from e
+
+
+@process_group.command("list")
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+def process_list(json_output: bool) -> None:
+    """List all running AI tool processes."""
+    from open_orchestrator.core.process_manager import ProcessManager
+
+    process_manager = ProcessManager()
+    processes = process_manager.list_processes()
+
+    if json_output:
+        import json
+
+        output = [p.model_dump() for p in processes]
+        click.echo(json.dumps(output, default=str))
+        return
+
+    if not processes:
+        console.print("[yellow]No AI tool processes running.[/yellow]")
+        return
+
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Worktree")
+    table.add_column("AI Tool")
+    table.add_column("PID")
+    table.add_column("Started")
+
+    for proc in processes:
+        started = proc.started_at.strftime("%Y-%m-%d %H:%M")
+        table.add_row(
+            proc.worktree_name,
+            proc.ai_tool,
+            str(proc.pid),
+            started,
+        )
+
+    console.print(table)
+
+
+@process_group.command("logs")
+@click.argument("worktree_name")
+@click.option(
+    "-f",
+    "--follow",
+    is_flag=True,
+    help="Follow log output (like tail -f).",
+)
+@click.option(
+    "-n",
+    "--lines",
+    default=50,
+    help="Number of lines to show (default: 50).",
+)
+def process_logs(worktree_name: str, follow: bool, lines: int) -> None:
+    """View logs for an AI tool process."""
+    from open_orchestrator.core.process_manager import ProcessManager
+
+    process_manager = ProcessManager()
+    log_path = process_manager.get_log_path(worktree_name)
+
+    if not log_path:
+        raise click.ClickException(f"No log file found for {worktree_name}")
+
+    if not log_path.exists():
+        raise click.ClickException(f"Log file not found: {log_path}")
+
+    if follow:
+        # Use tail -f for following
+        import subprocess
+
+        try:
+            subprocess.run(["tail", "-f", str(log_path)])
+        except KeyboardInterrupt:
+            pass
+    else:
+        # Show last N lines
+        content = log_path.read_text()
+        log_lines = content.splitlines()
+        for line in log_lines[-lines:]:
+            console.print(line)
+
+
+# =============================================================================
+# Token Usage Commands
+# =============================================================================
+
+
+@main.group("tokens")
+def tokens_group() -> None:
+    """Manage and view token usage across worktrees.
+
+    Track Claude/AI tool token consumption for cost monitoring.
+    """
+
+
+@tokens_group.command("show")
+@click.argument("worktree_name", required=False)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+def tokens_show(worktree_name: str | None, json_output: bool) -> None:
+    """Show token usage for a worktree or all worktrees.
+
+    Without WORKTREE_NAME, shows summary for all worktrees.
+    """
+    status_tracker = StatusTracker()
+    wt_manager = get_worktree_manager()
+
+    worktrees = wt_manager.list_all()
+    worktree_names = [wt.name for wt in worktrees]
+
+    if worktree_name:
+        wt_status = status_tracker.get_status(worktree_name)
+        if not wt_status:
+            raise click.ClickException(f"No status found for {worktree_name}")
+
+        if json_output:
+            click.echo(json.dumps(wt_status.token_usage.model_dump(), default=str))
+            return
+
+        tokens = wt_status.token_usage
+        console.print(f"[bold]Token usage for '{worktree_name}'[/bold]")
+        console.print()
+        console.print(f"  Total tokens: {tokens.total_tokens:,}")
+        console.print(f"  Input:        {tokens.input_tokens:,}")
+        console.print(f"  Output:       {tokens.output_tokens:,}")
+        if tokens.cache_read_tokens > 0 or tokens.cache_write_tokens > 0:
+            console.print(f"  Cache read:   {tokens.cache_read_tokens:,}")
+            console.print(f"  Cache write:  {tokens.cache_write_tokens:,}")
+        console.print()
+        console.print(f"  Estimated cost: ${tokens.estimated_cost_usd:.4f}")
+        console.print(f"  Last updated: {tokens.last_updated.strftime('%Y-%m-%d %H:%M')}")
+    else:
+        summary = status_tracker.get_summary(worktree_names)
+
+        if json_output:
+            output = {
+                "total_input_tokens": summary.total_input_tokens,
+                "total_output_tokens": summary.total_output_tokens,
+                "total_estimated_cost_usd": summary.total_estimated_cost_usd,
+                "worktrees": [
+                    {
+                        "name": s.worktree_name,
+                        "input_tokens": s.token_usage.input_tokens,
+                        "output_tokens": s.token_usage.output_tokens,
+                        "estimated_cost_usd": s.token_usage.estimated_cost_usd,
+                    }
+                    for s in summary.statuses
+                ],
+            }
+            click.echo(json.dumps(output, default=str))
+            return
+
+        console.print("[bold]Token Usage Across Worktrees[/bold]")
+        console.print()
+
+        if not summary.statuses:
+            console.print("[yellow]No worktrees with status tracking.[/yellow]")
+            return
+
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Worktree")
+        table.add_column("Input", justify="right")
+        table.add_column("Output", justify="right")
+        table.add_column("Total", justify="right")
+        table.add_column("Est. Cost", justify="right")
+
+        for wt_status in summary.statuses:
+            tokens = wt_status.token_usage
+            table.add_row(
+                wt_status.worktree_name,
+                f"{tokens.input_tokens:,}",
+                f"{tokens.output_tokens:,}",
+                f"{tokens.total_tokens:,}",
+                f"${tokens.estimated_cost_usd:.4f}",
+            )
+
+        console.print(table)
+        console.print()
+        total = summary.total_input_tokens + summary.total_output_tokens
+        console.print(f"[bold]Total:[/bold] {total:,} tokens")
+        console.print(f"[bold]Estimated cost:[/bold] ${summary.total_estimated_cost_usd:.4f}")
+
+
+@tokens_group.command("update")
+@click.argument("worktree_name")
+@click.option(
+    "--input",
+    "input_tokens",
+    type=int,
+    default=0,
+    help="Input tokens to add.",
+)
+@click.option(
+    "--output",
+    "output_tokens",
+    type=int,
+    default=0,
+    help="Output tokens to add.",
+)
+@click.option(
+    "--cache-read",
+    type=int,
+    default=0,
+    help="Cache read tokens to add.",
+)
+@click.option(
+    "--cache-write",
+    type=int,
+    default=0,
+    help="Cache write tokens to add.",
+)
+def tokens_update(
+    worktree_name: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read: int,
+    cache_write: int,
+) -> None:
+    """Manually update token usage for a worktree.
+
+    Use this to track token usage when parsing Claude output.
+    Tokens are added to existing counts.
+    """
+    status_tracker = StatusTracker()
+
+    result = status_tracker.update_token_usage(
+        worktree_name,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read,
+        cache_write_tokens=cache_write,
+    )
+
+    if not result:
+        raise click.ClickException(f"No status found for {worktree_name}")
+
+    console.print(f"[green]Token usage updated for {worktree_name}[/green]")
+    console.print(f"  Added: +{input_tokens} input, +{output_tokens} output")
+    console.print(f"  Total: {result.token_usage.total_tokens:,} tokens")
+
+
+@tokens_group.command("reset")
+@click.argument("worktree_name")
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Skip confirmation.",
+)
+def tokens_reset(worktree_name: str, yes: bool) -> None:
+    """Reset token usage to zero for a worktree."""
+    status_tracker = StatusTracker()
+
+    wt_status = status_tracker.get_status(worktree_name)
+    if not wt_status:
+        raise click.ClickException(f"No status found for {worktree_name}")
+
+    if not yes:
+        current = wt_status.token_usage.total_tokens
+        if not click.confirm(f"Reset {current:,} tokens for {worktree_name}?"):
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+    status_tracker.reset_token_usage(worktree_name)
+    console.print(f"[green]Token usage reset for {worktree_name}[/green]")
+
+
+# =============================================================================
+# Dashboard Command
+# =============================================================================
+
+
+@main.command("dashboard")
+@click.option(
+    "-r",
+    "--refresh",
+    type=float,
+    default=2.0,
+    help="Refresh rate in seconds (default: 2.0).",
+)
+@click.option(
+    "--no-tokens",
+    is_flag=True,
+    help="Hide token usage columns.",
+)
+@click.option(
+    "--no-commands",
+    is_flag=True,
+    help="Hide command count column.",
+)
+@click.option(
+    "-c",
+    "--compact",
+    is_flag=True,
+    help="Compact mode (no summary panel).",
+)
+def dashboard(
+    refresh: float,
+    no_tokens: bool,
+    no_commands: bool,
+    compact: bool,
+) -> None:
+    """Launch live dashboard to monitor all worktrees.
+
+    Shows real-time status of AI tools across all worktrees with
+    automatic updates. Press Ctrl+C to exit.
+
+    Example:
+        owt dashboard              # Default 2 second refresh
+        owt dashboard -r 1         # 1 second refresh
+        owt dashboard --compact    # Compact mode
+    """
+    from open_orchestrator.core.dashboard import Dashboard, DashboardConfig
+
+    config = DashboardConfig(
+        refresh_rate=refresh,
+        show_token_usage=not no_tokens,
+        show_commands=not no_commands,
+        compact=compact,
+    )
+
+    dash = Dashboard(config=config)
+    dash.run()
 
 
 if __name__ == "__main__":

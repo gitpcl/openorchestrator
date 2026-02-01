@@ -24,6 +24,10 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 | `owt copy-session <src> <dest>` | Copy Claude session to new worktree |
 | `owt resume <worktree>` | Get command to resume Claude session |
 | `owt completion install` | Install shell auto-completion |
+| `owt dashboard` | Launch live TUI dashboard |
+| `owt tokens show` | Show token usage across worktrees |
+| `owt process start <wt>` | Start AI tool without tmux |
+| `owt process list` | List running AI tool processes |
 
 ## tmux Commands
 
@@ -78,7 +82,9 @@ src/open_orchestrator/
 │   ├── status.py       # Claude activity status tracking
 │   ├── hooks.py        # Status change hooks (notifications, webhooks)
 │   ├── session.py      # Claude session copying & resume
-│   └── pr_linker.py    # GitHub PR linking integration
+│   ├── pr_linker.py    # GitHub PR linking integration
+│   ├── process_manager.py  # Non-tmux process management
+│   └── dashboard.py    # Live TUI dashboard
 ├── models/
 │   ├── worktree_info.py    # Worktree models
 │   ├── project_config.py   # Project config models

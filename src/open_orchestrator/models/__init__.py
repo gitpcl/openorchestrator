@@ -42,6 +42,7 @@ from open_orchestrator.models.status import (
     CommandRecord,
     StatusStore,
     StatusSummary,
+    TokenUsage,
     WorktreeAIStatus,
 )
 
@@ -57,6 +58,7 @@ __all__ = [
     "CommandRecord",
     "StatusStore",
     "StatusSummary",
+    "TokenUsage",
     "WorktreeAIStatus",
     "SessionCopyResult",
     "SessionCopyStatus",

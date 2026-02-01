@@ -350,6 +350,11 @@ class StatusTracker:
 
             summary.total_commands_sent += len(status.recent_commands)
 
+            # Aggregate token usage
+            summary.total_input_tokens += status.token_usage.input_tokens
+            summary.total_output_tokens += status.token_usage.output_tokens
+            summary.total_estimated_cost_usd += status.token_usage.estimated_cost_usd
+
             if status.updated_at:
                 if (
                     summary.most_recent_activity is None or
@@ -386,6 +391,54 @@ class StatusTracker:
         """Public API to persist a WorktreeAIStatus update."""
         self._store.set_status(status)
         self._save_store()
+
+    def update_token_usage(
+        self,
+        worktree_name: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> WorktreeAIStatus | None:
+        """
+        Update token usage for a worktree.
+
+        Args:
+            worktree_name: Name of the worktree
+            input_tokens: Number of input tokens to add
+            output_tokens: Number of output tokens to add
+            cache_read_tokens: Number of cache read tokens to add
+            cache_write_tokens: Number of cache write tokens to add
+
+        Returns:
+            Updated WorktreeAIStatus or None if not found
+        """
+        wt_status = self._store.get_status(worktree_name)
+
+        if not wt_status:
+            return None
+
+        wt_status.update_token_usage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+        )
+        self._store.set_status(wt_status)
+        self._save_store()
+        return wt_status
+
+    def reset_token_usage(self, worktree_name: str) -> WorktreeAIStatus | None:
+        """Reset token usage to zero for a worktree."""
+        wt_status = self._store.get_status(worktree_name)
+
+        if not wt_status:
+            return None
+
+        wt_status.reset_token_usage()
+        self._store.set_status(wt_status)
+        self._save_store()
+        return wt_status
 
     def _sanitize_command(self, text: str) -> str:
         """Best-effort redaction of secrets in commands."""

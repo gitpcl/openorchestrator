@@ -25,6 +25,32 @@ class AIActivityStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+class TokenUsage(BaseModel):
+    """Token usage tracking for AI tool sessions."""
+
+    input_tokens: int = Field(default=0, ge=0, description="Total input tokens used")
+    output_tokens: int = Field(default=0, ge=0, description="Total output tokens used")
+    cache_read_tokens: int = Field(default=0, ge=0, description="Tokens read from cache")
+    cache_write_tokens: int = Field(default=0, ge=0, description="Tokens written to cache")
+    last_updated: datetime = Field(
+        default_factory=datetime.now,
+        description="When token usage was last updated"
+    )
+
+    @property
+    def total_tokens(self) -> int:
+        """Get total tokens (input + output)."""
+        return self.input_tokens + self.output_tokens
+
+    @property
+    def estimated_cost_usd(self) -> float:
+        """Estimate cost in USD (based on Claude Opus pricing)."""
+        # Claude Opus pricing: $15/1M input, $75/1M output (as of 2024)
+        input_cost = (self.input_tokens / 1_000_000) * 15
+        output_cost = (self.output_tokens / 1_000_000) * 75
+        return input_cost + output_cost
+
+
 class CommandRecord(BaseModel):
     """Record of a command sent to a worktree."""
 
@@ -73,6 +99,10 @@ class WorktreeAIStatus(BaseModel):
     notes: str | None = Field(
         default=None,
         description="Additional notes or context"
+    )
+    token_usage: TokenUsage = Field(
+        default_factory=TokenUsage,
+        description="Token usage for this worktree's AI sessions"
     )
     created_at: datetime = Field(
         default_factory=datetime.now,
@@ -127,6 +157,26 @@ class WorktreeAIStatus(BaseModel):
         self.current_task = None
         self.updated_at = datetime.now()
 
+    def update_token_usage(
+        self,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> None:
+        """Update token usage by adding to existing counts."""
+        self.token_usage.input_tokens += input_tokens
+        self.token_usage.output_tokens += output_tokens
+        self.token_usage.cache_read_tokens += cache_read_tokens
+        self.token_usage.cache_write_tokens += cache_write_tokens
+        self.token_usage.last_updated = datetime.now()
+        self.updated_at = datetime.now()
+
+    def reset_token_usage(self) -> None:
+        """Reset token usage to zero."""
+        self.token_usage = TokenUsage()
+        self.updated_at = datetime.now()
+
 
 class StatusSummary(BaseModel):
     """Summary of AI tool status across all worktrees."""
@@ -161,6 +211,21 @@ class StatusSummary(BaseModel):
         default=0,
         ge=0,
         description="Total commands sent across all worktrees"
+    )
+    total_input_tokens: int = Field(
+        default=0,
+        ge=0,
+        description="Total input tokens across all worktrees"
+    )
+    total_output_tokens: int = Field(
+        default=0,
+        ge=0,
+        description="Total output tokens across all worktrees"
+    )
+    total_estimated_cost_usd: float = Field(
+        default=0.0,
+        ge=0,
+        description="Total estimated cost in USD"
     )
     most_recent_activity: datetime | None = Field(
         default=None,
