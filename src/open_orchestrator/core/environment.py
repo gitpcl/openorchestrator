@@ -435,9 +435,66 @@ class EnvironmentSetup:
         return False
 
 
+def sync_claude_md(
+    worktree_path: str | Path,
+    source_path: str | Path,
+) -> list[Path]:
+    """Sync CLAUDE.md files from source repository to worktree.
+
+    Copies CLAUDE.md files from common locations in the source repository
+    to the new worktree. This preserves Claude Code context and instructions
+    across worktrees.
+
+    Locations checked (in order of priority):
+    - .claude/CLAUDE.md (project-level Claude config)
+    - CLAUDE.md (root-level Claude config)
+
+    Args:
+        worktree_path: Path to the new worktree directory.
+        source_path: Path to the source repository (main worktree).
+
+    Returns:
+        List of paths to copied CLAUDE.md files.
+    """
+    worktree_path = Path(worktree_path).resolve()
+    source_path = Path(source_path).resolve()
+
+    copied_files: list[Path] = []
+
+    # Locations to check for CLAUDE.md files
+    claude_md_locations = [
+        ".claude/CLAUDE.md",
+        "CLAUDE.md",
+    ]
+
+    for location in claude_md_locations:
+        source_file = source_path / location
+        target_file = worktree_path / location
+
+        if source_file.exists():
+            try:
+                # Ensure parent directory exists
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+
+                # Copy the file
+                shutil.copy2(source_file, target_file)
+                copied_files.append(target_file)
+                logger.info(f"Copied CLAUDE.md from {location}")
+            except OSError as e:
+                logger.warning(f"Could not copy {location}: {e}")
+
+    if copied_files:
+        logger.info(f"Synced {len(copied_files)} CLAUDE.md file(s) to worktree")
+    else:
+        logger.debug("No CLAUDE.md files found to sync")
+
+    return copied_files
+
+
 __all__ = [
     "EnvironmentSetup",
     "EnvironmentSetupError",
     "DependencyInstallError",
     "EnvFileError",
+    "sync_claude_md",
 ]

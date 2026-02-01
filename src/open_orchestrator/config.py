@@ -68,6 +68,7 @@ class AITool(str, Enum):
         droid_auto: DroidAutoLevel | None = None,
         droid_skip_permissions: bool = False,
         opencode_config: str | None = None,
+        plan_mode: bool = False,
     ) -> str:
         """
         Get the shell command for an AI tool with options.
@@ -78,12 +79,19 @@ class AITool(str, Enum):
             droid_auto: Droid auto mode level (low, medium, high)
             droid_skip_permissions: Skip permissions check for Droid
             opencode_config: Custom config path for OpenCode
+            plan_mode: Start Claude in plan mode (--permission-mode plan)
 
         Returns:
             Complete command string to execute
         """
         # Use full path if provided, otherwise use tool name
         binary = executable_path or tool.value
+
+        if tool == cls.CLAUDE:
+            cmd_parts = [binary]
+            if plan_mode:
+                cmd_parts.append("--permission-mode plan")
+            return " ".join(cmd_parts)
 
         if tool == cls.DROID:
             cmd_parts = [binary]
@@ -251,6 +259,60 @@ class SyncConfig(BaseModel):
     )
 
 
+class HooksConfig(BaseModel):
+    """Configuration for status change hooks."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable status change hooks",
+    )
+    enable_notifications: bool = Field(
+        default=True,
+        description="Allow desktop notifications",
+    )
+    notification_sound: bool = Field(
+        default=True,
+        description="Play sound with notifications",
+    )
+    default_timeout: int = Field(
+        default=30,
+        ge=1,
+        le=300,
+        description="Default timeout for hook execution in seconds",
+    )
+    max_history_entries: int = Field(
+        default=100,
+        ge=10,
+        le=1000,
+        description="Maximum hook history entries to keep",
+    )
+    log_hook_output: bool = Field(
+        default=False,
+        description="Log hook execution output",
+    )
+
+
+class GitHubConfig(BaseModel):
+    """Configuration for GitHub integration."""
+
+    api_token: str | None = Field(
+        default=None,
+        description="GitHub personal access token for API calls",
+    )
+    auto_link_prs: bool = Field(
+        default=True,
+        description="Auto-detect and link PRs from branch names",
+    )
+    branch_pr_pattern: str = Field(
+        default=r".*#(\d+).*",
+        description="Regex pattern to extract PR number from branch name",
+    )
+    default_remote: str = Field(
+        default="origin",
+        description="Default git remote for PR operations",
+    )
+
+
 class Config(BaseModel):
     """Main configuration model for open-orchestrator."""
 
@@ -258,6 +320,8 @@ class Config(BaseModel):
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
+    github: GitHubConfig = Field(default_factory=GitHubConfig)
     # AI tool-specific configurations
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)

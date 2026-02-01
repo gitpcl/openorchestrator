@@ -18,6 +18,27 @@ from open_orchestrator.core.cleanup import (
     UsageTracker,
     WorktreeUsageStats,
 )
+from open_orchestrator.core.hooks import (
+    get_hook_type_for_status,
+    HookError,
+    HookExecutionError,
+    HooksConfig,
+    HookService,
+)
+from open_orchestrator.core.pr_linker import (
+    GitHubAPIError,
+    PRLinker,
+    PRLinkerConfig,
+    PRLinkError,
+    PRNotFoundError,
+)
+from open_orchestrator.core.session import (
+    SessionConfig,
+    SessionCopyError,
+    SessionError,
+    SessionManager,
+    SessionNotFoundError,
+)
 from open_orchestrator.core.status import (
     StatusConfig,
     StatusTracker,
@@ -36,6 +57,21 @@ __all__ = [
     "CleanupService",
     "UsageTracker",
     "WorktreeUsageStats",
+    "get_hook_type_for_status",
+    "HookError",
+    "HookExecutionError",
+    "HooksConfig",
+    "HookService",
+    "GitHubAPIError",
+    "PRLinker",
+    "PRLinkerConfig",
+    "PRLinkError",
+    "PRNotFoundError",
+    "SessionConfig",
+    "SessionCopyError",
+    "SessionError",
+    "SessionManager",
+    "SessionNotFoundError",
     "SyncConfig",
     "SyncReport",
     "SyncService",

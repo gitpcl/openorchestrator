@@ -7,13 +7,23 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 | Command | Description |
 |---------|-------------|
 | `owt create <branch>` | Create worktree with tmux session and Claude Code |
+| `owt create <branch> --plan-mode` | Create worktree with Claude in plan mode |
 | `owt list` | List all worktrees with status |
 | `owt switch <name> --tmux` | Switch to worktree's tmux session |
 | `owt send <name> "cmd"` | Send command to another worktree's Claude |
 | `owt status` | Show Claude activity across all worktrees |
 | `owt delete <name>` | Delete worktree and its tmux session |
 | `owt cleanup` | Remove stale worktrees (dry-run by default) |
+| `owt cleanup --json` | Output cleanup report in JSON format |
 | `owt sync --all` | Sync all worktrees with upstream |
+| `owt sync --all --json` | Output sync report in JSON format |
+| `owt pr link <worktree> --pr <num>` | Link worktree to GitHub PR |
+| `owt pr status <worktree>` | Show PR status for worktree |
+| `owt hooks list` | List configured status change hooks |
+| `owt hooks add` | Add a new status change hook |
+| `owt copy-session <src> <dest>` | Copy Claude session to new worktree |
+| `owt resume <worktree>` | Get command to resume Claude session |
+| `owt completion install` | Install shell auto-completion |
 
 ## tmux Commands
 
@@ -62,15 +72,21 @@ src/open_orchestrator/
 │   ├── tmux_manager.py # tmux session management
 │   ├── tmux_cli.py     # tmux CLI commands
 │   ├── project_detector.py  # Project type detection
-│   ├── environment.py  # Dependency & .env setup
+│   ├── environment.py  # Dependency, .env & CLAUDE.md setup
 │   ├── cleanup.py      # Worktree cleanup service
 │   ├── sync.py         # Upstream sync service
-│   └── status.py       # Claude activity status tracking
+│   ├── status.py       # Claude activity status tracking
+│   ├── hooks.py        # Status change hooks (notifications, webhooks)
+│   ├── session.py      # Claude session copying & resume
+│   └── pr_linker.py    # GitHub PR linking integration
 ├── models/
 │   ├── worktree_info.py    # Worktree models
 │   ├── project_config.py   # Project config models
 │   ├── maintenance.py      # Cleanup/sync models
-│   └── status.py           # Claude status models
+│   ├── status.py           # Claude status models
+│   ├── hooks.py            # Hook configuration models
+│   ├── session.py          # Session data models
+│   └── pr_info.py          # PR info models
 └── utils/
     └── io.py               # Safe file I/O utilities
 ```

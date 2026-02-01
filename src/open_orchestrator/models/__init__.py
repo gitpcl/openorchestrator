@@ -17,6 +17,26 @@ from open_orchestrator.models.maintenance import (
     WorktreeSyncResult,
     WorktreeUsageStats,
 )
+from open_orchestrator.models.hooks import (
+    HookAction,
+    HookConfig,
+    HookExecutionResult,
+    HookHistoryEntry,
+    HooksStore,
+    HookType,
+)
+from open_orchestrator.models.pr_info import (
+    PRInfo,
+    PRLinkResult,
+    PRStatus,
+    PRStore,
+)
+from open_orchestrator.models.session import (
+    SessionCopyResult,
+    SessionCopyStatus,
+    SessionData,
+    SessionStore,
+)
 from open_orchestrator.models.status import (
     AIActivityStatus,
     CommandRecord,
@@ -38,4 +58,18 @@ __all__ = [
     "StatusStore",
     "StatusSummary",
     "WorktreeAIStatus",
+    "SessionCopyResult",
+    "SessionCopyStatus",
+    "SessionData",
+    "SessionStore",
+    "HookAction",
+    "HookConfig",
+    "HookExecutionResult",
+    "HookHistoryEntry",
+    "HooksStore",
+    "HookType",
+    "PRInfo",
+    "PRLinkResult",
+    "PRStatus",
+    "PRStore",
 ]

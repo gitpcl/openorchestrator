@@ -31,6 +31,7 @@ class StatusConfig:
     auto_cleanup_orphans: bool = True
     store_commands: bool = True
     redact_commands: bool = True
+    enable_hooks: bool = True
 
     def __post_init__(self) -> None:
         if self.max_command_history < 1:
@@ -52,7 +53,45 @@ class StatusTracker:
         self.config = config or StatusConfig()
         self._storage_path = self.config.storage_path or self._get_default_path()
         self._store: StatusStore = StatusStore()
+        self._hook_service = None
         self._load_store()
+
+    def _get_hook_service(self):
+        """Lazy-load the hook service to avoid circular imports."""
+        if self._hook_service is None and self.config.enable_hooks:
+            from open_orchestrator.core.hooks import HookService
+            self._hook_service = HookService()
+        return self._hook_service
+
+    def _trigger_hooks(
+        self,
+        old_status: AIActivityStatus | None,
+        new_status: AIActivityStatus,
+        worktree_name: str,
+        task: str | None = None,
+    ) -> None:
+        """Trigger appropriate hooks for a status change."""
+        if not self.config.enable_hooks:
+            return
+
+        hook_service = self._get_hook_service()
+        if not hook_service:
+            return
+
+        from open_orchestrator.core.hooks import get_hook_type_for_status
+
+        hook_type = get_hook_type_for_status(old_status, new_status)
+
+        context = {
+            "status": new_status.value if hasattr(new_status, "value") else str(new_status),
+            "old_status": old_status.value if old_status and hasattr(old_status, "value") else str(old_status) if old_status else "",
+            "task": task or "",
+        }
+
+        try:
+            hook_service.trigger_hooks(hook_type, worktree_name, context)
+        except Exception:
+            pass
 
     def _get_default_path(self) -> Path:
         """Get default path for status storage in user's home directory."""
@@ -147,9 +186,14 @@ class StatusTracker:
         if not wt_status:
             return None
 
+        old_status = wt_status.activity_status
         wt_status.update_task(task, status)
         self._store.set_status(wt_status)
         self._save_store()
+
+        # Trigger hooks for status change
+        self._trigger_hooks(old_status, status, worktree_name, task)
+
         return wt_status
 
     def record_command(
@@ -206,9 +250,15 @@ class StatusTracker:
         if not wt_status:
             return None
 
+        old_status = wt_status.activity_status
+        task = wt_status.current_task
         wt_status.mark_completed()
         self._store.set_status(wt_status)
         self._save_store()
+
+        # Trigger hooks for completion
+        self._trigger_hooks(old_status, AIActivityStatus.COMPLETED, worktree_name, task)
+
         return wt_status
 
     def mark_idle(self, worktree_name: str) -> WorktreeAIStatus | None:
@@ -218,9 +268,14 @@ class StatusTracker:
         if not wt_status:
             return None
 
+        old_status = wt_status.activity_status
         wt_status.mark_idle()
         self._store.set_status(wt_status)
         self._save_store()
+
+        # Trigger hooks for idle state
+        self._trigger_hooks(old_status, AIActivityStatus.IDLE, worktree_name)
+
         return wt_status
 
     def set_notes(

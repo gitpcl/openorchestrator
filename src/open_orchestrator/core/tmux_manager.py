@@ -40,6 +40,7 @@ class TmuxSessionConfig:
     droid_auto: DroidAutoLevel | None = None
     droid_skip_permissions: bool = False
     opencode_config: str | None = None
+    plan_mode: bool = False
     window_name: str | None = None
 
 
@@ -158,6 +159,7 @@ class TmuxManager:
                     droid_auto=config.droid_auto,
                     droid_skip_permissions=config.droid_skip_permissions,
                     opencode_config=config.opencode_config,
+                    plan_mode=config.plan_mode,
                 )
 
             return self._get_session_info(session)
@@ -291,6 +293,7 @@ class TmuxManager:
         droid_auto: DroidAutoLevel | None = None,
         droid_skip_permissions: bool = False,
         opencode_config: str | None = None,
+        plan_mode: bool = False,
     ) -> None:
         """
         Start the specified AI tool in the pane.
@@ -301,6 +304,7 @@ class TmuxManager:
             droid_auto: Droid auto mode level (if using droid)
             droid_skip_permissions: Skip permissions for droid
             opencode_config: Custom config path for opencode
+            plan_mode: Start Claude in plan mode
 
         Raises:
             TmuxError: If AI tool is not installed
@@ -320,6 +324,7 @@ class TmuxManager:
             droid_auto=droid_auto,
             droid_skip_permissions=droid_skip_permissions,
             opencode_config=opencode_config,
+            plan_mode=plan_mode,
         )
         pane.send_keys(command, enter=True)
 
@@ -436,6 +441,7 @@ class TmuxManager:
         droid_auto: DroidAutoLevel | None = None,
         droid_skip_permissions: bool = False,
         opencode_config: str | None = None,
+        plan_mode: bool = False,
     ) -> TmuxSessionInfo:
         """
         Create a tmux session for a worktree.
@@ -453,6 +459,7 @@ class TmuxManager:
             droid_auto: Droid auto mode level
             droid_skip_permissions: Skip droid permissions check
             opencode_config: OpenCode config path
+            plan_mode: Start Claude in plan mode
 
         Returns:
             TmuxSessionInfo with created session details
@@ -469,6 +476,7 @@ class TmuxManager:
             droid_auto=droid_auto,
             droid_skip_permissions=droid_skip_permissions,
             opencode_config=opencode_config,
+            plan_mode=plan_mode,
             window_name=worktree_name,
         )
 
