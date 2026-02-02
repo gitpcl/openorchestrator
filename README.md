@@ -826,18 +826,60 @@ git clone https://github.com/gitpcl/openorchestrator.git
 cd open-orchestrator
 uv pip install -e ".[dev]"
 
-# Run tests
-pytest
+# Or use make
+make install-uv
+```
 
-# Run tests with coverage
-pytest --cov=open_orchestrator
+### Running Tests
+
+The project includes 290+ tests with 90%+ coverage. Use the Makefile for common tasks:
+
+```bash
+# Run all tests with coverage
+make test
+
+# Run tests excluding slow tests
+make test-fast
+
+# Run tests and open HTML coverage report
+make test-cov
 
 # Run linting
-ruff check .
+make lint
 
-# Run type checking
-mypy src/open_orchestrator
+# Format code
+make format
+
+# Clean up test artifacts
+make clean
 ```
+
+### Docker Testing
+
+For isolated, reproducible testing:
+
+```bash
+# Run tests in Docker container
+make test-docker
+
+# Interactive Docker shell for debugging
+make test-docker-interactive
+```
+
+### Test Markers
+
+```bash
+# Run only tests requiring GitHub CLI
+pytest -m gh_cli
+
+# Run only tmux-dependent tests
+pytest -m tmux
+
+# Exclude slow tests
+pytest -m "not slow"
+```
+
+See [TESTING.md](TESTING.md) for comprehensive testing documentation.
 
 ### Project Structure
 
@@ -876,10 +918,24 @@ open-orchestrator/
 │   └── utils/
 │       └── io.py                  # Safe file I/O utilities
 ├── tests/
-│   ├── test_cli.py                # CLI command tests
-│   ├── test_worktree.py           # Worktree manager tests
+│   ├── conftest.py                # Shared fixtures (30+ fixtures)
+│   ├── test_cli.py                # CLI integration tests
+│   ├── test_cleanup.py            # CleanupService tests
+│   ├── test_dashboard.py          # Dashboard TUI tests
 │   ├── test_environment.py        # Environment setup tests
-│   └── test_status.py             # Status tracker tests
+│   ├── test_hooks.py              # HookService tests
+│   ├── test_pr_linker.py          # PRLinker tests
+│   ├── test_process_manager.py    # ProcessManager tests
+│   ├── test_session.py            # SessionManager tests
+│   ├── test_skill_installer.py    # SkillInstaller tests
+│   ├── test_status.py             # StatusTracker tests
+│   ├── test_sync.py               # SyncService tests
+│   ├── test_tmux_manager.py       # TmuxManager tests
+│   └── test_worktree.py           # WorktreeManager tests
+├── Makefile                       # Common development tasks
+├── Dockerfile.test                # Docker test environment
+├── docker-compose.test.yml        # Docker compose for testing
+├── TESTING.md                     # Comprehensive testing guide
 ├── scripts/
 │   └── context-injector.py        # Claude Code context hook
 ├── .claude/
