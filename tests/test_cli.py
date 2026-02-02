@@ -399,8 +399,6 @@ class TestCleanupCommand:
     ) -> None:
         """Test cleanup command in dry-run mode."""
         # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-
         mock_cleanup_instance = mock_cleanup.return_value
         mock_report = MagicMock()
         mock_report.deleted = []
@@ -426,8 +424,6 @@ class TestCleanupCommand:
     ) -> None:
         """Test cleanup command with force flag."""
         # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-
         mock_cleanup_instance = mock_cleanup.return_value
         mock_report = MagicMock()
         mock_report.deleted = []
@@ -535,3 +531,206 @@ class TestSwitchCommand:
 
         # Assert
         assert result.exit_code != 0
+
+
+class TestPlanModeFlag:
+    """Test --plan-mode flag integration in create command."""
+
+    @patch("open_orchestrator.cli.sync_claude_md")
+    @patch("open_orchestrator.cli.StatusTracker")
+    @patch("open_orchestrator.cli.EnvironmentSetup")
+    @patch("open_orchestrator.cli.ProjectDetector")
+    @patch("open_orchestrator.cli.TmuxManager")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_create_with_plan_mode_flag(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_tmux: MagicMock,
+        mock_detector: MagicMock,
+        mock_env_setup: MagicMock,
+        mock_status: MagicMock,
+        mock_sync_claude_md: MagicMock,
+        cli_runner: CliRunner,
+        temp_directory: Path,
+    ) -> None:
+        """Test --plan-mode flag is passed to TmuxManager.create_worktree_session."""
+        # Arrange
+        mock_worktree_info = WorktreeInfo(
+            path=temp_directory / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.create.return_value = mock_worktree_info
+        mock_wt_instance.repo.working_dir = "/fake/repo"
+
+        mock_detector_instance = mock_detector.return_value
+        mock_detector_instance.detect.return_value = None
+
+        mock_tmux_instance = mock_tmux.return_value
+        mock_session = MagicMock()
+        mock_session.session_name = "owt-feature-test"
+        mock_session.pane_count = 2
+        mock_tmux_instance.create_worktree_session.return_value = mock_session
+
+        mock_sync_claude_md.return_value = []
+
+        # Act
+        result = cli_runner.invoke(
+            main,
+            ["create", "feature/test", "--plan-mode", "--claude", "--no-deps", "--no-env"]
+        )
+
+        # Assert
+        assert result.exit_code == 0
+        mock_tmux_instance.create_worktree_session.assert_called_once()
+        call_kwargs = mock_tmux_instance.create_worktree_session.call_args[1]
+        assert call_kwargs["plan_mode"] is True
+        assert "plan mode" in result.output
+
+    @patch("open_orchestrator.cli.sync_claude_md")
+    @patch("open_orchestrator.cli.StatusTracker")
+    @patch("open_orchestrator.cli.EnvironmentSetup")
+    @patch("open_orchestrator.cli.ProjectDetector")
+    @patch("open_orchestrator.cli.TmuxManager")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_create_without_plan_mode_flag(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_tmux: MagicMock,
+        mock_detector: MagicMock,
+        mock_env_setup: MagicMock,
+        mock_status: MagicMock,
+        mock_sync_claude_md: MagicMock,
+        cli_runner: CliRunner,
+        temp_directory: Path,
+    ) -> None:
+        """Test plan_mode defaults to False when --plan-mode flag not provided."""
+        # Arrange
+        mock_worktree_info = WorktreeInfo(
+            path=temp_directory / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.create.return_value = mock_worktree_info
+        mock_wt_instance.repo.working_dir = "/fake/repo"
+
+        mock_detector_instance = mock_detector.return_value
+        mock_detector_instance.detect.return_value = None
+
+        mock_tmux_instance = mock_tmux.return_value
+        mock_session = MagicMock()
+        mock_session.session_name = "owt-feature-test"
+        mock_session.pane_count = 2
+        mock_tmux_instance.create_worktree_session.return_value = mock_session
+
+        mock_sync_claude_md.return_value = []
+
+        # Act
+        result = cli_runner.invoke(
+            main,
+            ["create", "feature/test", "--claude", "--no-deps", "--no-env"]
+        )
+
+        # Assert
+        assert result.exit_code == 0
+        mock_tmux_instance.create_worktree_session.assert_called_once()
+        call_kwargs = mock_tmux_instance.create_worktree_session.call_args[1]
+        assert call_kwargs["plan_mode"] is False
+        assert "plan mode" not in result.output
+
+
+class TestShellCompletion:
+    """Test shell completion generation commands."""
+
+    def test_completion_bash_command(self, cli_runner: CliRunner) -> None:
+        """Test 'owt completion bash' outputs bash completion script."""
+        # Act
+        result = cli_runner.invoke(main, ["completion", "bash"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "_OWT_COMPLETE=bash_source owt" in result.output
+        assert "eval" in result.output
+
+    def test_completion_zsh_command(self, cli_runner: CliRunner) -> None:
+        """Test 'owt completion zsh' outputs zsh completion script."""
+        # Act
+        result = cli_runner.invoke(main, ["completion", "zsh"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "_OWT_COMPLETE=zsh_source owt" in result.output
+        assert "eval" in result.output
+
+    def test_completion_fish_command(self, cli_runner: CliRunner) -> None:
+        """Test 'owt completion fish' outputs fish completion script."""
+        # Act
+        result = cli_runner.invoke(main, ["completion", "fish"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "_OWT_COMPLETE=fish_source owt" in result.output
+        assert "source" in result.output
+
+    @patch.dict("os.environ", {"SHELL": "/bin/bash"})
+    def test_completion_install_auto_detect_bash(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """Test 'owt completion install' auto-detects bash shell."""
+        # Act
+        result = cli_runner.invoke(main, ["completion", "install"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "bash" in result.output
+        assert "~/.bashrc" in result.output
+
+    @patch.dict("os.environ", {"SHELL": "/bin/zsh"})
+    def test_completion_install_auto_detect_zsh(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """Test 'owt completion install' auto-detects zsh shell."""
+        # Act
+        result = cli_runner.invoke(main, ["completion", "install"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "zsh" in result.output
+        assert "~/.zshrc" in result.output
+
+    @patch.dict("os.environ", {"SHELL": "/usr/bin/fish"})
+    def test_completion_install_auto_detect_fish(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """Test 'owt completion install' auto-detects fish shell."""
+        # Act
+        result = cli_runner.invoke(main, ["completion", "install"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "fish" in result.output
+        assert "~/.config/fish/completions" in result.output
+
+    def test_completion_install_explicit_shell(self, cli_runner: CliRunner) -> None:
+        """Test 'owt completion install --shell' with explicit shell choice."""
+        # Act
+        result = cli_runner.invoke(main, ["completion", "install", "--shell", "zsh"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "zsh" in result.output
+        assert "~/.zshrc" in result.output

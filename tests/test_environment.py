@@ -4,15 +4,13 @@ Tests for EnvironmentSetup class and dependency installation.
 
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from open_orchestrator.core.environment import (
     DependencyInstallError,
-    EnvFileError,
     EnvironmentSetup,
-    EnvironmentSetupError,
 )
 from open_orchestrator.models.project_config import PackageManager, ProjectConfig, ProjectType
 
@@ -516,3 +514,179 @@ class TestCopyAdditionalConfigFiles:
         assert len(copied) == 1
         assert copied[0].name == "custom.config"
         assert (worktree_dir / "custom.config").exists()
+
+
+class TestSyncClaudeMd:
+    """Tests for sync_claude_md function."""
+
+    def test_sync_claude_md_copies_project_level_file(
+        self,
+        temp_directory: Path,
+    ) -> None:
+        """Test sync_claude_md copies .claude/CLAUDE.md from source to worktree."""
+        # Arrange
+        from open_orchestrator.core.environment import sync_claude_md
+
+        source_dir = temp_directory / "source"
+        source_dir.mkdir()
+        claude_dir = source_dir / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "CLAUDE.md").write_text("# Claude Config\n\nProject instructions here.")
+
+        worktree_dir = temp_directory / "worktree"
+        worktree_dir.mkdir()
+
+        # Act
+        copied_files = sync_claude_md(worktree_dir, source_dir)
+
+        # Assert
+        assert len(copied_files) == 1
+        assert copied_files[0].resolve() == (worktree_dir / ".claude" / "CLAUDE.md").resolve()
+        assert (worktree_dir / ".claude" / "CLAUDE.md").exists()
+        assert (worktree_dir / ".claude" / "CLAUDE.md").read_text() == "# Claude Config\n\nProject instructions here."
+
+    def test_sync_claude_md_copies_root_level_file(
+        self,
+        temp_directory: Path,
+    ) -> None:
+        """Test sync_claude_md copies CLAUDE.md from source to worktree."""
+        # Arrange
+        from open_orchestrator.core.environment import sync_claude_md
+
+        source_dir = temp_directory / "source"
+        source_dir.mkdir()
+        (source_dir / "CLAUDE.md").write_text("# Root Claude Config\n")
+
+        worktree_dir = temp_directory / "worktree"
+        worktree_dir.mkdir()
+
+        # Act
+        copied_files = sync_claude_md(worktree_dir, source_dir)
+
+        # Assert
+        assert len(copied_files) == 1
+        assert copied_files[0].resolve() == (worktree_dir / "CLAUDE.md").resolve()
+        assert (worktree_dir / "CLAUDE.md").exists()
+        assert (worktree_dir / "CLAUDE.md").read_text() == "# Root Claude Config\n"
+
+    def test_sync_claude_md_copies_both_files(
+        self,
+        temp_directory: Path,
+    ) -> None:
+        """Test sync_claude_md copies both .claude/CLAUDE.md and CLAUDE.md."""
+        # Arrange
+        from open_orchestrator.core.environment import sync_claude_md
+
+        source_dir = temp_directory / "source"
+        source_dir.mkdir()
+
+        # Create project-level CLAUDE.md
+        claude_dir = source_dir / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "CLAUDE.md").write_text("# Project Level\n")
+
+        # Create root-level CLAUDE.md
+        (source_dir / "CLAUDE.md").write_text("# Root Level\n")
+
+        worktree_dir = temp_directory / "worktree"
+        worktree_dir.mkdir()
+
+        # Act
+        copied_files = sync_claude_md(worktree_dir, source_dir)
+
+        # Assert
+        assert len(copied_files) == 2
+        resolved_files = [f.resolve() for f in copied_files]
+        assert (worktree_dir / ".claude" / "CLAUDE.md").resolve() in resolved_files
+        assert (worktree_dir / "CLAUDE.md").resolve() in resolved_files
+        assert (worktree_dir / ".claude" / "CLAUDE.md").exists()
+        assert (worktree_dir / "CLAUDE.md").exists()
+
+    def test_sync_claude_md_handles_missing_files_gracefully(
+        self,
+        temp_directory: Path,
+    ) -> None:
+        """Test sync_claude_md returns empty list when no CLAUDE.md files found."""
+        # Arrange
+        from open_orchestrator.core.environment import sync_claude_md
+
+        source_dir = temp_directory / "source"
+        source_dir.mkdir()
+
+        worktree_dir = temp_directory / "worktree"
+        worktree_dir.mkdir()
+
+        # Act
+        copied_files = sync_claude_md(worktree_dir, source_dir)
+
+        # Assert
+        assert len(copied_files) == 0
+        assert not (worktree_dir / ".claude" / "CLAUDE.md").exists()
+        assert not (worktree_dir / "CLAUDE.md").exists()
+
+    def test_sync_claude_md_creates_parent_directory(
+        self,
+        temp_directory: Path,
+    ) -> None:
+        """Test sync_claude_md creates .claude directory if it doesn't exist."""
+        # Arrange
+        from open_orchestrator.core.environment import sync_claude_md
+
+        source_dir = temp_directory / "source"
+        source_dir.mkdir()
+        claude_dir = source_dir / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "CLAUDE.md").write_text("# Config\n")
+
+        worktree_dir = temp_directory / "worktree"
+        worktree_dir.mkdir()
+        # Note: .claude directory does NOT exist in worktree
+
+        # Act
+        copied_files = sync_claude_md(worktree_dir, source_dir)
+
+        # Assert
+        assert len(copied_files) == 1
+        assert (worktree_dir / ".claude").exists()
+        assert (worktree_dir / ".claude").is_dir()
+        assert (worktree_dir / ".claude" / "CLAUDE.md").exists()
+
+    def test_sync_claude_md_handles_permission_errors(
+        self,
+        temp_directory: Path,
+    ) -> None:
+        """Test sync_claude_md continues on permission errors."""
+        # Arrange
+        import shutil
+        from unittest.mock import patch
+
+        from open_orchestrator.core.environment import sync_claude_md
+
+        source_dir = temp_directory / "source"
+        source_dir.mkdir()
+        claude_dir = source_dir / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "CLAUDE.md").write_text("# Config\n")
+        (source_dir / "CLAUDE.md").write_text("# Root\n")
+
+        worktree_dir = temp_directory / "worktree"
+        worktree_dir.mkdir()
+
+        # Mock shutil.copy2 to raise OSError for .claude/CLAUDE.md but succeed for CLAUDE.md
+        original_copy2 = shutil.copy2
+
+        def mock_copy2(src, dst, *args, **kwargs):
+            if ".claude" in str(src):
+                raise OSError("Permission denied")
+            return original_copy2(src, dst, *args, **kwargs)
+
+        # Act
+        with patch("open_orchestrator.core.environment.shutil.copy2", side_effect=mock_copy2):
+            copied_files = sync_claude_md(worktree_dir, source_dir)
+
+        # Assert
+        # Should have copied CLAUDE.md but not .claude/CLAUDE.md
+        assert len(copied_files) == 1
+        assert copied_files[0].resolve() == (worktree_dir / "CLAUDE.md").resolve()
+        assert (worktree_dir / "CLAUDE.md").exists()
+        assert not (worktree_dir / ".claude" / "CLAUDE.md").exists()

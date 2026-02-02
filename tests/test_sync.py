@@ -337,3 +337,217 @@ class TestSyncServiceGitCommands:
 
         assert behind == 3
         assert ahead == 5
+
+
+class TestSyncCLIJsonOutput:
+    """Test JSON output for 'owt sync --json' command."""
+
+    @pytest.fixture
+    def cli_runner(self):
+        from click.testing import CliRunner
+        return CliRunner()
+
+    @patch("open_orchestrator.core.sync.SyncService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_sync_all_json_output_with_no_worktrees(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_sync_service: MagicMock,
+        cli_runner,
+    ) -> None:
+        """Test --json output when no worktrees exist."""
+        import json
+
+        from open_orchestrator.cli import main
+
+        # Arrange
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = []
+
+        # Act
+        result = cli_runner.invoke(main, ["sync", "--all", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "results" in output
+        assert output["results"] == []
+        assert "summary" in output
+
+    @patch("open_orchestrator.core.sync.SyncService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_sync_all_json_output_with_results(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_sync_service: MagicMock,
+        cli_runner,
+        tmp_path,
+    ) -> None:
+        """Test --json output with sync results."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        mock_worktree = WorktreeInfo(
+            path=tmp_path / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = [mock_worktree]
+
+        mock_sync_instance = mock_sync_service.return_value
+        mock_report = SyncReport(
+            timestamp=datetime.now(),
+            worktrees_synced=1,
+            successful=1,
+            failed=0,
+            up_to_date=0,
+            with_conflicts=0,
+            results=[
+                WorktreeSyncResult(
+                    worktree_path=str(tmp_path / "test-worktree"),
+                    branch_name="feature/test",
+                    status=SyncStatus.SUCCESS,
+                    message="Pulled 3 commits",
+                    commits_pulled=3,
+                    commits_ahead=0
+                )
+            ]
+        )
+        mock_sync_instance.sync_all.return_value = mock_report
+
+        # Act
+        result = cli_runner.invoke(main, ["sync", "--all", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "results" in output
+        assert len(output["results"]) == 1
+        assert output["results"][0]["worktree_path"] == str(tmp_path / "test-worktree")
+        assert output["results"][0]["branch_name"] == "feature/test"
+        assert output["results"][0]["status"] == "success"
+
+    @patch("open_orchestrator.core.sync.SyncService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_sync_single_worktree_json_output(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_sync_service: MagicMock,
+        cli_runner,
+        tmp_path,
+    ) -> None:
+        """Test --json output for single worktree sync."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        mock_worktree = WorktreeInfo(
+            path=tmp_path / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.get.return_value = mock_worktree
+
+        mock_sync_instance = mock_sync_service.return_value
+        mock_result = WorktreeSyncResult(
+            worktree_path=str(tmp_path / "test-worktree"),
+            branch_name="feature/test",
+            status=SyncStatus.UP_TO_DATE,
+            message="Already up to date",
+            commits_pulled=0,
+            commits_ahead=2
+        )
+        mock_sync_instance.sync_worktree.return_value = mock_result
+
+        # Act
+        result = cli_runner.invoke(main, ["sync", "feature/test", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "worktree_path" in output
+        assert "branch_name" in output
+        assert "status" in output
+        assert output["status"] == "up_to_date"
+        assert output["commits_ahead"] == 2
+
+    @patch("open_orchestrator.core.sync.SyncService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_sync_json_output_validates_parseable(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_sync_service: MagicMock,
+        cli_runner,
+        tmp_path,
+    ) -> None:
+        """Test --json output is valid JSON and parseable."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        mock_worktree = WorktreeInfo(
+            path=tmp_path / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = [mock_worktree]
+
+        mock_sync_instance = mock_sync_service.return_value
+        mock_report = SyncReport(
+            timestamp=datetime.now(),
+            worktrees_synced=1,
+            successful=0,
+            failed=0,
+            up_to_date=0,
+            with_conflicts=1,
+            results=[
+                WorktreeSyncResult(
+                    worktree_path=str(tmp_path / "test-worktree"),
+                    branch_name="feature/test",
+                    status=SyncStatus.CONFLICTS,
+                    message="Merge conflicts detected",
+                    commits_pulled=0,
+                    commits_ahead=1
+                )
+            ]
+        )
+        mock_sync_instance.sync_all.return_value = mock_report
+
+        # Act
+        result = cli_runner.invoke(main, ["sync", "--all", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        # Should not raise json.JSONDecodeError
+        output = json.loads(result.output)
+        # Validate schema
+        assert isinstance(output, dict)
+        assert "results" in output
+        assert isinstance(output["results"], list)
+        assert "worktrees_synced" in output
+        assert isinstance(output["worktrees_synced"], int)
