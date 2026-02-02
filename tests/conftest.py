@@ -385,3 +385,340 @@ def mock_subprocess_run():
         mock_result.stderr = ""
         mock_run.return_value = mock_result
         yield mock_run
+
+
+# Skill installation fixtures
+
+
+@pytest.fixture
+def skills_source_dir(temp_directory: Path) -> Path:
+    """
+    Create a mock skills source directory with SKILL.md file.
+
+    Simulates the structure of src/open_orchestrator/skills/open-orchestrator/
+    for testing skill installation functionality.
+
+    Returns:
+        Path: Directory containing mock SKILL.md file
+    """
+    skills_dir = temp_directory / "skills-source" / "open-orchestrator"
+    skills_dir.mkdir(parents=True)
+
+    skill_content = """# Open Orchestrator Skill
+
+Git Worktree + Claude Code orchestration tool for parallel development workflows.
+
+## Commands
+
+- `/worktree` - Main worktree management command
+- `/wt-create` - Quick worktree creation
+- `/wt-list` - List worktrees
+- `/wt-status` - Show Claude activity across worktrees
+- `/wt-cleanup` - Cleanup stale worktrees
+
+## Usage
+
+This is a test skill file for testing skill installation.
+"""
+    (skills_dir / "SKILL.md").write_text(skill_content)
+
+    return skills_dir
+
+
+@pytest.fixture
+def mock_skills_dir(temp_directory: Path) -> Path:
+    """
+    Create a temporary target directory for skill installation testing.
+
+    Simulates the ~/.claude/skills/ directory where skills are installed.
+
+    Returns:
+        Path: Empty directory for skill installation testing
+    """
+    skills_target = temp_directory / ".claude" / "skills"
+    skills_target.mkdir(parents=True)
+
+    return skills_target
+
+
+# Hook testing fixtures
+
+
+@pytest.fixture
+def hooks_config(temp_directory: Path) -> Path:
+    """
+    Create a mock hooks configuration directory with sample hook configurations.
+
+    Creates a .open-orchestrator directory with hooks.json containing
+    sample webhook and shell command hooks for testing.
+
+    Returns:
+        Path: Directory containing hooks.json file
+    """
+    config_dir = temp_directory / ".open-orchestrator"
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    hooks_data = {
+        "hooks": [
+            {
+                "type": "shell",
+                "command": "echo 'Status changed: {status}'",
+                "events": ["status_change"],
+                "enabled": True
+            },
+            {
+                "type": "webhook",
+                "url": "https://example.com/webhook",
+                "events": ["worktree_created", "worktree_deleted"],
+                "enabled": True
+            }
+        ]
+    }
+
+    hooks_file = config_dir / "hooks.json"
+    hooks_file.write_text(json.dumps(hooks_data, indent=2))
+
+    return config_dir
+
+
+@pytest.fixture
+def mock_subprocess():
+    """
+    Mock subprocess.run for hook execution testing.
+
+    Provides a patched subprocess.run that returns successful execution results
+    for testing shell command hooks without actually executing commands.
+
+    Yields:
+        MagicMock: Mocked subprocess.run function
+    """
+    with patch("subprocess.run") as mock_run:
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "Hook executed successfully"
+        mock_result.stderr = ""
+        mock_run.return_value = mock_result
+        yield mock_run
+
+
+# Session management fixtures
+
+
+@pytest.fixture
+def temp_session_dir(temp_directory: Path) -> Path:
+    """
+    Create a temporary directory for session storage testing.
+
+    Simulates the session storage directory structure used by SessionManager
+    for storing Claude Code session data.
+
+    Returns:
+        Path: Empty directory for session storage testing
+    """
+    session_dir = temp_directory / ".open-orchestrator" / "sessions"
+    session_dir.mkdir(parents=True)
+
+    return session_dir
+
+
+@pytest.fixture
+def mock_session_store(temp_session_dir: Path) -> Path:
+    """
+    Create a pre-populated session store for testing.
+
+    Creates sample session data files to test session copying,
+    resuming, and management functionality.
+
+    Returns:
+        Path: Directory containing pre-populated session data files
+    """
+    # Create sample session data
+    session_1 = temp_session_dir / "worktree-1"
+    session_1.mkdir()
+
+    session_data_1 = {
+        "worktree_name": "worktree-1",
+        "session_id": "abc123",
+        "created_at": "2024-02-01T10:00:00",
+        "last_message": "Implementing authentication feature",
+        "message_count": 15,
+        "conversation_data": {
+            "messages": ["User: Add login", "Assistant: I'll help with that"]
+        }
+    }
+    (session_1 / "session.json").write_text(json.dumps(session_data_1, indent=2))
+
+    session_2 = temp_session_dir / "worktree-2"
+    session_2.mkdir()
+
+    session_data_2 = {
+        "worktree_name": "worktree-2",
+        "session_id": "def456",
+        "created_at": "2024-02-01T11:00:00",
+        "last_message": "Fixing bug in dashboard",
+        "message_count": 8,
+        "conversation_data": {
+            "messages": ["User: Fix dashboard bug", "Assistant: Let me investigate"]
+        }
+    }
+    (session_2 / "session.json").write_text(json.dumps(session_data_2, indent=2))
+
+    return temp_session_dir
+
+
+# PR linking fixtures
+
+
+@pytest.fixture
+def mock_gh_cli():
+    """
+    Mock GitHub CLI (gh) subprocess calls for PR linking testing.
+
+    Provides patched subprocess.run that simulates GitHub CLI responses
+    for testing PR creation, status checks, and linking without requiring
+    actual GitHub API access.
+
+    Yields:
+        MagicMock: Mocked subprocess.run with GitHub CLI response simulation
+    """
+    with patch("subprocess.run") as mock_run:
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        # Simulate gh pr list output
+        pr_list_output = json.dumps([
+            {
+                "number": 123,
+                "title": "Add new feature",
+                "state": "OPEN",
+                "url": "https://github.com/owner/repo/pull/123"
+            },
+            {
+                "number": 124,
+                "title": "Fix bug",
+                "state": "MERGED",
+                "url": "https://github.com/owner/repo/pull/124"
+            }
+        ])
+
+        mock_result.stdout = pr_list_output
+        mock_result.stderr = ""
+        mock_run.return_value = mock_result
+        yield mock_run
+
+
+@pytest.fixture
+def pr_store(temp_directory: Path) -> Path:
+    """
+    Create a temporary directory for PR metadata storage testing.
+
+    Simulates the directory structure used for storing PR linking metadata
+    that maps worktrees to GitHub Pull Requests.
+
+    Returns:
+        Path: Empty directory for PR metadata storage testing
+    """
+    pr_dir = temp_directory / ".open-orchestrator" / "prs"
+    pr_dir.mkdir(parents=True)
+
+    return pr_dir
+
+
+# Process manager fixtures
+
+
+@pytest.fixture
+def temp_pids(temp_directory: Path) -> Path:
+    """
+    Create a temporary directory for PID files and process logs.
+
+    Simulates the directory structure used by ProcessManager for tracking
+    non-tmux AI tool processes via PID files and log outputs.
+
+    Returns:
+        Path: Empty directory for PID file storage testing
+    """
+    pids_dir = temp_directory / ".open-orchestrator" / "processes"
+    pids_dir.mkdir(parents=True)
+
+    return pids_dir
+
+
+@pytest.fixture
+def mock_process() -> MagicMock:
+    """
+    Create a mock running process for process management testing.
+
+    Provides a mock Process object with typical attributes (pid, status, etc.)
+    for testing process lifecycle management without starting actual processes.
+
+    Returns:
+        MagicMock: Mock process object with standard attributes
+    """
+    process = MagicMock()
+    process.pid = 12345
+    process.returncode = None
+    process.poll.return_value = None
+    process.terminate.return_value = None
+    process.kill.return_value = None
+    process.wait.return_value = 0
+
+    return process
+
+
+# Dashboard testing fixtures
+
+
+@pytest.fixture
+def mock_status_tracker(temp_directory: Path) -> MagicMock:
+    """
+    Create a pre-configured StatusTracker with test data for dashboard testing.
+
+    Provides a StatusTracker instance with multiple worktrees in different states
+    (working, idle, blocked) for testing dashboard display and interaction.
+
+    Returns:
+        MagicMock: StatusTracker mock with pre-configured test worktree data
+    """
+    from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
+
+    tracker = MagicMock()
+
+    # Mock worktrees data
+    worktree_1 = WorktreeAIStatus(
+        worktree_name="feature-auth",
+        worktree_path=str(temp_directory / "worktrees" / "feature-auth"),
+        branch="feature/authentication",
+        activity_status=AIActivityStatus.WORKING,
+        current_task="Implementing JWT authentication",
+        tmux_session="owt-feature-auth"
+    )
+
+    worktree_2 = WorktreeAIStatus(
+        worktree_name="fix-dashboard",
+        worktree_path=str(temp_directory / "worktrees" / "fix-dashboard"),
+        branch="fix/dashboard-bug",
+        activity_status=AIActivityStatus.IDLE,
+        current_task=None,
+        tmux_session="owt-fix-dashboard"
+    )
+
+    worktree_3 = WorktreeAIStatus(
+        worktree_name="refactor-api",
+        worktree_path=str(temp_directory / "worktrees" / "refactor-api"),
+        branch="refactor/api-cleanup",
+        activity_status=AIActivityStatus.BLOCKED,
+        current_task="Refactoring API endpoints",
+        tmux_session="owt-refactor-api"
+    )
+
+    tracker.get_all_statuses.return_value = [worktree_1, worktree_2, worktree_3]
+    tracker.get_summary.return_value = MagicMock(
+        total_worktrees=3,
+        active_ai_sessions=2,
+        idle_ai_sessions=1,
+        blocked_ai_sessions=1,
+        total_commands_sent=2
+    )
+
+    return tracker

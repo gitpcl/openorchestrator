@@ -36,6 +36,8 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-textual-snapshot>=0.3.0",
+    "pytest-asyncio>=0.21.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
@@ -58,6 +60,8 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "S"]
 ignore = [
+    "S101",  # assert usage - standard in pytest tests
+    "S108",  # insecure temp file usage - acceptable in test fixtures with mocks
     "S603",  # subprocess call - false positive when using list arguments
     "S607",  # partial executable path - acceptable for well-known system commands (git, tmux)
 ]
@@ -72,3 +76,9 @@ warn_unused_ignores = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+markers = [
+    "gh_cli: Tests that require GitHub CLI (gh) to be installed or mocked",
+    "tmux: Tests that require tmux to be installed or mocked",
+    "textual: Tests for Textual TUI components and dashboard",
+    "slow: Tests that take longer than 1 second to execute",
+]

@@ -1,0 +1,41 @@
+# Dockerfile for Open Orchestrator test environment
+# Provides isolated environment with all dependencies for running tests
+
+FROM python:3.11-slim
+
+# Install system dependencies required for testing
+RUN apt-get update && apt-get install -y \
+    git \
+    tmux \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up Python environment
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Create workspace directory
+WORKDIR /workspace
+
+# Copy dependency files first for better caching
+COPY pyproject.toml ./
+
+# Install Python dependencies including dev dependencies
+RUN pip install --upgrade pip && \
+    pip install -e ".[dev]"
+
+# Configure git for test environment
+RUN git config --global user.email "test@example.com" && \
+    git config --global user.name "Test User" && \
+    git config --global init.defaultBranch main
+
+# Create directories for test artifacts
+RUN mkdir -p /workspace/htmlcov /workspace/.pytest_cache
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command runs the full test suite with coverage
+CMD ["pytest", "-v", "--cov=src/open_orchestrator", "--cov-report=term-missing", "--cov-report=html"]
