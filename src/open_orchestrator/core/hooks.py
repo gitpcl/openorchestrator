@@ -10,7 +10,6 @@ This module provides functionality to:
 import json
 import logging
 import os
-import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -257,9 +256,7 @@ class HookService:
             output = result.stdout
             if result.returncode != 0:
                 error_output = result.stderr or result.stdout
-                raise HookExecutionError(
-                    f"Command exited with code {result.returncode}: {error_output}"
-                )
+                raise HookExecutionError(f"Command exited with code {result.returncode}: {error_output}")
 
             return output
 

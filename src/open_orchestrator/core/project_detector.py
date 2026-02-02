@@ -333,10 +333,7 @@ class ProjectDetector:
             env_file_path=env_file_path,
         )
 
-        logger.info(
-            f"Detected {project_type.value} project with {package_manager.value} "
-            f"package manager"
-        )
+        logger.info(f"Detected {project_type.value} project with {package_manager.value} package manager")
 
         return config
 

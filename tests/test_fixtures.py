@@ -318,11 +318,7 @@ class TestFixtureIntegration:
     """Integration tests for fixture combinations."""
 
     def test_fixtures_use_consistent_temp_directory(
-        self,
-        temp_session_dir: Path,
-        hooks_config: Path,
-        pr_store: Path,
-        temp_pids: Path
+        self, temp_session_dir: Path, hooks_config: Path, pr_store: Path, temp_pids: Path
     ) -> None:
         """Test multiple fixtures share common temporary directory root."""
         # Arrange & Act
@@ -335,11 +331,7 @@ class TestFixtureIntegration:
         assert pr_store.parent.name == ".open-orchestrator"
         assert temp_pids.parent.name == ".open-orchestrator"
 
-    def test_skill_fixtures_work_together(
-        self,
-        skills_source_dir: Path,
-        mock_skills_dir: Path
-    ) -> None:
+    def test_skill_fixtures_work_together(self, skills_source_dir: Path, mock_skills_dir: Path) -> None:
         """Test skill installation fixtures can be used together."""
         # Arrange
         source_skill = skills_source_dir / "SKILL.md"

@@ -333,6 +333,7 @@ SECRET_KEY=unchanged
         assert target_env.exists()
         # Check permissions are restrictive (0o600 = owner read/write only)
         import stat
+
         mode = target_env.stat().st_mode
         permissions = stat.S_IMODE(mode)
         assert permissions == 0o600

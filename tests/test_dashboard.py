@@ -187,9 +187,7 @@ class TestDashboard:
         assert "Legend:" in legend_str or len(legend.plain) > 0
 
     @patch.object(Dashboard, "_get_status_icon")
-    def test_create_worktree_table_with_status(
-        self, mock_get_status_icon: MagicMock
-    ) -> None:
+    def test_create_worktree_table_with_status(self, mock_get_status_icon: MagicMock) -> None:
         """Test _create_worktree_table with worktree having status."""
         # Arrange
         mock_get_status_icon.return_value = ("green bold", "●")
@@ -482,9 +480,7 @@ class TestDashboard:
         # Mock dependencies
         dashboard.wt_manager.list_all = Mock(return_value=[])
         dashboard.status_tracker.cleanup_orphans = Mock()
-        dashboard.status_tracker.get_summary = Mock(
-            return_value=StatusSummary(total_worktrees=0)
-        )
+        dashboard.status_tracker.get_summary = Mock(return_value=StatusSummary(total_worktrees=0))
 
         # Act
         layout = dashboard._create_layout()
@@ -518,9 +514,7 @@ class TestDashboard:
 
     @patch("open_orchestrator.core.dashboard.time.sleep")
     @patch.object(Dashboard, "_create_layout")
-    def test_run_keyboard_interrupt(
-        self, mock_create_layout: MagicMock, mock_sleep: MagicMock
-    ) -> None:
+    def test_run_keyboard_interrupt(self, mock_create_layout: MagicMock, mock_sleep: MagicMock) -> None:
         """Test run() handles KeyboardInterrupt gracefully."""
         # Arrange
         dashboard = Dashboard()
@@ -540,9 +534,7 @@ class TestDashboardCLI:
     """Test Dashboard CLI integration."""
 
     @patch("open_orchestrator.core.dashboard.Dashboard")
-    def test_dashboard_command_default_options(
-        self, mock_dashboard_class: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_dashboard_command_default_options(self, mock_dashboard_class: MagicMock, cli_runner: CliRunner) -> None:
         """Test 'owt dashboard' with default options."""
         # Arrange
         mock_dashboard_instance = Mock()
@@ -566,9 +558,7 @@ class TestDashboardCLI:
         mock_dashboard_instance.run.assert_called_once()
 
     @patch("open_orchestrator.core.dashboard.Dashboard")
-    def test_dashboard_command_custom_refresh(
-        self, mock_dashboard_class: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_dashboard_command_custom_refresh(self, mock_dashboard_class: MagicMock, cli_runner: CliRunner) -> None:
         """Test 'owt dashboard' with custom refresh rate."""
         # Arrange
         mock_dashboard_instance = Mock()
@@ -584,9 +574,7 @@ class TestDashboardCLI:
         assert config.refresh_rate == 1.0
 
     @patch("open_orchestrator.core.dashboard.Dashboard")
-    def test_dashboard_command_no_tokens(
-        self, mock_dashboard_class: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_dashboard_command_no_tokens(self, mock_dashboard_class: MagicMock, cli_runner: CliRunner) -> None:
         """Test 'owt dashboard' with --no-tokens flag."""
         # Arrange
         mock_dashboard_instance = Mock()
@@ -602,9 +590,7 @@ class TestDashboardCLI:
         assert config.show_token_usage is False
 
     @patch("open_orchestrator.core.dashboard.Dashboard")
-    def test_dashboard_command_no_commands(
-        self, mock_dashboard_class: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_dashboard_command_no_commands(self, mock_dashboard_class: MagicMock, cli_runner: CliRunner) -> None:
         """Test 'owt dashboard' with --no-commands flag."""
         # Arrange
         mock_dashboard_instance = Mock()
@@ -620,9 +606,7 @@ class TestDashboardCLI:
         assert config.show_commands is False
 
     @patch("open_orchestrator.core.dashboard.Dashboard")
-    def test_dashboard_command_compact(
-        self, mock_dashboard_class: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_dashboard_command_compact(self, mock_dashboard_class: MagicMock, cli_runner: CliRunner) -> None:
         """Test 'owt dashboard' with --compact flag."""
         # Arrange
         mock_dashboard_instance = Mock()
@@ -638,9 +622,7 @@ class TestDashboardCLI:
         assert config.compact is True
 
     @patch("open_orchestrator.core.dashboard.Dashboard")
-    def test_dashboard_command_all_options(
-        self, mock_dashboard_class: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_dashboard_command_all_options(self, mock_dashboard_class: MagicMock, cli_runner: CliRunner) -> None:
         """Test 'owt dashboard' with all options combined."""
         # Arrange
         mock_dashboard_instance = Mock()
@@ -662,9 +644,7 @@ class TestDashboardCLI:
         assert config.compact is True
 
     @patch("open_orchestrator.core.dashboard.Dashboard")
-    def test_dashboard_command_short_refresh_flag(
-        self, mock_dashboard_class: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_dashboard_command_short_refresh_flag(self, mock_dashboard_class: MagicMock, cli_runner: CliRunner) -> None:
         """Test 'owt dashboard' with -r short flag."""
         # Arrange
         mock_dashboard_instance = Mock()
@@ -680,9 +660,7 @@ class TestDashboardCLI:
         assert config.refresh_rate == 3.5
 
     @patch("open_orchestrator.core.dashboard.Dashboard")
-    def test_dashboard_command_short_compact_flag(
-        self, mock_dashboard_class: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_dashboard_command_short_compact_flag(self, mock_dashboard_class: MagicMock, cli_runner: CliRunner) -> None:
         """Test 'owt dashboard' with -c short flag."""
         # Arrange
         mock_dashboard_instance = Mock()

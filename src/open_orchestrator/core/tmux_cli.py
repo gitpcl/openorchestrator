@@ -35,9 +35,7 @@ def get_layout_from_string(layout_str: str) -> TmuxLayout:
 
     if layout_str not in layout_map:
         valid_layouts = ", ".join(layout_map.keys())
-        raise click.BadParameter(
-            f"Invalid layout '{layout_str}'. Valid options: {valid_layouts}"
-        )
+        raise click.BadParameter(f"Invalid layout '{layout_str}'. Valid options: {valid_layouts}")
 
     return layout_map[layout_str]
 
@@ -51,55 +49,36 @@ def tmux_group() -> None:
 @tmux_group.command(name="create")
 @click.argument("session_name")
 @click.option(
-    "-d", "--directory",
+    "-d",
+    "--directory",
     type=click.Path(exists=True, file_okay=False, resolve_path=True),
     default=".",
-    help="Working directory for the session"
+    help="Working directory for the session",
 )
 @click.option(
-    "-l", "--layout",
+    "-l",
+    "--layout",
     type=click.Choice(["main-vertical", "three-pane", "quad", "even-horizontal", "even-vertical"]),
     default="main-vertical",
-    help="Pane layout for the session"
+    help="Pane layout for the session",
 )
-@click.option(
-    "-p", "--panes",
-    type=int,
-    default=2,
-    help="Number of panes (for layouts that support variable counts)"
-)
-@click.option(
-    "--claude/--no-claude",
-    default=True,
-    help="Auto-start AI tool in the main pane"
-)
+@click.option("-p", "--panes", type=int, default=2, help="Number of panes (for layouts that support variable counts)")
+@click.option("--claude/--no-claude", default=True, help="Auto-start AI tool in the main pane")
 @click.option(
     "--ai-tool",
     type=click.Choice(["claude", "opencode", "droid"]),
     default="claude",
-    help="AI coding tool to start (default: claude)"
+    help="AI coding tool to start (default: claude)",
 )
 @click.option(
     "--droid-auto",
     type=click.Choice(["low", "medium", "high"]),
     default=None,
-    help="Droid auto mode level (only used with --ai-tool droid)"
+    help="Droid auto mode level (only used with --ai-tool droid)",
 )
-@click.option(
-    "--droid-skip-permissions",
-    is_flag=True,
-    help="Skip Droid permissions check (use with caution)"
-)
-@click.option(
-    "--opencode-config",
-    type=click.Path(exists=True),
-    help="Path to OpenCode configuration file"
-)
-@click.option(
-    "-a", "--attach",
-    is_flag=True,
-    help="Attach to session after creation"
-)
+@click.option("--droid-skip-permissions", is_flag=True, help="Skip Droid permissions check (use with caution)")
+@click.option("--opencode-config", type=click.Path(exists=True), help="Path to OpenCode configuration file")
+@click.option("-a", "--attach", is_flag=True, help="Attach to session after creation")
 def create_session(
     session_name: str,
     directory: str,
@@ -192,17 +171,8 @@ def attach_session(session_name: str) -> None:
 
 
 @tmux_group.command(name="list")
-@click.option(
-    "-a", "--all",
-    is_flag=True,
-    help="Show all tmux sessions, not just worktree sessions"
-)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output as JSON"
-)
+@click.option("-a", "--all", is_flag=True, help="Show all tmux sessions, not just worktree sessions")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 def list_sessions(all: bool, output_json: bool) -> None:
     """List tmux sessions."""
     manager = TmuxManager()
@@ -219,6 +189,7 @@ def list_sessions(all: bool, output_json: bool) -> None:
 
     if output_json:
         import json
+
         data = [
             {
                 "name": s.session_name,
@@ -226,7 +197,7 @@ def list_sessions(all: bool, output_json: bool) -> None:
                 "windows": s.window_count,
                 "panes": s.pane_count,
                 "attached": s.attached,
-                "directory": s.working_directory
+                "directory": s.working_directory,
             }
             for s in sessions
         ]
@@ -247,24 +218,14 @@ def list_sessions(all: bool, output_json: bool) -> None:
         if len(directory) > 40:
             directory = "..." + directory[-37:]
 
-        table.add_row(
-            session.session_name,
-            str(session.window_count),
-            str(session.pane_count),
-            status,
-            directory
-        )
+        table.add_row(session.session_name, str(session.window_count), str(session.pane_count), status, directory)
 
     console.print(table)
 
 
 @tmux_group.command(name="kill")
 @click.argument("session_name")
-@click.option(
-    "-f", "--force",
-    is_flag=True,
-    help="Kill without confirmation"
-)
+@click.option("-f", "--force", is_flag=True, help="Kill without confirmation")
 def kill_session(session_name: str, force: bool) -> None:
     """Kill a tmux session.
 
@@ -304,18 +265,8 @@ def kill_session(session_name: str, force: bool) -> None:
 @tmux_group.command(name="send")
 @click.argument("session_name")
 @click.argument("keys")
-@click.option(
-    "-p", "--pane",
-    type=int,
-    default=0,
-    help="Target pane index"
-)
-@click.option(
-    "-w", "--window",
-    type=int,
-    default=0,
-    help="Target window index"
-)
+@click.option("-p", "--pane", type=int, default=0, help="Target pane index")
+@click.option("-w", "--window", type=int, default=0, help="Target window index")
 def send_keys(session_name: str, keys: str, pane: int, window: int) -> None:
     """Send keys to a pane in a session.
 

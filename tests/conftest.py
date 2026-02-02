@@ -39,38 +39,18 @@ def git_repo(temp_directory: Path) -> Generator[Path, None, None]:
     repo_path = temp_directory / "test-repo"
     repo_path.mkdir()
 
-    subprocess.run(
-        ["git", "init"],
-        cwd=repo_path,
-        capture_output=True
-    )
+    subprocess.run(["git", "init"], cwd=repo_path, capture_output=True)
 
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=repo_path,
-        capture_output=True
-    )
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_path, capture_output=True)
 
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=repo_path,
-        capture_output=True
-    )
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_path, capture_output=True)
 
     readme = repo_path / "README.md"
     readme.write_text("# Test Repository\n")
 
-    subprocess.run(
-        ["git", "add", "."],
-        cwd=repo_path,
-        capture_output=True
-    )
+    subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True)
 
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_path,
-        capture_output=True
-    )
+    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo_path, capture_output=True)
 
     yield repo_path
 
@@ -80,19 +60,11 @@ def git_worktree(git_repo: Path, temp_directory: Path) -> Generator[Path, None, 
     """Create a git worktree for tests."""
     worktree_path = temp_directory / "test-worktree"
 
-    subprocess.run(
-        ["git", "worktree", "add", "-b", "test-branch", str(worktree_path)],
-        cwd=git_repo,
-        capture_output=True
-    )
+    subprocess.run(["git", "worktree", "add", "-b", "test-branch", str(worktree_path)], cwd=git_repo, capture_output=True)
 
     yield worktree_path
 
-    subprocess.run(
-        ["git", "worktree", "remove", "--force", str(worktree_path)],
-        cwd=git_repo,
-        capture_output=True
-    )
+    subprocess.run(["git", "worktree", "remove", "--force", str(worktree_path)], cwd=git_repo, capture_output=True)
 
 
 @pytest.fixture
@@ -173,11 +145,7 @@ def node_npm_project_dir(temp_directory: Path) -> Path:
     project_dir = temp_directory / "node-npm-project"
     project_dir.mkdir()
 
-    package_json = {
-        "name": "test-project",
-        "version": "1.0.0",
-        "dependencies": {}
-    }
+    package_json = {"name": "test-project", "version": "1.0.0", "dependencies": {}}
     (project_dir / "package.json").write_text(json.dumps(package_json, indent=2))
     (project_dir / "package-lock.json").write_text("{}")
 
@@ -190,11 +158,7 @@ def node_yarn_project_dir(temp_directory: Path) -> Path:
     project_dir = temp_directory / "node-yarn-project"
     project_dir.mkdir()
 
-    package_json = {
-        "name": "test-project",
-        "version": "1.0.0",
-        "packageManager": "yarn@4.0.0"
-    }
+    package_json = {"name": "test-project", "version": "1.0.0", "packageManager": "yarn@4.0.0"}
     (project_dir / "package.json").write_text(json.dumps(package_json, indent=2))
     (project_dir / "yarn.lock").write_text("# yarn lock file")
 
@@ -207,10 +171,7 @@ def node_pnpm_project_dir(temp_directory: Path) -> Path:
     project_dir = temp_directory / "node-pnpm-project"
     project_dir.mkdir()
 
-    package_json = {
-        "name": "test-project",
-        "version": "1.0.0"
-    }
+    package_json = {"name": "test-project", "version": "1.0.0"}
     (project_dir / "package.json").write_text(json.dumps(package_json, indent=2))
     (project_dir / "pnpm-lock.yaml").write_text("lockfileVersion: 6.0")
 
@@ -223,10 +184,7 @@ def node_bun_project_dir(temp_directory: Path) -> Path:
     project_dir = temp_directory / "node-bun-project"
     project_dir.mkdir()
 
-    package_json = {
-        "name": "test-project",
-        "version": "1.0.0"
-    }
+    package_json = {"name": "test-project", "version": "1.0.0"}
     (project_dir / "package.json").write_text(json.dumps(package_json, indent=2))
     (project_dir / "bun.lockb").write_bytes(b"bun binary lock file")
 
@@ -269,10 +227,7 @@ def php_project_dir(temp_directory: Path) -> Path:
     project_dir = temp_directory / "php-project"
     project_dir.mkdir()
 
-    composer_json = {
-        "name": "test/project",
-        "require": {}
-    }
+    composer_json = {"name": "test/project", "require": {}}
     (project_dir / "composer.json").write_text(json.dumps(composer_json, indent=2))
     (project_dir / "composer.lock").write_text("{}")
 
@@ -292,10 +247,7 @@ version = "0.1.0"
 """
     (project_dir / "pyproject.toml").write_text(pyproject_content)
 
-    package_json = {
-        "name": "monorepo-frontend",
-        "version": "1.0.0"
-    }
+    package_json = {"name": "monorepo-frontend", "version": "1.0.0"}
     (project_dir / "package.json").write_text(json.dumps(package_json, indent=2))
 
     return project_dir
@@ -339,14 +291,14 @@ def usage_stats_file(temp_directory: Path) -> Path:
             "branch_name": "feature/old",
             "created_at": old_date,
             "last_accessed": old_date,
-            "access_count": 5
+            "access_count": 5,
         },
         "/path/to/recent-worktree": {
             "branch_name": "feature/recent",
             "created_at": now.isoformat(),
             "last_accessed": now.isoformat(),
-            "access_count": 10
-        }
+            "access_count": 10,
+        },
     }
 
     stats_file.write_text(json.dumps(stats_data, indent=2))
@@ -467,18 +419,13 @@ def hooks_config(temp_directory: Path) -> Path:
 
     hooks_data = {
         "hooks": [
-            {
-                "type": "shell",
-                "command": "echo 'Status changed: {status}'",
-                "events": ["status_change"],
-                "enabled": True
-            },
+            {"type": "shell", "command": "echo 'Status changed: {status}'", "events": ["status_change"], "enabled": True},
             {
                 "type": "webhook",
                 "url": "https://example.com/webhook",
                 "events": ["worktree_created", "worktree_deleted"],
-                "enabled": True
-            }
+                "enabled": True,
+            },
         ]
     }
 
@@ -549,9 +496,7 @@ def mock_session_store(temp_session_dir: Path) -> Path:
         "created_at": "2024-02-01T10:00:00",
         "last_message": "Implementing authentication feature",
         "message_count": 15,
-        "conversation_data": {
-            "messages": ["User: Add login", "Assistant: I'll help with that"]
-        }
+        "conversation_data": {"messages": ["User: Add login", "Assistant: I'll help with that"]},
     }
     (session_1 / "session.json").write_text(json.dumps(session_data_1, indent=2))
 
@@ -564,9 +509,7 @@ def mock_session_store(temp_session_dir: Path) -> Path:
         "created_at": "2024-02-01T11:00:00",
         "last_message": "Fixing bug in dashboard",
         "message_count": 8,
-        "conversation_data": {
-            "messages": ["User: Fix dashboard bug", "Assistant: Let me investigate"]
-        }
+        "conversation_data": {"messages": ["User: Fix dashboard bug", "Assistant: Let me investigate"]},
     }
     (session_2 / "session.json").write_text(json.dumps(session_data_2, indent=2))
 
@@ -593,20 +536,12 @@ def mock_gh_cli():
         mock_result.returncode = 0
 
         # Simulate gh pr list output
-        pr_list_output = json.dumps([
-            {
-                "number": 123,
-                "title": "Add new feature",
-                "state": "OPEN",
-                "url": "https://github.com/owner/repo/pull/123"
-            },
-            {
-                "number": 124,
-                "title": "Fix bug",
-                "state": "MERGED",
-                "url": "https://github.com/owner/repo/pull/124"
-            }
-        ])
+        pr_list_output = json.dumps(
+            [
+                {"number": 123, "title": "Add new feature", "state": "OPEN", "url": "https://github.com/owner/repo/pull/123"},
+                {"number": 124, "title": "Fix bug", "state": "MERGED", "url": "https://github.com/owner/repo/pull/124"},
+            ]
+        )
 
         mock_result.stdout = pr_list_output
         mock_result.stderr = ""
@@ -698,7 +633,7 @@ def mock_status_tracker(temp_directory: Path) -> MagicMock:
         branch="feature/authentication",
         activity_status=AIActivityStatus.WORKING,
         current_task="Implementing JWT authentication",
-        tmux_session="owt-feature-auth"
+        tmux_session="owt-feature-auth",
     )
 
     worktree_2 = WorktreeAIStatus(
@@ -707,7 +642,7 @@ def mock_status_tracker(temp_directory: Path) -> MagicMock:
         branch="fix/dashboard-bug",
         activity_status=AIActivityStatus.IDLE,
         current_task=None,
-        tmux_session="owt-fix-dashboard"
+        tmux_session="owt-fix-dashboard",
     )
 
     worktree_3 = WorktreeAIStatus(
@@ -716,16 +651,12 @@ def mock_status_tracker(temp_directory: Path) -> MagicMock:
         branch="refactor/api-cleanup",
         activity_status=AIActivityStatus.BLOCKED,
         current_task="Refactoring API endpoints",
-        tmux_session="owt-refactor-api"
+        tmux_session="owt-refactor-api",
     )
 
     tracker.get_all_statuses.return_value = [worktree_1, worktree_2, worktree_3]
     tracker.get_summary.return_value = MagicMock(
-        total_worktrees=3,
-        active_ai_sessions=2,
-        idle_ai_sessions=1,
-        blocked_ai_sessions=1,
-        total_commands_sent=2
+        total_worktrees=3, active_ai_sessions=2, idle_ai_sessions=1, blocked_ai_sessions=1, total_commands_sent=2
     )
 
     return tracker

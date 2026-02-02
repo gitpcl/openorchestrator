@@ -110,9 +110,7 @@ class TestCreateCommand:
         mock_wt_instance.repo.working_dir = "/fake/repo"
 
         # Act
-        result = cli_runner.invoke(
-            main, ["create", "feature/new", "--base", "develop", "--no-tmux", "--no-deps", "--no-env"]
-        )
+        result = cli_runner.invoke(main, ["create", "feature/new", "--base", "develop", "--no-tmux", "--no-deps", "--no-env"])
 
         # Assert
         assert result.exit_code == 0
@@ -582,10 +580,7 @@ class TestPlanModeFlag:
         mock_sync_claude_md.return_value = []
 
         # Act
-        result = cli_runner.invoke(
-            main,
-            ["create", "feature/test", "--plan-mode", "--claude", "--no-deps", "--no-env"]
-        )
+        result = cli_runner.invoke(main, ["create", "feature/test", "--plan-mode", "--claude", "--no-deps", "--no-env"])
 
         # Assert
         assert result.exit_code == 0
@@ -640,10 +635,7 @@ class TestPlanModeFlag:
         mock_sync_claude_md.return_value = []
 
         # Act
-        result = cli_runner.invoke(
-            main,
-            ["create", "feature/test", "--claude", "--no-deps", "--no-env"]
-        )
+        result = cli_runner.invoke(main, ["create", "feature/test", "--claude", "--no-deps", "--no-env"])
 
         # Assert
         assert result.exit_code == 0
@@ -687,9 +679,7 @@ class TestShellCompletion:
         assert "source" in result.output
 
     @patch.dict("os.environ", {"SHELL": "/bin/bash"})
-    def test_completion_install_auto_detect_bash(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_completion_install_auto_detect_bash(self, cli_runner: CliRunner) -> None:
         """Test 'owt completion install' auto-detects bash shell."""
         # Act
         result = cli_runner.invoke(main, ["completion", "install"])
@@ -700,9 +690,7 @@ class TestShellCompletion:
         assert "~/.bashrc" in result.output
 
     @patch.dict("os.environ", {"SHELL": "/bin/zsh"})
-    def test_completion_install_auto_detect_zsh(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_completion_install_auto_detect_zsh(self, cli_runner: CliRunner) -> None:
         """Test 'owt completion install' auto-detects zsh shell."""
         # Act
         result = cli_runner.invoke(main, ["completion", "install"])
@@ -713,9 +701,7 @@ class TestShellCompletion:
         assert "~/.zshrc" in result.output
 
     @patch.dict("os.environ", {"SHELL": "/usr/bin/fish"})
-    def test_completion_install_auto_detect_fish(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_completion_install_auto_detect_fish(self, cli_runner: CliRunner) -> None:
         """Test 'owt completion install' auto-detects fish shell."""
         # Act
         result = cli_runner.invoke(main, ["completion", "install"])

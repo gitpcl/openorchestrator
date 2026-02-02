@@ -64,10 +64,7 @@ class Dashboard:
         """Get style and icon for a status."""
         try:
             activity_status = AIActivityStatus(status)
-            return self.STATUS_STYLES.get(
-                activity_status,
-                ("dim", "?")
-            )
+            return self.STATUS_STYLES.get(activity_status, ("dim", "?"))
         except ValueError:
             return ("dim", "?")
 
@@ -184,9 +181,7 @@ class Dashboard:
         lines.append(status_line)
 
         # Token usage
-        if self.config.show_token_usage and (
-            summary.total_input_tokens > 0 or summary.total_output_tokens > 0
-        ):
+        if self.config.show_token_usage and (summary.total_input_tokens > 0 or summary.total_output_tokens > 0):
             total_tokens = summary.total_input_tokens + summary.total_output_tokens
             token_line = Text()
             token_line.append("Tokens: ", style="bold")

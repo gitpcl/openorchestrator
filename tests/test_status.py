@@ -171,9 +171,7 @@ class TestInitializeStatus:
         # Assert
         assert status.ai_tool == "droid"
 
-    def test_initialize_status_persists(
-        self, status_tracker: StatusTracker, status_file: Path
-    ) -> None:
+    def test_initialize_status_persists(self, status_tracker: StatusTracker, status_file: Path) -> None:
         """Test initialized status is persisted to storage."""
         # Act
         status_tracker.initialize_status(
@@ -291,9 +289,7 @@ class TestRecordCommand:
         assert updated is not None
         assert updated.recent_commands[0].command == "export API_KEY=sk-1234567890abcdef"
 
-    def test_record_command_updates_activity_status(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_record_command_updates_activity_status(self, status_tracker: StatusTracker) -> None:
         """Test recording a command updates activity status from IDLE to WORKING."""
         # Arrange
         status_tracker.initialize_status(
@@ -388,19 +384,13 @@ class TestGetSummary:
     def test_get_summary_with_statuses(self, status_tracker: StatusTracker) -> None:
         """Test summary with multiple worktree statuses."""
         # Arrange
-        status_tracker.initialize_status(
-            "worktree-1", "/path/1", "branch-1"
-        )
+        status_tracker.initialize_status("worktree-1", "/path/1", "branch-1")
         status_tracker.update_task("worktree-1", "Task 1", AIActivityStatus.WORKING)
 
-        status_tracker.initialize_status(
-            "worktree-2", "/path/2", "branch-2"
-        )
+        status_tracker.initialize_status("worktree-2", "/path/2", "branch-2")
         # worktree-2 remains IDLE
 
-        status_tracker.initialize_status(
-            "worktree-3", "/path/3", "branch-3"
-        )
+        status_tracker.initialize_status("worktree-3", "/path/3", "branch-3")
         status_tracker.update_task("worktree-3", "Task 3", AIActivityStatus.BLOCKED)
 
         # Act
@@ -434,9 +424,7 @@ class TestMarkStatus:
     def test_mark_completed(self, status_tracker: StatusTracker) -> None:
         """Test marking a worktree task as completed."""
         # Arrange
-        status_tracker.initialize_status(
-            "complete-test", "/path/to/complete", "branch"
-        )
+        status_tracker.initialize_status("complete-test", "/path/to/complete", "branch")
         status_tracker.update_task("complete-test", "Task", AIActivityStatus.WORKING)
 
         # Act
@@ -449,9 +437,7 @@ class TestMarkStatus:
     def test_mark_idle(self, status_tracker: StatusTracker) -> None:
         """Test marking a worktree as idle."""
         # Arrange
-        status_tracker.initialize_status(
-            "idle-test", "/path/to/idle", "branch"
-        )
+        status_tracker.initialize_status("idle-test", "/path/to/idle", "branch")
         status_tracker.update_task("idle-test", "Task", AIActivityStatus.WORKING)
 
         # Act
@@ -468,9 +454,7 @@ class TestRemoveStatus:
     def test_remove_status_success(self, status_tracker: StatusTracker) -> None:
         """Test successfully removing a status entry."""
         # Arrange
-        status_tracker.initialize_status(
-            "remove-test", "/path/to/remove", "branch"
-        )
+        status_tracker.initialize_status("remove-test", "/path/to/remove", "branch")
         assert status_tracker.get_status("remove-test") is not None
 
         # Act
@@ -526,9 +510,7 @@ class TestSetNotes:
     def test_set_notes_success(self, status_tracker: StatusTracker) -> None:
         """Test successfully setting notes for a worktree."""
         # Arrange
-        status_tracker.initialize_status(
-            "notes-test", "/path/to/notes", "branch"
-        )
+        status_tracker.initialize_status("notes-test", "/path/to/notes", "branch")
 
         # Act
         updated = status_tracker.set_notes("notes-test", "Some important notes")
@@ -549,25 +531,20 @@ class TestSetNotes:
 class TestFilePersistence:
     """Test file persistence and locking."""
 
-    def test_status_file_created_with_permissions(
-        self, status_tracker: StatusTracker, status_file: Path
-    ) -> None:
+    def test_status_file_created_with_permissions(self, status_tracker: StatusTracker, status_file: Path) -> None:
         """Test status file is created with secure permissions."""
         # Arrange
-        status_tracker.initialize_status(
-            "perm-test", "/path/to/perm", "branch"
-        )
+        status_tracker.initialize_status("perm-test", "/path/to/perm", "branch")
 
         # Assert
         assert status_file.exists()
         import stat
+
         mode = status_file.stat().st_mode
         permissions = stat.S_IMODE(mode)
         assert permissions == 0o600
 
-    def test_status_survives_tracker_reload(
-        self, status_file: Path, status_config: StatusConfig
-    ) -> None:
+    def test_status_survives_tracker_reload(self, status_file: Path, status_config: StatusConfig) -> None:
         """Test status persists across tracker instances."""
         # Arrange
         tracker1 = StatusTracker(status_config)
@@ -601,12 +578,7 @@ class TestTokenUsage:
     def test_total_tokens_property(self) -> None:
         """Test total_tokens computes sum of input and output tokens."""
         # Arrange
-        token_usage = TokenUsage(
-            input_tokens=1000,
-            output_tokens=500,
-            cache_read_tokens=100,
-            cache_write_tokens=50
-        )
+        token_usage = TokenUsage(input_tokens=1000, output_tokens=500, cache_read_tokens=100, cache_write_tokens=50)
 
         # Act
         total = token_usage.total_tokens
@@ -667,10 +639,7 @@ class TestTokenUsage:
     def test_cache_token_fields(self) -> None:
         """Test cache_read_tokens and cache_write_tokens are tracked separately."""
         # Arrange
-        token_usage = TokenUsage(
-            cache_read_tokens=1000,
-            cache_write_tokens=500
-        )
+        token_usage = TokenUsage(cache_read_tokens=1000, cache_write_tokens=500)
 
         # Act & Assert
         assert token_usage.cache_read_tokens == 1000
@@ -682,48 +651,28 @@ class TestTokenUsage:
 class TestStatusTrackerTokenUsage:
     """Test StatusTracker token usage operations."""
 
-    def test_update_token_usage_adds_to_existing_counts(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_update_token_usage_adds_to_existing_counts(self, status_tracker: StatusTracker) -> None:
         """Test update_token_usage adds tokens to existing counts."""
         # Arrange
-        status_tracker.initialize_status(
-            "token-test", "/path/to/token-test", "branch"
-        )
-        status_tracker.update_token_usage(
-            "token-test",
-            input_tokens=1000,
-            output_tokens=500
-        )
+        status_tracker.initialize_status("token-test", "/path/to/token-test", "branch")
+        status_tracker.update_token_usage("token-test", input_tokens=1000, output_tokens=500)
 
         # Act
-        updated = status_tracker.update_token_usage(
-            "token-test",
-            input_tokens=500,
-            output_tokens=250
-        )
+        updated = status_tracker.update_token_usage("token-test", input_tokens=500, output_tokens=250)
 
         # Assert
         assert updated is not None
         assert updated.token_usage.input_tokens == 1500
         assert updated.token_usage.output_tokens == 750
 
-    def test_update_token_usage_with_cache_tokens(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_update_token_usage_with_cache_tokens(self, status_tracker: StatusTracker) -> None:
         """Test update_token_usage handles cache read and write tokens."""
         # Arrange
-        status_tracker.initialize_status(
-            "cache-test", "/path/to/cache-test", "branch"
-        )
+        status_tracker.initialize_status("cache-test", "/path/to/cache-test", "branch")
 
         # Act
         updated = status_tracker.update_token_usage(
-            "cache-test",
-            input_tokens=1000,
-            output_tokens=500,
-            cache_read_tokens=200,
-            cache_write_tokens=100
+            "cache-test", input_tokens=1000, output_tokens=500, cache_read_tokens=200, cache_write_tokens=100
         )
 
         # Assert
@@ -733,57 +682,38 @@ class TestStatusTrackerTokenUsage:
         assert updated.token_usage.cache_read_tokens == 200
         assert updated.token_usage.cache_write_tokens == 100
 
-    def test_update_token_usage_updates_last_updated(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_update_token_usage_updates_last_updated(self, status_tracker: StatusTracker) -> None:
         """Test update_token_usage updates last_updated timestamp."""
         # Arrange
-        status_tracker.initialize_status(
-            "timestamp-test", "/path/to/timestamp", "branch"
-        )
+        status_tracker.initialize_status("timestamp-test", "/path/to/timestamp", "branch")
         status = status_tracker.get_status("timestamp-test")
         assert status is not None
         original_timestamp = status.token_usage.last_updated
 
         # Act
         import time
+
         time.sleep(0.01)  # Ensure timestamp difference
-        updated = status_tracker.update_token_usage(
-            "timestamp-test",
-            input_tokens=100
-        )
+        updated = status_tracker.update_token_usage("timestamp-test", input_tokens=100)
 
         # Assert
         assert updated is not None
         assert updated.token_usage.last_updated > original_timestamp
 
-    def test_update_token_usage_nonexistent_worktree_returns_none(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_update_token_usage_nonexistent_worktree_returns_none(self, status_tracker: StatusTracker) -> None:
         """Test update_token_usage for nonexistent worktree returns None."""
         # Act
-        result = status_tracker.update_token_usage(
-            "nonexistent",
-            input_tokens=1000
-        )
+        result = status_tracker.update_token_usage("nonexistent", input_tokens=1000)
 
         # Assert
         assert result is None
 
-    def test_reset_token_usage_clears_all_counts(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_reset_token_usage_clears_all_counts(self, status_tracker: StatusTracker) -> None:
         """Test reset_token_usage clears all token counts to zero."""
         # Arrange
-        status_tracker.initialize_status(
-            "reset-test", "/path/to/reset", "branch"
-        )
+        status_tracker.initialize_status("reset-test", "/path/to/reset", "branch")
         status_tracker.update_token_usage(
-            "reset-test",
-            input_tokens=1000,
-            output_tokens=500,
-            cache_read_tokens=200,
-            cache_write_tokens=100
+            "reset-test", input_tokens=1000, output_tokens=500, cache_read_tokens=200, cache_write_tokens=100
         )
 
         # Act
@@ -796,9 +726,7 @@ class TestStatusTrackerTokenUsage:
         assert reset.token_usage.cache_read_tokens == 0
         assert reset.token_usage.cache_write_tokens == 0
 
-    def test_reset_token_usage_nonexistent_worktree_returns_none(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_reset_token_usage_nonexistent_worktree_returns_none(self, status_tracker: StatusTracker) -> None:
         """Test reset_token_usage for nonexistent worktree returns None."""
         # Act
         result = status_tracker.reset_token_usage("nonexistent")
@@ -806,14 +734,10 @@ class TestStatusTrackerTokenUsage:
         # Assert
         assert result is None
 
-    def test_token_usage_defaults_to_zero_on_initialization(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_token_usage_defaults_to_zero_on_initialization(self, status_tracker: StatusTracker) -> None:
         """Test newly initialized worktree has zero token usage."""
         # Act
-        status = status_tracker.initialize_status(
-            "new-worktree", "/path/to/new", "branch"
-        )
+        status = status_tracker.initialize_status("new-worktree", "/path/to/new", "branch")
 
         # Assert
         assert status.token_usage.input_tokens == 0
@@ -825,19 +749,13 @@ class TestStatusTrackerTokenUsage:
 class TestTokenPersistence:
     """Test token usage persistence across StatusTracker instances."""
 
-    def test_token_usage_survives_tracker_reload(
-        self, status_file: Path, status_config: StatusConfig
-    ) -> None:
+    def test_token_usage_survives_tracker_reload(self, status_file: Path, status_config: StatusConfig) -> None:
         """Test token usage persists across tracker reloads."""
         # Arrange
         tracker1 = StatusTracker(status_config)
         tracker1.initialize_status("persist-token", "/path/to/persist", "branch")
         tracker1.update_token_usage(
-            "persist-token",
-            input_tokens=5000,
-            output_tokens=2500,
-            cache_read_tokens=1000,
-            cache_write_tokens=500
+            "persist-token", input_tokens=5000, output_tokens=2500, cache_read_tokens=1000, cache_write_tokens=500
         )
 
         # Act - Create new tracker instance
@@ -851,20 +769,14 @@ class TestTokenPersistence:
         assert status.token_usage.cache_read_tokens == 1000
         assert status.token_usage.cache_write_tokens == 500
 
-    def test_updated_token_counts_persist_to_storage(
-        self, status_file: Path, status_config: StatusConfig
-    ) -> None:
+    def test_updated_token_counts_persist_to_storage(self, status_file: Path, status_config: StatusConfig) -> None:
         """Test updated token counts are saved to storage file."""
         # Arrange
         tracker = StatusTracker(status_config)
         tracker.initialize_status("storage-test", "/path/to/storage", "branch")
 
         # Act
-        tracker.update_token_usage(
-            "storage-test",
-            input_tokens=10000,
-            output_tokens=5000
-        )
+        tracker.update_token_usage("storage-test", input_tokens=10000, output_tokens=5000)
 
         # Assert - Verify file contents
         assert status_file.exists()
@@ -873,18 +785,12 @@ class TestTokenPersistence:
         assert token_data["input_tokens"] == 10000
         assert token_data["output_tokens"] == 5000
 
-    def test_reset_token_usage_persists_to_storage(
-        self, status_file: Path, status_config: StatusConfig
-    ) -> None:
+    def test_reset_token_usage_persists_to_storage(self, status_file: Path, status_config: StatusConfig) -> None:
         """Test reset token usage is persisted to storage."""
         # Arrange
         tracker = StatusTracker(status_config)
         tracker.initialize_status("reset-persist", "/path/to/reset", "branch")
-        tracker.update_token_usage(
-            "reset-persist",
-            input_tokens=10000,
-            output_tokens=5000
-        )
+        tracker.update_token_usage("reset-persist", input_tokens=10000, output_tokens=5000)
 
         # Act
         tracker.reset_token_usage("reset-persist")
@@ -899,9 +805,7 @@ class TestTokenPersistence:
 class TestStatusSummaryTokens:
     """Test StatusSummary token aggregation across worktrees."""
 
-    def test_get_summary_aggregates_total_input_tokens(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_get_summary_aggregates_total_input_tokens(self, status_tracker: StatusTracker) -> None:
         """Test get_summary correctly aggregates total_input_tokens across multiple worktrees."""
         # Arrange
         status_tracker.initialize_status("wt-1", "/path/1", "branch-1")
@@ -919,9 +823,7 @@ class TestStatusSummaryTokens:
         # Assert
         assert summary.total_input_tokens == 6000
 
-    def test_get_summary_aggregates_total_output_tokens(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_get_summary_aggregates_total_output_tokens(self, status_tracker: StatusTracker) -> None:
         """Test get_summary correctly aggregates total_output_tokens across multiple worktrees."""
         # Arrange
         status_tracker.initialize_status("wt-1", "/path/1", "branch-1")
@@ -939,26 +841,16 @@ class TestStatusSummaryTokens:
         # Assert
         assert summary.total_output_tokens == 3000
 
-    def test_get_summary_aggregates_total_estimated_cost(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_get_summary_aggregates_total_estimated_cost(self, status_tracker: StatusTracker) -> None:
         """Test get_summary correctly aggregates total_estimated_cost_usd across multiple worktrees."""
         # Arrange
         # wt-1: 1M input + 1M output = $15 + $75 = $90
         status_tracker.initialize_status("wt-1", "/path/1", "branch-1")
-        status_tracker.update_token_usage(
-            "wt-1",
-            input_tokens=1_000_000,
-            output_tokens=1_000_000
-        )
+        status_tracker.update_token_usage("wt-1", input_tokens=1_000_000, output_tokens=1_000_000)
 
         # wt-2: 500k input + 500k output = $7.5 + $37.5 = $45
         status_tracker.initialize_status("wt-2", "/path/2", "branch-2")
-        status_tracker.update_token_usage(
-            "wt-2",
-            input_tokens=500_000,
-            output_tokens=500_000
-        )
+        status_tracker.update_token_usage("wt-2", input_tokens=500_000, output_tokens=500_000)
 
         # Act
         summary = status_tracker.get_summary()
@@ -967,9 +859,7 @@ class TestStatusSummaryTokens:
         # Total cost should be $90 + $45 = $135
         assert summary.total_estimated_cost_usd == 135.0
 
-    def test_get_summary_with_zero_tokens(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_get_summary_with_zero_tokens(self, status_tracker: StatusTracker) -> None:
         """Test get_summary with worktrees that have zero token usage."""
         # Arrange
         status_tracker.initialize_status("wt-1", "/path/1", "branch-1")
@@ -983,9 +873,7 @@ class TestStatusSummaryTokens:
         assert summary.total_output_tokens == 0
         assert summary.total_estimated_cost_usd == 0.0
 
-    def test_get_summary_filtered_aggregates_only_specified_worktrees(
-        self, status_tracker: StatusTracker
-    ) -> None:
+    def test_get_summary_filtered_aggregates_only_specified_worktrees(self, status_tracker: StatusTracker) -> None:
         """Test get_summary with worktree filter aggregates only specified worktrees."""
         # Arrange
         status_tracker.initialize_status("wt-1", "/path/1", "branch-1")

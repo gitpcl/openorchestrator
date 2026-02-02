@@ -33,9 +33,7 @@ class TestProjectDetector:
         assert config.lock_file_path == expected_root / "uv.lock"
         assert config.manifest_file_path == expected_root / "pyproject.toml"
 
-    def test_detect_python_poetry_project(
-        self, detector: ProjectDetector, poetry_project_dir: Path
-    ):
+    def test_detect_python_poetry_project(self, detector: ProjectDetector, poetry_project_dir: Path):
         """Test detection of Python project with Poetry."""
         config = detector.detect(poetry_project_dir)
         expected_root = resolve_path(poetry_project_dir)
@@ -178,9 +176,7 @@ class TestProjectDetector:
         assert ProjectType.PYTHON in project_types
         assert ProjectType.NODE in project_types
 
-    def test_detect_all_single_project(
-        self, detector: ProjectDetector, python_project_dir: Path
-    ):
+    def test_detect_all_single_project(self, detector: ProjectDetector, python_project_dir: Path):
         """Test detect_all returns single config for single project type."""
         configs = detector.detect_all(python_project_dir)
 

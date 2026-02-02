@@ -96,108 +96,68 @@ class TestProjectConfig:
 
     def test_get_install_command_uv(self, temp_dir: Path):
         """Test install command for uv."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.UV
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.UV)
         assert config.get_install_command() == "uv sync"
 
     def test_get_install_command_pip(self, temp_dir: Path):
         """Test install command for pip."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.PIP
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.PIP)
         assert config.get_install_command() == "pip install -r requirements.txt"
 
     def test_get_install_command_poetry(self, temp_dir: Path):
         """Test install command for poetry."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.POETRY
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.POETRY)
         assert config.get_install_command() == "poetry install"
 
     def test_get_install_command_pipenv(self, temp_dir: Path):
         """Test install command for pipenv."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.PIPENV
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.PIPENV)
         assert config.get_install_command() == "pipenv install"
 
     def test_get_install_command_npm(self, temp_dir: Path):
         """Test install command for npm."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.NPM
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.NPM)
         assert config.get_install_command() == "npm install"
 
     def test_get_install_command_yarn(self, temp_dir: Path):
         """Test install command for yarn."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.YARN
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.YARN)
         assert config.get_install_command() == "yarn install"
 
     def test_get_install_command_pnpm(self, temp_dir: Path):
         """Test install command for pnpm."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.PNPM
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.PNPM)
         assert config.get_install_command() == "pnpm install"
 
     def test_get_install_command_bun(self, temp_dir: Path):
         """Test install command for bun."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.BUN
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.BUN)
         assert config.get_install_command() == "bun install"
 
     def test_get_install_command_composer(self, temp_dir: Path):
         """Test install command for composer."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.COMPOSER
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.COMPOSER)
         assert config.get_install_command() == "composer install"
 
     def test_get_install_command_cargo(self, temp_dir: Path):
         """Test install command for cargo."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.CARGO
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.CARGO)
         assert config.get_install_command() == "cargo build"
 
     def test_get_install_command_go(self, temp_dir: Path):
         """Test install command for go."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.GO
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.GO)
         assert config.get_install_command() == "go mod download"
 
     def test_get_install_command_unknown(self, temp_dir: Path):
         """Test install command for unknown package manager."""
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.UNKNOWN
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.UNKNOWN)
         assert config.get_install_command() == ""
 
     def test_get_install_command_custom_override(self, temp_dir: Path):
         """Test custom install_command takes precedence."""
         custom_command = "pip install -e ."
-        config = ProjectConfig(
-            project_root=temp_dir,
-            package_manager=PackageManager.PIP,
-            install_command=custom_command
-        )
+        config = ProjectConfig(project_root=temp_dir, package_manager=PackageManager.PIP, install_command=custom_command)
         assert config.get_install_command() == custom_command
 
     def test_config_serialization(self, sample_project_config: ProjectConfig):
@@ -221,7 +181,7 @@ class TestWorktreeInfo:
             head_commit="abc1234",
             is_main=False,
             is_detached=False,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
     def test_worktree_info_creation(self, sample_worktree_info: WorktreeInfo):
@@ -233,11 +193,7 @@ class TestWorktreeInfo:
 
     def test_worktree_info_defaults(self):
         """Test WorktreeInfo uses correct defaults."""
-        info = WorktreeInfo(
-            path=Path("/tmp/test"),
-            branch="main",
-            head_commit="def5678"
-        )
+        info = WorktreeInfo(path=Path("/tmp/test"), branch="main", head_commit="def5678")
 
         assert info.is_main is False
         assert info.is_detached is False
@@ -252,43 +208,25 @@ class TestWorktreeInfo:
         home = Path.home()
         worktree_path = home / "projects" / "test-worktree"
 
-        info = WorktreeInfo(
-            path=worktree_path,
-            branch="main",
-            head_commit="abc1234"
-        )
+        info = WorktreeInfo(path=worktree_path, branch="main", head_commit="abc1234")
 
         assert info.short_path == "~/projects/test-worktree"
 
     def test_worktree_short_path_outside_home(self):
         """Test short_path returns full path for non-home paths."""
-        info = WorktreeInfo(
-            path=Path("/tmp/test-worktree"),
-            branch="main",
-            head_commit="abc1234"
-        )
+        info = WorktreeInfo(path=Path("/tmp/test-worktree"), branch="main", head_commit="abc1234")
 
         assert info.short_path == "/tmp/test-worktree"
 
     def test_worktree_info_with_detached_head(self):
         """Test WorktreeInfo with detached HEAD."""
-        info = WorktreeInfo(
-            path=Path("/tmp/test"),
-            branch="HEAD",
-            head_commit="abc1234",
-            is_detached=True
-        )
+        info = WorktreeInfo(path=Path("/tmp/test"), branch="HEAD", head_commit="abc1234", is_detached=True)
 
         assert info.is_detached is True
 
     def test_worktree_info_main_worktree(self):
         """Test WorktreeInfo for main worktree."""
-        info = WorktreeInfo(
-            path=Path("/tmp/main-repo"),
-            branch="main",
-            head_commit="abc1234",
-            is_main=True
-        )
+        info = WorktreeInfo(path=Path("/tmp/main-repo"), branch="main", head_commit="abc1234", is_main=True)
 
         assert info.is_main is True
 
@@ -299,19 +237,12 @@ class TestWorktreeCreateResult:
     @pytest.fixture
     def sample_worktree(self) -> WorktreeInfo:
         """Create a sample WorktreeInfo."""
-        return WorktreeInfo(
-            path=Path("/tmp/test-worktree"),
-            branch="feature/test",
-            head_commit="abc1234"
-        )
+        return WorktreeInfo(path=Path("/tmp/test-worktree"), branch="feature/test", head_commit="abc1234")
 
     def test_create_result_creation(self, sample_worktree: WorktreeInfo):
         """Test WorktreeCreateResult can be created."""
         result = WorktreeCreateResult(
-            worktree=sample_worktree,
-            created_branch=True,
-            deps_installed=True,
-            tmux_session="owt-feature-test"
+            worktree=sample_worktree, created_branch=True, deps_installed=True, tmux_session="owt-feature-test"
         )
 
         assert result.worktree == sample_worktree
@@ -329,22 +260,13 @@ class TestWorktreeCreateResult:
 
     def test_create_result_no_tmux(self, sample_worktree: WorktreeInfo):
         """Test WorktreeCreateResult without tmux session."""
-        result = WorktreeCreateResult(
-            worktree=sample_worktree,
-            created_branch=True,
-            deps_installed=False
-        )
+        result = WorktreeCreateResult(worktree=sample_worktree, created_branch=True, deps_installed=False)
 
         assert result.tmux_session is None
 
     def test_create_result_serialization(self, sample_worktree: WorktreeInfo):
         """Test WorktreeCreateResult can be serialized."""
-        result = WorktreeCreateResult(
-            worktree=sample_worktree,
-            created_branch=True,
-            deps_installed=True,
-            tmux_session="owt-test"
-        )
+        result = WorktreeCreateResult(worktree=sample_worktree, created_branch=True, deps_installed=True, tmux_session="owt-test")
 
         data = result.model_dump()
 

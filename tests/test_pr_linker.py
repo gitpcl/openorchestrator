@@ -247,11 +247,13 @@ class TestPRLinking:
             if "remote" in cmd:
                 mock_result.stdout = "git@github.com:owner/repo.git"
             elif "gh" in cmd:
-                mock_result.stdout = json.dumps({
-                    "state": "OPEN",
-                    "title": "Test PR",
-                    "isDraft": False,
-                })
+                mock_result.stdout = json.dumps(
+                    {
+                        "state": "OPEN",
+                        "title": "Test PR",
+                        "isDraft": False,
+                    }
+                )
 
             return mock_result
 
@@ -285,11 +287,13 @@ class TestPRStatusChecking:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({
-            "state": "OPEN",
-            "title": "Open PR",
-            "isDraft": False,
-        })
+        mock_result.stdout = json.dumps(
+            {
+                "state": "OPEN",
+                "title": "Open PR",
+                "isDraft": False,
+            }
+        )
         mock_run.return_value = mock_result
 
         # Act
@@ -308,11 +312,13 @@ class TestPRStatusChecking:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({
-            "state": "MERGED",
-            "title": "Merged PR",
-            "isDraft": False,
-        })
+        mock_result.stdout = json.dumps(
+            {
+                "state": "MERGED",
+                "title": "Merged PR",
+                "isDraft": False,
+            }
+        )
         mock_run.return_value = mock_result
 
         # Act
@@ -330,11 +336,13 @@ class TestPRStatusChecking:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({
-            "state": "CLOSED",
-            "title": "Closed PR",
-            "isDraft": False,
-        })
+        mock_result.stdout = json.dumps(
+            {
+                "state": "CLOSED",
+                "title": "Closed PR",
+                "isDraft": False,
+            }
+        )
         mock_run.return_value = mock_result
 
         # Act
@@ -352,11 +360,13 @@ class TestPRStatusChecking:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({
-            "state": "OPEN",
-            "title": "Draft PR",
-            "isDraft": True,
-        })
+        mock_result.stdout = json.dumps(
+            {
+                "state": "OPEN",
+                "title": "Draft PR",
+                "isDraft": True,
+            }
+        )
         mock_run.return_value = mock_result
 
         # Act
@@ -554,11 +564,13 @@ class TestPRRefresh:
         # Mock gh CLI response
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({
-            "state": "MERGED",
-            "title": "Updated Title",
-            "isDraft": False,
-        })
+        mock_result.stdout = json.dumps(
+            {
+                "state": "MERGED",
+                "title": "Updated Title",
+                "isDraft": False,
+            }
+        )
         mock_run.return_value = mock_result
 
         # Act
@@ -613,11 +625,13 @@ class TestPRRefresh:
         # Mock gh CLI response
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({
-            "state": "MERGED",
-            "title": "Updated",
-            "isDraft": False,
-        })
+        mock_result.stdout = json.dumps(
+            {
+                "state": "MERGED",
+                "title": "Updated",
+                "isDraft": False,
+            }
+        )
         mock_run.return_value = mock_result
 
         # Act

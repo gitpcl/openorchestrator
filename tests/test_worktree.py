@@ -3,10 +3,10 @@ Tests for WorktreeManager class and git worktree operations.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from git.exc import GitCommandError, InvalidGitRepositoryError
+from git.exc import GitCommandError
 
 from open_orchestrator.core.worktree import (
     NotAGitRepositoryError,
@@ -15,7 +15,6 @@ from open_orchestrator.core.worktree import (
     WorktreeManager,
     WorktreeNotFoundError,
 )
-from open_orchestrator.models.worktree_info import WorktreeInfo
 
 
 class TestWorktreeManagerInit:

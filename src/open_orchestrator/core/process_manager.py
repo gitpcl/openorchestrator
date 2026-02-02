@@ -194,18 +194,14 @@ class ProcessManager:
         if worktree_name in self._store.processes:
             existing = self._store.processes[worktree_name]
             if self._is_process_alive(existing.pid):
-                raise ProcessAlreadyRunningError(
-                    f"AI tool already running for {worktree_name} (PID: {existing.pid})"
-                )
+                raise ProcessAlreadyRunningError(f"AI tool already running for {worktree_name} (PID: {existing.pid})")
             # Dead process, remove it
             del self._store.processes[worktree_name]
 
         # Get executable path
         executable_path = AITool.get_executable_path(ai_tool)
         if not executable_path:
-            raise ProcessError(
-                f"{ai_tool.value} is not installed. {AITool.get_install_hint(ai_tool)}"
-            )
+            raise ProcessError(f"{ai_tool.value} is not installed. {AITool.get_install_hint(ai_tool)}")
 
         # Build command
         command = AITool.get_command(

@@ -41,44 +41,15 @@ class HookConfig(BaseModel):
     name: str = Field(..., description="Unique name for this hook")
     enabled: bool = Field(default=True, description="Whether the hook is enabled")
     hook_type: HookType = Field(..., description="When this hook should trigger")
-    action: HookAction = Field(
-        default=HookAction.SHELL_COMMAND,
-        description="What action to perform"
-    )
-    command: str | None = Field(
-        default=None,
-        description="Shell command to execute (for SHELL_COMMAND action)"
-    )
-    webhook_url: str | None = Field(
-        default=None,
-        description="URL to POST to (for WEBHOOK action)"
-    )
-    notification_title: str | None = Field(
-        default=None,
-        description="Notification title (for NOTIFICATION action)"
-    )
-    notification_message: str | None = Field(
-        default=None,
-        description="Notification message template"
-    )
-    filter_worktrees: list[str] = Field(
-        default_factory=list,
-        description="Only trigger for these worktrees (empty = all)"
-    )
-    filter_statuses: list[str] = Field(
-        default_factory=list,
-        description="Only trigger for these statuses (empty = all)"
-    )
-    timeout_seconds: int = Field(
-        default=30,
-        ge=1,
-        le=300,
-        description="Maximum time for hook execution"
-    )
-    run_async: bool = Field(
-        default=True,
-        description="Run hook asynchronously (don't block)"
-    )
+    action: HookAction = Field(default=HookAction.SHELL_COMMAND, description="What action to perform")
+    command: str | None = Field(default=None, description="Shell command to execute (for SHELL_COMMAND action)")
+    webhook_url: str | None = Field(default=None, description="URL to POST to (for WEBHOOK action)")
+    notification_title: str | None = Field(default=None, description="Notification title (for NOTIFICATION action)")
+    notification_message: str | None = Field(default=None, description="Notification message template")
+    filter_worktrees: list[str] = Field(default_factory=list, description="Only trigger for these worktrees (empty = all)")
+    filter_statuses: list[str] = Field(default_factory=list, description="Only trigger for these statuses (empty = all)")
+    timeout_seconds: int = Field(default=30, ge=1, le=300, description="Maximum time for hook execution")
+    run_async: bool = Field(default=True, description="Run hook asynchronously (don't block)")
 
 
 class HookExecutionResult(BaseModel):
@@ -93,15 +64,9 @@ class HookExecutionResult(BaseModel):
     output: str | None = Field(default=None, description="Output from the hook")
     error: str | None = Field(default=None, description="Error message if failed")
     duration_ms: int = Field(default=0, ge=0, description="Execution time in ms")
-    executed_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When the hook was executed"
-    )
+    executed_at: datetime = Field(default_factory=datetime.now, description="When the hook was executed")
     worktree_name: str = Field(..., description="Worktree that triggered the hook")
-    trigger_context: dict[str, str] = Field(
-        default_factory=dict,
-        description="Context data that triggered the hook"
-    )
+    trigger_context: dict[str, str] = Field(default_factory=dict, description="Context data that triggered the hook")
 
 
 class HookHistoryEntry(BaseModel):
@@ -110,34 +75,17 @@ class HookHistoryEntry(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     result: HookExecutionResult = Field(..., description="Execution result")
-    timestamp: datetime = Field(
-        default_factory=datetime.now,
-        description="When this entry was created"
-    )
+    timestamp: datetime = Field(default_factory=datetime.now, description="When this entry was created")
 
 
 class HooksStore(BaseModel):
     """Persistent storage for hooks configuration and history."""
 
     version: str = Field(default="1.0", description="Storage format version")
-    updated_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When the store was last updated"
-    )
-    hooks: dict[str, HookConfig] = Field(
-        default_factory=dict,
-        description="Map of hook name to configuration"
-    )
-    history: list[HookHistoryEntry] = Field(
-        default_factory=list,
-        description="Recent hook execution history"
-    )
-    max_history_entries: int = Field(
-        default=100,
-        ge=10,
-        le=1000,
-        description="Maximum history entries to keep"
-    )
+    updated_at: datetime = Field(default_factory=datetime.now, description="When the store was last updated")
+    hooks: dict[str, HookConfig] = Field(default_factory=dict, description="Map of hook name to configuration")
+    history: list[HookHistoryEntry] = Field(default_factory=list, description="Recent hook execution history")
+    max_history_entries: int = Field(default=100, ge=10, le=1000, description="Maximum history entries to keep")
 
     def get_hook(self, name: str) -> HookConfig | None:
         """Get hook configuration by name."""
@@ -158,10 +106,7 @@ class HooksStore(BaseModel):
 
     def get_hooks_for_type(self, hook_type: HookType) -> list[HookConfig]:
         """Get all enabled hooks of a specific type."""
-        return [
-            h for h in self.hooks.values()
-            if h.enabled and h.hook_type == hook_type
-        ]
+        return [h for h in self.hooks.values() if h.enabled and h.hook_type == hook_type]
 
     def get_all_hooks(self) -> list[HookConfig]:
         """Get all hook configurations."""
@@ -174,7 +119,7 @@ class HooksStore(BaseModel):
 
         # Trim history if needed
         if len(self.history) > self.max_history_entries:
-            self.history = self.history[-self.max_history_entries:]
+            self.history = self.history[-self.max_history_entries :]
 
         self.updated_at = datetime.now()
 

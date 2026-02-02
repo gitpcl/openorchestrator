@@ -253,9 +253,7 @@ class TestHookExecution:
         assert results[0].hook_name == "shell-hook"
         mock_subprocess.assert_called_once()
 
-    def test_execute_shell_command_with_environment_vars(
-        self, temp_directory: Path, mock_subprocess
-    ):
+    def test_execute_shell_command_with_environment_vars(self, temp_directory: Path, mock_subprocess):
         """Test shell command receives environment variables."""
         # Arrange
         config = HooksConfig(storage_path=temp_directory / "hooks.json")

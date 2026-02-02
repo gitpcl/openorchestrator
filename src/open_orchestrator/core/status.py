@@ -60,6 +60,7 @@ class StatusTracker:
         """Lazy-load the hook service to avoid circular imports."""
         if self._hook_service is None and self.config.enable_hooks:
             from open_orchestrator.core.hooks import HookService
+
             self._hook_service = HookService()
         return self._hook_service
 
@@ -84,7 +85,11 @@ class StatusTracker:
 
         context = {
             "status": new_status.value if hasattr(new_status, "value") else str(new_status),
-            "old_status": old_status.value if old_status and hasattr(old_status, "value") else str(old_status) if old_status else "",
+            "old_status": old_status.value
+            if old_status and hasattr(old_status, "value")
+            else str(old_status)
+            if old_status
+            else "",
             "task": task or "",
         }
 
@@ -158,17 +163,14 @@ class StatusTracker:
             ai_tool=ai_tool_str,
             activity_status=AIActivityStatus.IDLE,
             created_at=datetime.now(),
-            updated_at=datetime.now()
+            updated_at=datetime.now(),
         )
         self._store.set_status(status)
         self._save_store()
         return status
 
     def update_task(
-        self,
-        worktree_name: str,
-        task: str,
-        status: AIActivityStatus = AIActivityStatus.WORKING
+        self, worktree_name: str, task: str, status: AIActivityStatus = AIActivityStatus.WORKING
     ) -> WorktreeAIStatus | None:
         """
         Update the current task for a worktree.
@@ -197,12 +199,7 @@ class StatusTracker:
         return wt_status
 
     def record_command(
-        self,
-        target_worktree: str,
-        command: str,
-        source_worktree: str | None = None,
-        pane_index: int = 0,
-        window_index: int = 0
+        self, target_worktree: str, command: str, source_worktree: str | None = None, pane_index: int = 0, window_index: int = 0
     ) -> WorktreeAIStatus | None:
         """
         Record a command sent to a worktree.
@@ -233,7 +230,7 @@ class StatusTracker:
                 source_worktree=source_worktree,
                 pane_index=pane_index,
                 window_index=window_index,
-                max_history=self.config.max_command_history
+                max_history=self.config.max_command_history,
             )
 
         if wt_status.activity_status == AIActivityStatus.IDLE:
@@ -278,11 +275,7 @@ class StatusTracker:
 
         return wt_status
 
-    def set_notes(
-        self,
-        worktree_name: str,
-        notes: str
-    ) -> WorktreeAIStatus | None:
+    def set_notes(self, worktree_name: str, notes: str) -> WorktreeAIStatus | None:
         """Set notes for a worktree."""
         wt_status = self._store.get_status(worktree_name)
 
@@ -309,10 +302,7 @@ class StatusTracker:
 
         return removed
 
-    def get_summary(
-        self,
-        worktree_names: list[str] | None = None
-    ) -> StatusSummary:
+    def get_summary(self, worktree_names: list[str] | None = None) -> StatusSummary:
         """
         Generate a summary of AI tool status across worktrees.
 
@@ -326,16 +316,13 @@ class StatusTracker:
         all_statuses = self._store.get_all_statuses()
 
         if worktree_names:
-            all_statuses = [
-                s for s in all_statuses
-                if s.worktree_name in worktree_names
-            ]
+            all_statuses = [s for s in all_statuses if s.worktree_name in worktree_names]
 
         summary = StatusSummary(
             timestamp=datetime.now(),
             total_worktrees=len(worktree_names) if worktree_names else len(all_statuses),
             worktrees_with_status=len(all_statuses),
-            statuses=all_statuses
+            statuses=all_statuses,
         )
 
         for status in all_statuses:
@@ -356,10 +343,7 @@ class StatusTracker:
             summary.total_estimated_cost_usd += status.token_usage.estimated_cost_usd
 
             if status.updated_at:
-                if (
-                    summary.most_recent_activity is None or
-                    status.updated_at > summary.most_recent_activity
-                ):
+                if summary.most_recent_activity is None or status.updated_at > summary.most_recent_activity:
                     summary.most_recent_activity = status.updated_at
 
         return summary
@@ -443,6 +427,7 @@ class StatusTracker:
     def _sanitize_command(self, text: str) -> str:
         """Best-effort redaction of secrets in commands."""
         import re as _re
+
         redactions = [
             # Authorization: Bearer <token>
             (r"(Authorization\s*:\s*Bearer\s+)[^\s]+", r"\1[REDACTED]"),

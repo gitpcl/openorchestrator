@@ -12,7 +12,7 @@ import json
 import logging
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -161,9 +161,14 @@ class PRLinker:
         try:
             result = subprocess.run(
                 [
-                    "gh", "pr", "view", str(pr_number),
-                    "--repo", f"{owner}/{repo}",
-                    "--json", "state,title,isDraft",
+                    "gh",
+                    "pr",
+                    "view",
+                    str(pr_number),
+                    "--repo",
+                    f"{owner}/{repo}",
+                    "--json",
+                    "state,title,isDraft",
                 ],
                 capture_output=True,
                 text=True,
@@ -421,6 +426,7 @@ class PRLinker:
 
         try:
             import webbrowser
+
             webbrowser.open(pr_info.pr_url)
             return True
         except Exception:

@@ -36,26 +36,11 @@ class PRInfo(BaseModel):
     branch: str = Field(..., description="Branch name")
     title: str | None = Field(default=None, description="PR title")
     status: PRStatus = Field(default=PRStatus.UNKNOWN, description="PR status")
-    auto_detected: bool = Field(
-        default=False,
-        description="Was PR auto-detected from branch name?"
-    )
-    linked_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When the PR was linked"
-    )
-    last_checked: datetime | None = Field(
-        default=None,
-        description="When the PR status was last checked"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When this record was created"
-    )
-    updated_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When this record was last updated"
-    )
+    auto_detected: bool = Field(default=False, description="Was PR auto-detected from branch name?")
+    linked_at: datetime = Field(default_factory=datetime.now, description="When the PR was linked")
+    last_checked: datetime | None = Field(default=None, description="When the PR status was last checked")
+    created_at: datetime = Field(default_factory=datetime.now, description="When this record was created")
+    updated_at: datetime = Field(default_factory=datetime.now, description="When this record was last updated")
 
     @property
     def full_repo(self) -> str:
@@ -88,24 +73,15 @@ class PRLinkResult(BaseModel):
     pr_number: int | None = Field(default=None, description="PR number if found")
     pr_url: str | None = Field(default=None, description="PR URL if found")
     message: str = Field(default="", description="Human-readable result message")
-    auto_detected: bool = Field(
-        default=False,
-        description="Was PR auto-detected?"
-    )
+    auto_detected: bool = Field(default=False, description="Was PR auto-detected?")
 
 
 class PRStore(BaseModel):
     """Persistent storage for PR links."""
 
     version: str = Field(default="1.0", description="Storage format version")
-    updated_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When the store was last updated"
-    )
-    links: dict[str, PRInfo] = Field(
-        default_factory=dict,
-        description="Map of worktree name to PR info"
-    )
+    updated_at: datetime = Field(default_factory=datetime.now, description="When the store was last updated")
+    links: dict[str, PRInfo] = Field(default_factory=dict, description="Map of worktree name to PR info")
 
     def get_pr(self, worktree_name: str) -> PRInfo | None:
         """Get PR info for a worktree."""

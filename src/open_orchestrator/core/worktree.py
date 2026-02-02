@@ -44,9 +44,7 @@ class WorktreeManager:
             self.repo = Repo(self.repo_path, search_parent_directories=True)
             self.git_root = Path(self.repo.working_dir)
         except InvalidGitRepositoryError as e:
-            raise NotAGitRepositoryError(
-                f"Not a git repository: {self.repo_path}"
-            ) from e
+            raise NotAGitRepositoryError(f"Not a git repository: {self.repo_path}") from e
 
     @property
     def project_name(self) -> str:
@@ -231,15 +229,11 @@ class WorktreeManager:
         worktree_path = path or self._generate_worktree_path(branch)
 
         if worktree_path.exists():
-            raise WorktreeAlreadyExistsError(
-                f"Directory already exists: {worktree_path}"
-            )
+            raise WorktreeAlreadyExistsError(f"Directory already exists: {worktree_path}")
 
         existing = self._find_worktree(branch)
         if existing and not force:
-            raise WorktreeAlreadyExistsError(
-                f"Worktree for branch '{branch}' already exists at: {existing.path}"
-            )
+            raise WorktreeAlreadyExistsError(f"Worktree for branch '{branch}' already exists at: {existing.path}")
 
         branch_exists = self._branch_exists(branch)
 
@@ -249,9 +243,7 @@ class WorktreeManager:
                 self.repo.git.worktree("add", str(worktree_path), "--", branch)
             else:
                 if not base_branch and getattr(self.repo, "head", None) and self.repo.head.is_detached:
-                    raise WorktreeError(
-                        "Detached HEAD detected. Specify a base branch with --base to create the new branch."
-                    )
+                    raise WorktreeError("Detached HEAD detected. Specify a base branch with --base to create the new branch.")
                 base = base_branch or self.repo.active_branch.name
                 # Use -- to separate options from arguments
                 self.repo.git.worktree("add", "-b", branch, str(worktree_path), base)
@@ -261,9 +253,7 @@ class WorktreeManager:
 
         worktree = self._find_worktree(branch)
         if not worktree:
-            raise WorktreeError(
-                f"Worktree created but not found. Path: {worktree_path}"
-            )
+            raise WorktreeError(f"Worktree created but not found. Path: {worktree_path}")
 
         return worktree
 
