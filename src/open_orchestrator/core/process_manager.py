@@ -10,7 +10,7 @@ import os
 import signal
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -112,9 +112,10 @@ class ProcessManager:
             return
 
         try:
-            with shared_file_lock(self._storage_path, exclusive=False):
-                data = self._storage_path.read_text()
-                self._store = ProcessStore.model_validate_json(data)
+            with open(self._storage_path) as f:
+                with shared_file_lock(f):
+                    data = f.read()
+                    self._store = ProcessStore.model_validate_json(data)
 
             # Clean up dead processes on load
             if self.config.auto_cleanup_dead:
@@ -127,11 +128,10 @@ class ProcessManager:
     def _save_store(self) -> None:
         """Persist the process store to disk."""
         try:
-            with shared_file_lock(self._storage_path, exclusive=True):
-                atomic_write_text(
-                    self._storage_path,
-                    self._store.model_dump_json(indent=2),
-                )
+            atomic_write_text(
+                self._storage_path,
+                self._store.model_dump_json(indent=2),
+            )
         except Exception as e:
             logger.error(f"Failed to save process store: {e}")
             raise ProcessError(f"Failed to save process store: {e}") from e
