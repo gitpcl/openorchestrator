@@ -289,10 +289,7 @@ class SessionManager:
             self._store.set_session(target_session)
             self._save_store()
 
-            status = (
-                SessionCopyStatus.SUCCESS if not files_skipped
-                else SessionCopyStatus.PARTIAL
-            )
+            status = SessionCopyStatus.SUCCESS if not files_skipped else SessionCopyStatus.PARTIAL
 
             return SessionCopyResult(
                 status=status,

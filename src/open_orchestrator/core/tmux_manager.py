@@ -59,21 +59,25 @@ class TmuxSessionInfo:
 
 class TmuxError(Exception):
     """Base exception for tmux operations."""
+
     pass
 
 
 class TmuxSessionExistsError(TmuxError):
     """Raised when trying to create a session that already exists."""
+
     pass
 
 
 class TmuxSessionNotFoundError(TmuxError):
     """Raised when a requested session doesn't exist."""
+
     pass
 
 
 class TmuxServerNotRunningError(TmuxError):
     """Raised when tmux server is not running."""
+
     pass
 
 
@@ -126,23 +130,17 @@ class TmuxManager:
         """
         if self.session_exists(config.session_name):
             raise TmuxSessionExistsError(
-                f"Session '{config.session_name}' already exists. "
-                f"Use 'owt tmux attach {config.session_name}' to attach."
+                f"Session '{config.session_name}' already exists. Use 'owt tmux attach {config.session_name}' to attach."
             )
 
         if not os.path.isdir(config.working_directory):
-            raise TmuxError(
-                f"Working directory does not exist: {config.working_directory}"
-            )
+            raise TmuxError(f"Working directory does not exist: {config.working_directory}")
 
         try:
             window_name = config.window_name or "main"
 
             session = self.server.new_session(
-                session_name=config.session_name,
-                start_directory=config.working_directory,
-                window_name=window_name,
-                attach=False
+                session_name=config.session_name, start_directory=config.working_directory, window_name=window_name, attach=False
             )
 
             window = session.active_window
@@ -185,12 +183,7 @@ class TmuxManager:
         elif layout == TmuxLayout.EVEN_VERTICAL:
             self._setup_even_vertical(window, pane_count, working_dir)
 
-    def _setup_main_vertical(
-        self,
-        window: libtmux.Window,
-        pane_count: int,
-        working_dir: str
-    ) -> None:
+    def _setup_main_vertical(self, window: libtmux.Window, pane_count: int, working_dir: str) -> None:
         """
         Create main-vertical layout: large left pane, smaller right panes.
 
@@ -203,10 +196,7 @@ class TmuxManager:
         └────────────┴─────────┘
         """
         for i in range(pane_count - 1):
-            window.split(
-                start_directory=working_dir,
-                direction=PaneDirection.Right
-            )
+            window.split(start_directory=working_dir, direction=PaneDirection.Right)
 
         window.select_layout("main-vertical")
 
@@ -260,12 +250,7 @@ class TmuxManager:
 
         window.panes[0].select()
 
-    def _setup_even_horizontal(
-        self,
-        window: libtmux.Window,
-        pane_count: int,
-        working_dir: str
-    ) -> None:
+    def _setup_even_horizontal(self, window: libtmux.Window, pane_count: int, working_dir: str) -> None:
         """Create horizontally split equal panes."""
         for _ in range(pane_count - 1):
             window.split(start_directory=working_dir, direction=PaneDirection.Right)
@@ -273,12 +258,7 @@ class TmuxManager:
         window.select_layout("even-horizontal")
         window.panes[0].select()
 
-    def _setup_even_vertical(
-        self,
-        window: libtmux.Window,
-        pane_count: int,
-        working_dir: str
-    ) -> None:
+    def _setup_even_vertical(self, window: libtmux.Window, pane_count: int, working_dir: str) -> None:
         """Create vertically split equal panes."""
         for _ in range(pane_count - 1):
             window.split(start_directory=working_dir, direction=PaneDirection.Below)
@@ -311,9 +291,7 @@ class TmuxManager:
         """
         if not AITool.is_installed(ai_tool):
             hint = AITool.get_install_hint(ai_tool)
-            raise TmuxError(
-                f"AI tool '{ai_tool.value}' is not installed. {hint}"
-            )
+            raise TmuxError(f"AI tool '{ai_tool.value}' is not installed. {hint}")
 
         # Get executable path (may be full path if not in PATH)
         executable = AITool.get_executable_path(ai_tool)
@@ -342,9 +320,9 @@ class TmuxManager:
             session_id=str(session.id),
             window_count=len(windows),
             pane_count=total_panes,
-            created_at=session.created.strftime("%Y-%m-%d %H:%M:%S") if hasattr(session, 'created') else "unknown",
-            attached=session.attached_count > 0 if hasattr(session, 'attached_count') else False,
-            working_directory=working_dir
+            created_at=session.created.strftime("%Y-%m-%d %H:%M:%S") if hasattr(session, "created") else "unknown",
+            attached=session.attached_count > 0 if hasattr(session, "attached_count") else False,
+            working_directory=working_dir,
         )
 
     def attach(self, session_name: str) -> None:
@@ -358,10 +336,7 @@ class TmuxManager:
             TmuxSessionNotFoundError: If session doesn't exist
         """
         if not self.session_exists(session_name):
-            raise TmuxSessionNotFoundError(
-                f"Session '{session_name}' not found. "
-                f"Use 'owt tmux list' to see available sessions."
-            )
+            raise TmuxSessionNotFoundError(f"Session '{session_name}' not found. Use 'owt tmux list' to see available sessions.")
 
         subprocess.run(["tmux", "attach-session", "-t", session_name], check=True)
 
@@ -378,9 +353,7 @@ class TmuxManager:
             TmuxSessionNotFoundError: If session doesn't exist
         """
         if not self.session_exists(session_name):
-            raise TmuxSessionNotFoundError(
-                f"Session '{session_name}' not found."
-            )
+            raise TmuxSessionNotFoundError(f"Session '{session_name}' not found.")
 
         subprocess.run(["tmux", "switch-client", "-t", session_name], check=True)
 
@@ -420,9 +393,7 @@ class TmuxManager:
             TmuxSessionNotFoundError: If session doesn't exist
         """
         if not self.session_exists(session_name):
-            raise TmuxSessionNotFoundError(
-                f"Session '{session_name}' not found."
-            )
+            raise TmuxSessionNotFoundError(f"Session '{session_name}' not found.")
 
         try:
             session = self.server.sessions.filter(session_name=session_name)[0]
@@ -513,23 +484,12 @@ class TmuxManager:
             return None
 
         try:
-            result = subprocess.run(
-                ["tmux", "display-message", "-p", "#S"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(["tmux", "display-message", "-p", "#S"], capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except subprocess.CalledProcessError:
             return None
 
-    def send_keys_to_pane(
-        self,
-        session_name: str,
-        keys: str,
-        pane_index: int = 0,
-        window_index: int = 0
-    ) -> None:
+    def send_keys_to_pane(self, session_name: str, keys: str, pane_index: int = 0, window_index: int = 0) -> None:
         """
         Send keys to a specific pane in a session.
 

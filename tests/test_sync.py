@@ -36,13 +36,7 @@ class TestSyncConfig:
         assert config.timeout_seconds == 60
 
     def test_custom_values(self):
-        config = SyncConfig(
-            strategy="rebase",
-            auto_stash=False,
-            prune_remote=False,
-            fetch_all=True,
-            timeout_seconds=120
-        )
+        config = SyncConfig(strategy="rebase", auto_stash=False, prune_remote=False, fetch_all=True, timeout_seconds=120)
 
         assert config.strategy == "rebase"
         assert config.auto_stash is False
@@ -71,8 +65,8 @@ class TestSyncService:
         assert "does not exist" in result.message
 
     def test_sync_worktree_no_upstream(self, service, temp_worktree):
-        with patch.object(service, '_get_current_branch', return_value="main"):
-            with patch.object(service, '_get_upstream_branch', return_value=None):
+        with patch.object(service, "_get_current_branch", return_value="main"):
+            with patch.object(service, "_get_upstream_branch", return_value=None):
                 result = service.sync_worktree(str(temp_worktree))
 
         assert result.status == SyncStatus.NO_UPSTREAM
@@ -81,20 +75,20 @@ class TestSyncService:
     def test_sync_worktree_uncommitted_changes_no_auto_stash(self, temp_worktree):
         service = SyncService(config=SyncConfig(auto_stash=False))
 
-        with patch.object(service, '_get_current_branch', return_value="main"):
-            with patch.object(service, '_get_upstream_branch', return_value="origin/main"):
-                with patch.object(service, '_has_uncommitted_changes', return_value=True):
+        with patch.object(service, "_get_current_branch", return_value="main"):
+            with patch.object(service, "_get_upstream_branch", return_value="origin/main"):
+                with patch.object(service, "_has_uncommitted_changes", return_value=True):
                     result = service.sync_worktree(str(temp_worktree))
 
         assert result.status == SyncStatus.UNCOMMITTED_CHANGES
         assert "auto_stash is disabled" in result.message
 
     def test_sync_worktree_already_up_to_date(self, service, temp_worktree):
-        with patch.object(service, '_get_current_branch', return_value="main"):
-            with patch.object(service, '_get_upstream_branch', return_value="origin/main"):
-                with patch.object(service, '_has_uncommitted_changes', return_value=False):
-                    with patch.object(service, '_fetch_upstream'):
-                        with patch.object(service, '_get_commit_counts', return_value=(0, 0)):
+        with patch.object(service, "_get_current_branch", return_value="main"):
+            with patch.object(service, "_get_upstream_branch", return_value="origin/main"):
+                with patch.object(service, "_has_uncommitted_changes", return_value=False):
+                    with patch.object(service, "_fetch_upstream"):
+                        with patch.object(service, "_get_commit_counts", return_value=(0, 0)):
                             result = service.sync_worktree(str(temp_worktree))
 
         assert result.status == SyncStatus.UP_TO_DATE
@@ -104,12 +98,12 @@ class TestSyncService:
         mock_pull_result = MagicMock()
         mock_pull_result.returncode = 0
 
-        with patch.object(service, '_get_current_branch', return_value="main"):
-            with patch.object(service, '_get_upstream_branch', return_value="origin/main"):
-                with patch.object(service, '_has_uncommitted_changes', return_value=False):
-                    with patch.object(service, '_fetch_upstream'):
-                        with patch.object(service, '_get_commit_counts', return_value=(5, 0)):
-                            with patch.object(service, '_pull_changes', return_value=mock_pull_result):
+        with patch.object(service, "_get_current_branch", return_value="main"):
+            with patch.object(service, "_get_upstream_branch", return_value="origin/main"):
+                with patch.object(service, "_has_uncommitted_changes", return_value=False):
+                    with patch.object(service, "_fetch_upstream"):
+                        with patch.object(service, "_get_commit_counts", return_value=(5, 0)):
+                            with patch.object(service, "_pull_changes", return_value=mock_pull_result):
                                 result = service.sync_worktree(str(temp_worktree))
 
         assert result.status == SyncStatus.SUCCESS
@@ -121,12 +115,12 @@ class TestSyncService:
         mock_pull_result.returncode = 1
         mock_pull_result.stderr = "CONFLICT (content): Merge conflict in file.txt"
 
-        with patch.object(service, '_get_current_branch', return_value="main"):
-            with patch.object(service, '_get_upstream_branch', return_value="origin/main"):
-                with patch.object(service, '_has_uncommitted_changes', return_value=False):
-                    with patch.object(service, '_fetch_upstream'):
-                        with patch.object(service, '_get_commit_counts', return_value=(3, 1)):
-                            with patch.object(service, '_pull_changes', return_value=mock_pull_result):
+        with patch.object(service, "_get_current_branch", return_value="main"):
+            with patch.object(service, "_get_upstream_branch", return_value="origin/main"):
+                with patch.object(service, "_has_uncommitted_changes", return_value=False):
+                    with patch.object(service, "_fetch_upstream"):
+                        with patch.object(service, "_get_commit_counts", return_value=(3, 1)):
+                            with patch.object(service, "_pull_changes", return_value=mock_pull_result):
                                 result = service.sync_worktree(str(temp_worktree))
 
         assert result.status == SyncStatus.CONFLICTS
@@ -147,43 +141,31 @@ class TestSyncService:
                 stash_called = True
             return mock_stash_pop_result
 
-        with patch.object(service, '_get_current_branch', return_value="main"):
-            with patch.object(service, '_get_upstream_branch', return_value="origin/main"):
+        with patch.object(service, "_get_current_branch", return_value="main"):
+            with patch.object(service, "_get_upstream_branch", return_value="origin/main"):
                 # Return True for both calls to _has_uncommitted_changes:
                 # 1. First call (line 109): checks if we should return early (we don't because auto_stash=True)
                 # 2. Second call (line 121): checks if we should stash (we do)
-                with patch.object(service, '_has_uncommitted_changes', return_value=True):
-                    with patch.object(service, '_fetch_upstream'):
-                        with patch.object(service, '_get_commit_counts', return_value=(2, 0)):
-                            with patch.object(service, '_pull_changes', return_value=mock_pull_result):
-                                with patch.object(service, '_run_git_command', side_effect=mock_git_command):
+                with patch.object(service, "_has_uncommitted_changes", return_value=True):
+                    with patch.object(service, "_fetch_upstream"):
+                        with patch.object(service, "_get_commit_counts", return_value=(2, 0)):
+                            with patch.object(service, "_pull_changes", return_value=mock_pull_result):
+                                with patch.object(service, "_run_git_command", side_effect=mock_git_command):
                                     result = service.sync_worktree(str(temp_worktree))
 
         assert result.status == SyncStatus.SUCCESS
         assert stash_called is True
 
     def test_sync_all_aggregates_results(self, service):
-        with patch.object(service, 'sync_worktree') as mock_sync:
+        with patch.object(service, "sync_worktree") as mock_sync:
             mock_sync.side_effect = [
                 WorktreeSyncResult(
-                    worktree_path="/path/one",
-                    branch_name="main",
-                    status=SyncStatus.SUCCESS,
-                    message="Success",
-                    commits_pulled=3
+                    worktree_path="/path/one", branch_name="main", status=SyncStatus.SUCCESS, message="Success", commits_pulled=3
                 ),
                 WorktreeSyncResult(
-                    worktree_path="/path/two",
-                    branch_name="develop",
-                    status=SyncStatus.UP_TO_DATE,
-                    message="Up to date"
+                    worktree_path="/path/two", branch_name="develop", status=SyncStatus.UP_TO_DATE, message="Up to date"
                 ),
-                WorktreeSyncResult(
-                    worktree_path="/path/three",
-                    branch_name="feature",
-                    status=SyncStatus.ERROR,
-                    message="Error"
-                )
+                WorktreeSyncResult(worktree_path="/path/three", branch_name="feature", status=SyncStatus.ERROR, message="Error"),
             ]
 
             report = service.sync_all(["/path/one", "/path/two", "/path/three"])
@@ -195,12 +177,9 @@ class TestSyncService:
         assert len(report.results) == 3
 
     def test_sync_report_structure(self, service):
-        with patch.object(service, 'sync_worktree') as mock_sync:
+        with patch.object(service, "sync_worktree") as mock_sync:
             mock_sync.return_value = WorktreeSyncResult(
-                worktree_path="/path",
-                branch_name="main",
-                status=SyncStatus.SUCCESS,
-                message="OK"
+                worktree_path="/path", branch_name="main", status=SyncStatus.SUCCESS, message="OK"
             )
 
             report = service.sync_all(["/path"])
@@ -210,10 +189,10 @@ class TestSyncService:
         assert isinstance(report.results, list)
 
     def test_get_sync_status_without_changes(self, service, temp_worktree):
-        with patch.object(service, '_get_current_branch', return_value="main"):
-            with patch.object(service, '_get_upstream_branch', return_value="origin/main"):
-                with patch.object(service, '_fetch_upstream'):
-                    with patch.object(service, '_get_commit_counts', return_value=(0, 2)):
+        with patch.object(service, "_get_current_branch", return_value="main"):
+            with patch.object(service, "_get_upstream_branch", return_value="origin/main"):
+                with patch.object(service, "_fetch_upstream"):
+                    with patch.object(service, "_get_commit_counts", return_value=(0, 2)):
                         result = service.get_sync_status(str(temp_worktree))
 
         assert result.status == SyncStatus.UP_TO_DATE
@@ -223,8 +202,8 @@ class TestSyncService:
         mock_result = MagicMock()
         mock_result.returncode = 0
 
-        with patch.object(service, '_get_current_branch', return_value="feature"):
-            with patch.object(service, '_run_git_command', return_value=mock_result):
+        with patch.object(service, "_get_current_branch", return_value="feature"):
+            with patch.object(service, "_run_git_command", return_value=mock_result):
                 success = service.setup_upstream(str(temp_worktree))
 
         assert success is True
@@ -233,8 +212,8 @@ class TestSyncService:
         mock_result = MagicMock()
         mock_result.returncode = 1
 
-        with patch.object(service, '_get_current_branch', return_value="feature"):
-            with patch.object(service, '_run_git_command', return_value=mock_result):
+        with patch.object(service, "_get_current_branch", return_value="feature"):
+            with patch.object(service, "_run_git_command", return_value=mock_result):
                 success = service.setup_upstream(str(temp_worktree))
 
         assert success is False
@@ -256,11 +235,8 @@ class TestSyncServiceGitCommands:
         worktree = tmp_path / "repo"
         worktree.mkdir()
 
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="feature/test-branch\n"
-            )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="feature/test-branch\n")
 
             branch = service._get_current_branch(worktree)
 
@@ -271,11 +247,8 @@ class TestSyncServiceGitCommands:
         worktree = tmp_path / "repo"
         worktree.mkdir()
 
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="origin/main\n"
-            )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="origin/main\n")
 
             upstream = service._get_upstream_branch(worktree)
 
@@ -285,11 +258,8 @@ class TestSyncServiceGitCommands:
         worktree = tmp_path / "repo"
         worktree.mkdir()
 
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=128,
-                stdout=""
-            )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=128, stdout="")
 
             upstream = service._get_upstream_branch(worktree)
 
@@ -299,11 +269,8 @@ class TestSyncServiceGitCommands:
         worktree = tmp_path / "repo"
         worktree.mkdir()
 
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=""
-            )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="")
 
             has_changes = service._has_uncommitted_changes(worktree)
 
@@ -313,11 +280,8 @@ class TestSyncServiceGitCommands:
         worktree = tmp_path / "repo"
         worktree.mkdir()
 
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=" M file.txt\n?? new_file.txt\n"
-            )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=" M file.txt\n?? new_file.txt\n")
 
             has_changes = service._has_uncommitted_changes(worktree)
 
@@ -327,13 +291,225 @@ class TestSyncServiceGitCommands:
         worktree = tmp_path / "repo"
         worktree.mkdir()
 
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="3\t5\n"
-            )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="3\t5\n")
 
             behind, ahead = service._get_commit_counts(worktree, "origin/main")
 
         assert behind == 3
         assert ahead == 5
+
+
+class TestSyncCLIJsonOutput:
+    """Test JSON output for 'owt sync --json' command."""
+
+    @pytest.fixture
+    def cli_runner(self):
+        from click.testing import CliRunner
+
+        return CliRunner()
+
+    @patch("open_orchestrator.core.sync.SyncService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_sync_all_json_output_with_no_worktrees(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_sync_service: MagicMock,
+        cli_runner,
+    ) -> None:
+        """Test --json output when no worktrees exist."""
+        import json
+
+        from open_orchestrator.cli import main
+
+        # Arrange
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = []
+
+        # Act
+        result = cli_runner.invoke(main, ["sync", "--all", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "results" in output
+        assert output["results"] == []
+        assert "summary" in output
+
+    @patch("open_orchestrator.core.sync.SyncService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_sync_all_json_output_with_results(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_sync_service: MagicMock,
+        cli_runner,
+        tmp_path,
+    ) -> None:
+        """Test --json output with sync results."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        mock_worktree = WorktreeInfo(
+            path=tmp_path / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = [mock_worktree]
+
+        mock_sync_instance = mock_sync_service.return_value
+        mock_report = SyncReport(
+            timestamp=datetime.now(),
+            worktrees_synced=1,
+            successful=1,
+            failed=0,
+            up_to_date=0,
+            with_conflicts=0,
+            results=[
+                WorktreeSyncResult(
+                    worktree_path=str(tmp_path / "test-worktree"),
+                    branch_name="feature/test",
+                    status=SyncStatus.SUCCESS,
+                    message="Pulled 3 commits",
+                    commits_pulled=3,
+                    commits_ahead=0,
+                )
+            ],
+        )
+        mock_sync_instance.sync_all.return_value = mock_report
+
+        # Act
+        result = cli_runner.invoke(main, ["sync", "--all", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "results" in output
+        assert len(output["results"]) == 1
+        assert output["results"][0]["worktree_path"] == str(tmp_path / "test-worktree")
+        assert output["results"][0]["branch_name"] == "feature/test"
+        assert output["results"][0]["status"] == "success"
+
+    @patch("open_orchestrator.core.sync.SyncService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_sync_single_worktree_json_output(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_sync_service: MagicMock,
+        cli_runner,
+        tmp_path,
+    ) -> None:
+        """Test --json output for single worktree sync."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        mock_worktree = WorktreeInfo(
+            path=tmp_path / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.get.return_value = mock_worktree
+
+        mock_sync_instance = mock_sync_service.return_value
+        mock_result = WorktreeSyncResult(
+            worktree_path=str(tmp_path / "test-worktree"),
+            branch_name="feature/test",
+            status=SyncStatus.UP_TO_DATE,
+            message="Already up to date",
+            commits_pulled=0,
+            commits_ahead=2,
+        )
+        mock_sync_instance.sync_worktree.return_value = mock_result
+
+        # Act
+        result = cli_runner.invoke(main, ["sync", "feature/test", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "worktree_path" in output
+        assert "branch_name" in output
+        assert "status" in output
+        assert output["status"] == "up_to_date"
+        assert output["commits_ahead"] == 2
+
+    @patch("open_orchestrator.core.sync.SyncService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_sync_json_output_validates_parseable(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_sync_service: MagicMock,
+        cli_runner,
+        tmp_path,
+    ) -> None:
+        """Test --json output is valid JSON and parseable."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        mock_worktree = WorktreeInfo(
+            path=tmp_path / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = [mock_worktree]
+
+        mock_sync_instance = mock_sync_service.return_value
+        mock_report = SyncReport(
+            timestamp=datetime.now(),
+            worktrees_synced=1,
+            successful=0,
+            failed=0,
+            up_to_date=0,
+            with_conflicts=1,
+            results=[
+                WorktreeSyncResult(
+                    worktree_path=str(tmp_path / "test-worktree"),
+                    branch_name="feature/test",
+                    status=SyncStatus.CONFLICTS,
+                    message="Merge conflicts detected",
+                    commits_pulled=0,
+                    commits_ahead=1,
+                )
+            ],
+        )
+        mock_sync_instance.sync_all.return_value = mock_report
+
+        # Act
+        result = cli_runner.invoke(main, ["sync", "--all", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        # Should not raise json.JSONDecodeError
+        output = json.loads(result.output)
+        # Validate schema
+        assert isinstance(output, dict)
+        assert "results" in output
+        assert isinstance(output["results"], list)
+        assert "worktrees_synced" in output
+        assert isinstance(output["worktrees_synced"], int)

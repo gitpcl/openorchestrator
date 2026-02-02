@@ -48,37 +48,16 @@ class ProjectType(str, Enum):
 class ProjectConfig(BaseModel):
     """Configuration model for a detected project."""
 
-    project_type: ProjectType = Field(
-        default=ProjectType.UNKNOWN,
-        description="The detected project type"
-    )
+    project_type: ProjectType = Field(default=ProjectType.UNKNOWN, description="The detected project type")
     package_manager: PackageManager = Field(
-        default=PackageManager.UNKNOWN,
-        description="The detected or preferred package manager"
+        default=PackageManager.UNKNOWN, description="The detected or preferred package manager"
     )
-    project_root: Path = Field(
-        description="Root directory of the project"
-    )
-    has_lock_file: bool = Field(
-        default=False,
-        description="Whether a lock file was detected"
-    )
-    lock_file_path: Path | None = Field(
-        default=None,
-        description="Path to the lock file if detected"
-    )
-    manifest_file_path: Path | None = Field(
-        default=None,
-        description="Path to the project manifest file"
-    )
-    env_file_path: Path | None = Field(
-        default=None,
-        description="Path to the .env file if detected"
-    )
-    install_command: str = Field(
-        default="",
-        description="Command to install dependencies"
-    )
+    project_root: Path = Field(description="Root directory of the project")
+    has_lock_file: bool = Field(default=False, description="Whether a lock file was detected")
+    lock_file_path: Path | None = Field(default=None, description="Path to the lock file if detected")
+    manifest_file_path: Path | None = Field(default=None, description="Path to the project manifest file")
+    env_file_path: Path | None = Field(default=None, description="Path to the .env file if detected")
+    install_command: str = Field(default="", description="Command to install dependencies")
 
     def get_install_command(self) -> str:
         """Get the appropriate install command for this project."""

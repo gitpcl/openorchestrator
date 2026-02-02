@@ -16,9 +16,7 @@ class WorktreeInfo(BaseModel):
     head_commit: str = Field(description="Short SHA of the HEAD commit")
     is_main: bool = Field(default=False, description="Whether this is the main worktree")
     is_detached: bool = Field(default=False, description="Whether HEAD is detached")
-    created_at: datetime | None = Field(
-        default=None, description="When the worktree was created"
-    )
+    created_at: datetime | None = Field(default=None, description="When the worktree was created")
 
     @property
     def name(self) -> str:
@@ -28,21 +26,13 @@ class WorktreeInfo(BaseModel):
     @property
     def short_path(self) -> str:
         """Get a shortened display path."""
-        return f"~/{self.path.relative_to(Path.home())}" if self.path.is_relative_to(
-            Path.home()
-        ) else str(self.path)
+        return f"~/{self.path.relative_to(Path.home())}" if self.path.is_relative_to(Path.home()) else str(self.path)
 
 
 class WorktreeCreateResult(BaseModel):
     """Result of creating a new worktree."""
 
     worktree: WorktreeInfo
-    created_branch: bool = Field(
-        default=False, description="Whether a new branch was created"
-    )
-    deps_installed: bool = Field(
-        default=False, description="Whether dependencies were installed"
-    )
-    tmux_session: str | None = Field(
-        default=None, description="Name of the tmux session if created"
-    )
+    created_branch: bool = Field(default=False, description="Whether a new branch was created")
+    deps_installed: bool = Field(default=False, description="Whether dependencies were installed")
+    tmux_session: str | None = Field(default=None, description="Name of the tmux session if created")

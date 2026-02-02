@@ -152,32 +152,22 @@ class EnvironmentSetup:
         worktree_path = Path(worktree_path).resolve()
 
         if not worktree_path.is_dir():
-            raise DependencyInstallError(
-                f"Worktree path does not exist: {worktree_path}"
-            )
+            raise DependencyInstallError(f"Worktree path does not exist: {worktree_path}")
 
         install_cmd = self._install_commands.get(self.config.package_manager)
 
         if not install_cmd:
-            logger.warning(
-                f"No install command for package manager: {self.config.package_manager}"
-            )
-            raise DependencyInstallError(
-                f"Unknown package manager: {self.config.package_manager}"
-            )
+            logger.warning(f"No install command for package manager: {self.config.package_manager}")
+            raise DependencyInstallError(f"Unknown package manager: {self.config.package_manager}")
 
         # Check if the command is available
         executable = install_cmd[0]
         if not self._command_exists(executable):
             raise DependencyInstallError(
-                f"Command not found: {executable}. "
-                f"Please ensure {self.config.package_manager.value} is installed."
+                f"Command not found: {executable}. Please ensure {self.config.package_manager.value} is installed."
             )
 
-        logger.info(
-            f"Installing dependencies with {self.config.package_manager.value}: "
-            f"{' '.join(install_cmd)}"
-        )
+        logger.info(f"Installing dependencies with {self.config.package_manager.value}: {' '.join(install_cmd)}")
 
         try:
             result = subprocess.run(
@@ -191,22 +181,15 @@ class EnvironmentSetup:
 
             if result.returncode != 0:
                 logger.error(f"Dependency installation failed: {result.stderr}")
-                raise DependencyInstallError(
-                    f"Installation failed with exit code {result.returncode}: "
-                    f"{result.stderr}"
-                )
+                raise DependencyInstallError(f"Installation failed with exit code {result.returncode}: {result.stderr}")
 
             logger.info("Dependencies installed successfully")
             return result
 
         except subprocess.TimeoutExpired as e:
-            raise DependencyInstallError(
-                f"Installation timed out after {timeout} seconds"
-            ) from e
+            raise DependencyInstallError(f"Installation timed out after {timeout} seconds") from e
         except OSError as e:
-            raise DependencyInstallError(
-                f"Failed to run install command: {e}"
-            ) from e
+            raise DependencyInstallError(f"Failed to run install command: {e}") from e
 
     def setup_env_file(
         self,
@@ -246,9 +229,7 @@ class EnvironmentSetup:
         try:
             if adjust_paths:
                 content = source_env.read_text()
-                adjusted_content = self._adjust_env_paths(
-                    content, source_path, worktree_path
-                )
+                adjusted_content = self._adjust_env_paths(content, source_path, worktree_path)
                 target_env.write_text(adjusted_content)
             else:
                 shutil.copy2(source_env, target_env)
@@ -257,8 +238,7 @@ class EnvironmentSetup:
                 os.chmod(target_env, 0o600)
             except PermissionError:
                 logger.warning(
-                    f"Could not set restrictive permissions on {target_env}. "
-                    f"Manual chmod may be required for security."
+                    f"Could not set restrictive permissions on {target_env}. Manual chmod may be required for security."
                 )
 
             logger.info(f".env file set up at: {target_env}")
@@ -303,9 +283,7 @@ class EnvironmentSetup:
             adjusted = adjusted.replace(source_str, worktree_str)
 
         if adjusted != content:
-            logger.debug(
-                f"Adjusted paths in .env: {source_str} -> {worktree_str}"
-            )
+            logger.debug(f"Adjusted paths in .env: {source_str} -> {worktree_str}")
 
         return adjusted
 
@@ -429,9 +407,7 @@ class EnvironmentSetup:
                 logger.debug(f"Found installation marker: {marker}")
                 return True
 
-        logger.warning(
-            f"Could not verify installation for {self.config.package_manager.value}"
-        )
+        logger.warning(f"Could not verify installation for {self.config.package_manager.value}")
         return False
 
 

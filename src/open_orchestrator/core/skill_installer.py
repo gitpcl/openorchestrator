@@ -78,12 +78,8 @@ class SkillInstaller:
 
         if self.target_file.exists() and not force:
             if self.target_file.is_symlink():
-                raise SkillInstallError(
-                    "Skill already installed (symlink). Use --force to overwrite."
-                )
-            raise SkillInstallError(
-                f"Skill already installed at {self.target_file}. Use --force to overwrite."
-            )
+                raise SkillInstallError("Skill already installed (symlink). Use --force to overwrite.")
+            raise SkillInstallError(f"Skill already installed at {self.target_file}. Use --force to overwrite.")
 
         try:
             self.target_dir.mkdir(parents=True, exist_ok=True)

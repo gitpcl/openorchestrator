@@ -32,10 +32,7 @@ class TokenUsage(BaseModel):
     output_tokens: int = Field(default=0, ge=0, description="Total output tokens used")
     cache_read_tokens: int = Field(default=0, ge=0, description="Tokens read from cache")
     cache_write_tokens: int = Field(default=0, ge=0, description="Tokens written to cache")
-    last_updated: datetime = Field(
-        default_factory=datetime.now,
-        description="When token usage was last updated"
-    )
+    last_updated: datetime = Field(default_factory=datetime.now, description="When token usage was last updated")
 
     @property
     def total_tokens(self) -> int:
@@ -56,10 +53,7 @@ class CommandRecord(BaseModel):
 
     timestamp: datetime = Field(..., description="When the command was sent")
     command: str = Field(..., description="The command that was sent")
-    source_worktree: str | None = Field(
-        default=None,
-        description="Worktree that sent the command (None if manual)"
-    )
+    source_worktree: str | None = Field(default=None, description="Worktree that sent the command (None if manual)")
     pane_index: int = Field(default=0, description="Target pane index")
     window_index: int = Field(default=0, description="Target window index")
 
@@ -72,54 +66,19 @@ class WorktreeAIStatus(BaseModel):
     worktree_name: str = Field(..., description="Name of the worktree")
     worktree_path: str = Field(..., description="Absolute path to the worktree")
     branch: str = Field(..., description="Current git branch")
-    tmux_session: str | None = Field(
-        default=None,
-        description="Associated tmux session name"
-    )
-    ai_tool: str = Field(
-        default="claude",
-        description="AI tool being used (claude, opencode, droid)"
-    )
-    activity_status: AIActivityStatus = Field(
-        default=AIActivityStatus.UNKNOWN,
-        description="Current activity status"
-    )
-    current_task: str | None = Field(
-        default=None,
-        description="Description of current task AI is working on"
-    )
-    last_task_update: datetime | None = Field(
-        default=None,
-        description="When the task was last updated"
-    )
-    recent_commands: list[CommandRecord] = Field(
-        default_factory=list,
-        description="Recent commands sent to this worktree"
-    )
-    notes: str | None = Field(
-        default=None,
-        description="Additional notes or context"
-    )
-    token_usage: TokenUsage = Field(
-        default_factory=TokenUsage,
-        description="Token usage for this worktree's AI sessions"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When this status record was created"
-    )
-    updated_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When this status was last updated"
-    )
+    tmux_session: str | None = Field(default=None, description="Associated tmux session name")
+    ai_tool: str = Field(default="claude", description="AI tool being used (claude, opencode, droid)")
+    activity_status: AIActivityStatus = Field(default=AIActivityStatus.UNKNOWN, description="Current activity status")
+    current_task: str | None = Field(default=None, description="Description of current task AI is working on")
+    last_task_update: datetime | None = Field(default=None, description="When the task was last updated")
+    recent_commands: list[CommandRecord] = Field(default_factory=list, description="Recent commands sent to this worktree")
+    notes: str | None = Field(default=None, description="Additional notes or context")
+    token_usage: TokenUsage = Field(default_factory=TokenUsage, description="Token usage for this worktree's AI sessions")
+    created_at: datetime = Field(default_factory=datetime.now, description="When this status record was created")
+    updated_at: datetime = Field(default_factory=datetime.now, description="When this status was last updated")
 
     def add_command(
-        self,
-        command: str,
-        source_worktree: str | None = None,
-        pane_index: int = 0,
-        window_index: int = 0,
-        max_history: int = 20
+        self, command: str, source_worktree: str | None = None, pane_index: int = 0, window_index: int = 0, max_history: int = 20
     ) -> None:
         """Add a command to the recent commands history."""
         record = CommandRecord(
@@ -127,7 +86,7 @@ class WorktreeAIStatus(BaseModel):
             command=command,
             source_worktree=source_worktree,
             pane_index=pane_index,
-            window_index=window_index
+            window_index=window_index,
         )
         self.recent_commands.append(record)
         self.updated_at = datetime.now()
@@ -135,11 +94,7 @@ class WorktreeAIStatus(BaseModel):
         if len(self.recent_commands) > max_history:
             self.recent_commands = self.recent_commands[-max_history:]
 
-    def update_task(
-        self,
-        task: str,
-        status: AIActivityStatus = AIActivityStatus.WORKING
-    ) -> None:
+    def update_task(self, task: str, status: AIActivityStatus = AIActivityStatus.WORKING) -> None:
         """Update the current task."""
         self.current_task = task
         self.activity_status = status
@@ -181,74 +136,27 @@ class WorktreeAIStatus(BaseModel):
 class StatusSummary(BaseModel):
     """Summary of AI tool status across all worktrees."""
 
-    timestamp: datetime = Field(
-        default_factory=datetime.now,
-        description="When this summary was generated"
-    )
+    timestamp: datetime = Field(default_factory=datetime.now, description="When this summary was generated")
     total_worktrees: int = Field(default=0, ge=0)
     worktrees_with_status: int = Field(default=0, ge=0)
-    active_ai_sessions: int = Field(
-        default=0,
-        ge=0,
-        description="Number of worktrees where AI is working"
-    )
-    idle_ai_sessions: int = Field(
-        default=0,
-        ge=0,
-        description="Number of worktrees where AI is idle"
-    )
-    blocked_ai_sessions: int = Field(
-        default=0,
-        ge=0,
-        description="Number of worktrees where AI is blocked"
-    )
-    unknown_status: int = Field(
-        default=0,
-        ge=0,
-        description="Number of worktrees with unknown status"
-    )
-    total_commands_sent: int = Field(
-        default=0,
-        ge=0,
-        description="Total commands sent across all worktrees"
-    )
-    total_input_tokens: int = Field(
-        default=0,
-        ge=0,
-        description="Total input tokens across all worktrees"
-    )
-    total_output_tokens: int = Field(
-        default=0,
-        ge=0,
-        description="Total output tokens across all worktrees"
-    )
-    total_estimated_cost_usd: float = Field(
-        default=0.0,
-        ge=0,
-        description="Total estimated cost in USD"
-    )
-    most_recent_activity: datetime | None = Field(
-        default=None,
-        description="Most recent activity across all worktrees"
-    )
-    statuses: list[WorktreeAIStatus] = Field(
-        default_factory=list,
-        description="Individual status for each worktree"
-    )
+    active_ai_sessions: int = Field(default=0, ge=0, description="Number of worktrees where AI is working")
+    idle_ai_sessions: int = Field(default=0, ge=0, description="Number of worktrees where AI is idle")
+    blocked_ai_sessions: int = Field(default=0, ge=0, description="Number of worktrees where AI is blocked")
+    unknown_status: int = Field(default=0, ge=0, description="Number of worktrees with unknown status")
+    total_commands_sent: int = Field(default=0, ge=0, description="Total commands sent across all worktrees")
+    total_input_tokens: int = Field(default=0, ge=0, description="Total input tokens across all worktrees")
+    total_output_tokens: int = Field(default=0, ge=0, description="Total output tokens across all worktrees")
+    total_estimated_cost_usd: float = Field(default=0.0, ge=0, description="Total estimated cost in USD")
+    most_recent_activity: datetime | None = Field(default=None, description="Most recent activity across all worktrees")
+    statuses: list[WorktreeAIStatus] = Field(default_factory=list, description="Individual status for each worktree")
 
 
 class StatusStore(BaseModel):
     """Persistent storage for worktree statuses."""
 
     version: str = Field(default="1.1", description="Storage format version")
-    updated_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When the store was last updated"
-    )
-    statuses: dict[str, WorktreeAIStatus] = Field(
-        default_factory=dict,
-        description="Map of worktree name to status"
-    )
+    updated_at: datetime = Field(default_factory=datetime.now, description="When the store was last updated")
+    statuses: dict[str, WorktreeAIStatus] = Field(default_factory=dict, description="Map of worktree name to status")
 
     def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Get status for a specific worktree."""

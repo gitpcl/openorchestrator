@@ -87,6 +87,7 @@ class UsageTracker:
     def _save_stats(self) -> None:
         """Persist usage statistics to storage (atomic, 0o600)."""
         from open_orchestrator.utils.io import atomic_write_text
+
         data = json.dumps(self._usage_data, indent=2, default=str)
         atomic_write_text(self._stats_file, data, perms=0o600)
 
@@ -96,17 +97,10 @@ class UsageTracker:
         now = datetime.now().isoformat()
 
         if path_key not in self._usage_data:
-            self._usage_data[path_key] = {
-                "branch_name": branch_name,
-                "created_at": now,
-                "last_accessed": now,
-                "access_count": 1
-            }
+            self._usage_data[path_key] = {"branch_name": branch_name, "created_at": now, "last_accessed": now, "access_count": 1}
         else:
             self._usage_data[path_key]["last_accessed"] = now
-            self._usage_data[path_key]["access_count"] = (
-                self._usage_data[path_key].get("access_count", 0) + 1
-            )
+            self._usage_data[path_key]["access_count"] = self._usage_data[path_key].get("access_count", 0) + 1
 
         self._save_stats()
 
@@ -144,19 +138,11 @@ class CleanupService:
     and provides functionality to clean them up with safety checks.
     """
 
-    def __init__(
-        self,
-        config: CleanupConfig | None = None,
-        usage_tracker: UsageTracker | None = None
-    ):
+    def __init__(self, config: CleanupConfig | None = None, usage_tracker: UsageTracker | None = None):
         self.config = config or CleanupConfig()
         self.usage_tracker = usage_tracker or UsageTracker(self.config.stats_file_path)
 
-    def get_stale_worktrees(
-        self,
-        worktree_paths: list[str],
-        threshold_days: int | None = None
-    ) -> list[WorktreeUsageStats]:
+    def get_stale_worktrees(self, worktree_paths: list[str], threshold_days: int | None = None) -> list[WorktreeUsageStats]:
         """
         Identify worktrees that are considered stale.
 
@@ -212,19 +198,16 @@ class CleanupService:
             access_count=access_count,
             last_commit_date=last_commit,
             has_uncommitted_changes=has_uncommitted,
-            has_unpushed_commits=has_unpushed
+            has_unpushed_commits=has_unpushed,
         )
 
     def _get_branch_name(self, worktree_path: Path) -> str:
         """Get the branch name for a worktree."""
         try:
             import subprocess
+
             result = subprocess.run(
-                ["git", "branch", "--show-current"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["git", "branch", "--show-current"], cwd=worktree_path, capture_output=True, text=True, timeout=5
             )
             return result.stdout.strip() or "unknown"
         except Exception:
@@ -234,12 +217,9 @@ class CleanupService:
         """Check if worktree has uncommitted changes."""
         try:
             import subprocess
+
             result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                timeout=10
+                ["git", "status", "--porcelain"], cwd=worktree_path, capture_output=True, text=True, timeout=10
             )
             return bool(result.stdout.strip())
         except Exception:
@@ -249,12 +229,9 @@ class CleanupService:
         """Check if worktree has unpushed commits."""
         try:
             import subprocess
+
             result = subprocess.run(
-                ["git", "log", "@{u}..", "--oneline"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                timeout=10
+                ["git", "log", "@{u}..", "--oneline"], cwd=worktree_path, capture_output=True, text=True, timeout=10
             )
             return bool(result.stdout.strip())
         except Exception:
@@ -264,12 +241,9 @@ class CleanupService:
         """Get the date of the last commit in the worktree."""
         try:
             import subprocess
+
             result = subprocess.run(
-                ["git", "log", "-1", "--format=%ci"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["git", "log", "-1", "--format=%ci"], cwd=worktree_path, capture_output=True, text=True, timeout=5
             )
 
             if result.stdout.strip():
@@ -296,11 +270,7 @@ class CleanupService:
         return False, ""
 
     def cleanup(
-        self,
-        worktree_paths: list[str],
-        dry_run: bool = True,
-        threshold_days: int | None = None,
-        force: bool = False
+        self, worktree_paths: list[str], dry_run: bool = True, threshold_days: int | None = None, force: bool = False
     ) -> CleanupReport:
         """
         Clean up stale worktrees.
@@ -324,7 +294,7 @@ class CleanupService:
             worktrees_scanned=len(worktree_paths),
             stale_worktrees_found=len(stale_worktrees),
             worktrees_cleaned=0,
-            worktrees_skipped=0
+            worktrees_skipped=0,
         )
 
         for stats in stale_worktrees:
@@ -354,10 +324,7 @@ class CleanupService:
         import subprocess
 
         result = subprocess.run(
-            ["git", "worktree", "remove", "--force", worktree_path],
-            capture_output=True,
-            text=True,
-            timeout=30
+            ["git", "worktree", "remove", "--force", worktree_path], capture_output=True, text=True, timeout=30
         )
 
         if result.returncode != 0:

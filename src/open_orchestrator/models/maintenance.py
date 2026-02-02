@@ -43,22 +43,10 @@ class WorktreeUsageStats(BaseModel):
     created_at: datetime = Field(..., description="When the worktree was created")
     last_accessed: datetime = Field(..., description="Last access timestamp")
     access_count: int = Field(default=0, ge=0, description="Number of times accessed")
-    last_commit_date: datetime | None = Field(
-        default=None,
-        description="Date of the most recent commit"
-    )
-    has_uncommitted_changes: bool = Field(
-        default=False,
-        description="Whether worktree has uncommitted changes"
-    )
-    has_unpushed_commits: bool = Field(
-        default=False,
-        description="Whether worktree has commits not pushed to remote"
-    )
-    status: WorktreeStatus = Field(
-        default=WorktreeStatus.UNKNOWN,
-        description="Current status of the worktree"
-    )
+    last_commit_date: datetime | None = Field(default=None, description="Date of the most recent commit")
+    has_uncommitted_changes: bool = Field(default=False, description="Whether worktree has uncommitted changes")
+    has_unpushed_commits: bool = Field(default=False, description="Whether worktree has commits not pushed to remote")
+    status: WorktreeStatus = Field(default=WorktreeStatus.UNKNOWN, description="Current status of the worktree")
 
 
 class CleanupReport(BaseModel):
@@ -66,43 +54,14 @@ class CleanupReport(BaseModel):
 
     timestamp: datetime = Field(..., description="When the cleanup was performed")
     dry_run: bool = Field(..., description="Whether this was a dry run")
-    stale_threshold_days: int = Field(
-        ...,
-        ge=1,
-        description="Number of days after which a worktree is considered stale"
-    )
-    worktrees_scanned: int = Field(
-        default=0,
-        ge=0,
-        description="Total worktrees scanned"
-    )
-    stale_worktrees_found: int = Field(
-        default=0,
-        ge=0,
-        description="Number of stale worktrees found"
-    )
-    worktrees_cleaned: int = Field(
-        default=0,
-        ge=0,
-        description="Number of worktrees cleaned up"
-    )
-    worktrees_skipped: int = Field(
-        default=0,
-        ge=0,
-        description="Number of worktrees skipped due to protection"
-    )
-    errors: list[str] = Field(
-        default_factory=list,
-        description="List of errors encountered during cleanup"
-    )
-    cleaned_paths: list[str] = Field(
-        default_factory=list,
-        description="Paths of worktrees that were cleaned"
-    )
-    skipped_paths: list[str] = Field(
-        default_factory=list,
-        description="Paths of worktrees that were skipped with reasons"
-    )
+    stale_threshold_days: int = Field(..., ge=1, description="Number of days after which a worktree is considered stale")
+    worktrees_scanned: int = Field(default=0, ge=0, description="Total worktrees scanned")
+    stale_worktrees_found: int = Field(default=0, ge=0, description="Number of stale worktrees found")
+    worktrees_cleaned: int = Field(default=0, ge=0, description="Number of worktrees cleaned up")
+    worktrees_skipped: int = Field(default=0, ge=0, description="Number of worktrees skipped due to protection")
+    errors: list[str] = Field(default_factory=list, description="List of errors encountered during cleanup")
+    cleaned_paths: list[str] = Field(default_factory=list, description="Paths of worktrees that were cleaned")
+    skipped_paths: list[str] = Field(default_factory=list, description="Paths of worktrees that were skipped with reasons")
 
 
 class WorktreeSyncResult(BaseModel):
@@ -114,60 +73,22 @@ class WorktreeSyncResult(BaseModel):
     branch_name: str = Field(..., description="Current branch name")
     status: SyncStatus = Field(..., description="Result status of the sync")
     message: str = Field(..., description="Human-readable status message")
-    commits_pulled: int = Field(
-        default=0,
-        ge=0,
-        description="Number of commits pulled from upstream"
-    )
-    commits_behind: int = Field(
-        default=0,
-        ge=0,
-        description="Number of commits behind upstream before sync"
-    )
-    commits_ahead: int = Field(
-        default=0,
-        ge=0,
-        description="Number of commits ahead of upstream"
-    )
-    upstream_branch: str | None = Field(
-        default=None,
-        description="Name of the upstream branch"
-    )
+    commits_pulled: int = Field(default=0, ge=0, description="Number of commits pulled from upstream")
+    commits_behind: int = Field(default=0, ge=0, description="Number of commits behind upstream before sync")
+    commits_ahead: int = Field(default=0, ge=0, description="Number of commits ahead of upstream")
+    upstream_branch: str | None = Field(default=None, description="Name of the upstream branch")
 
 
 class SyncReport(BaseModel):
     """Report generated after sync operation."""
 
     timestamp: datetime = Field(..., description="When the sync was performed")
-    worktrees_synced: int = Field(
-        default=0,
-        ge=0,
-        description="Total number of worktrees processed"
-    )
-    successful: int = Field(
-        default=0,
-        ge=0,
-        description="Number of successful syncs"
-    )
-    failed: int = Field(
-        default=0,
-        ge=0,
-        description="Number of failed syncs"
-    )
-    up_to_date: int = Field(
-        default=0,
-        ge=0,
-        description="Number of worktrees already up to date"
-    )
-    with_conflicts: int = Field(
-        default=0,
-        ge=0,
-        description="Number of syncs with merge conflicts"
-    )
-    results: list[WorktreeSyncResult] = Field(
-        default_factory=list,
-        description="Individual results for each worktree"
-    )
+    worktrees_synced: int = Field(default=0, ge=0, description="Total number of worktrees processed")
+    successful: int = Field(default=0, ge=0, description="Number of successful syncs")
+    failed: int = Field(default=0, ge=0, description="Number of failed syncs")
+    up_to_date: int = Field(default=0, ge=0, description="Number of worktrees already up to date")
+    with_conflicts: int = Field(default=0, ge=0, description="Number of syncs with merge conflicts")
+    results: list[WorktreeSyncResult] = Field(default_factory=list, description="Individual results for each worktree")
 
 
 class UsageStatsSummary(BaseModel):

@@ -1,0 +1,52 @@
+services:
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    image: open-orchestrator-test:latest
+    container_name: open-orchestrator-test
+    volumes:
+      # Mount project directory for live code changes during testing
+      - .:/workspace:rw
+      # Mount git config for git operations in tests
+      - ~/.gitconfig:/root/.gitconfig:ro
+    working_dir: /workspace
+    environment:
+      # Python settings
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # GitHub token for PR tests (can be mocked)
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-mock-token-for-testing}
+      # Test environment flag
+      - TESTING=1
+    command: >
+      sh -c "
+        echo 'Running test suite with coverage...' &&
+        pytest -v --cov=src/open_orchestrator --cov-report=term-missing --cov-report=html --cov-report=xml &&
+        echo 'Test execution complete!' &&
+        echo 'Coverage report generated in htmlcov/'
+      "
+    # Keep container running for debugging if tests fail
+    tty: true
+    stdin_open: true
+
+  # Optional service for running specific test files or markers
+  test-interactive:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    image: open-orchestrator-test:latest
+    container_name: open-orchestrator-test-interactive
+    volumes:
+      - .:/workspace:rw
+      - ~/.gitconfig:/root/.gitconfig:ro
+    working_dir: /workspace
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-mock-token-for-testing}
+      - TESTING=1
+    # Interactive shell for manual test execution
+    command: /bin/bash
+    tty: true
+    stdin_open: true

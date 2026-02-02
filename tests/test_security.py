@@ -3,14 +3,13 @@
 Tests input validation, command redaction, file permissions, and subprocess safety.
 """
 
-import os
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from open_orchestrator.core.worktree import WorktreeError, WorktreeManager
 from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.worktree import WorktreeError, WorktreeManager
 from open_orchestrator.utils.io import atomic_write_text
 
 
@@ -133,7 +132,11 @@ class TestCommandRedaction:
         tracker = StatusTracker()
 
         # Real-looking JWT token (not valid, just for testing)
-        command = "Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        jwt_token = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ"  # noqa: S105
+        )
+        jwt_signature = ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        command = f"Authorization: {jwt_token}{jwt_signature}"
         redacted = tracker._sanitize_command(command)
 
         assert "[JWT REDACTED]" in redacted

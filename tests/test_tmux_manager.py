@@ -36,10 +36,7 @@ class TestTmuxSessionConfig:
 
     def test_default_values(self, temp_dir: Path):
         """Test default configuration values."""
-        config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir)
-        )
+        config = TmuxSessionConfig(session_name="test-session", working_directory=str(temp_dir))
 
         assert config.session_name == "test-session"
         assert config.working_directory == str(temp_dir)
@@ -56,7 +53,7 @@ class TestTmuxSessionConfig:
             layout=TmuxLayout.QUAD,
             pane_count=4,
             auto_start_ai=False,
-            window_name="main-window"
+            window_name="main-window",
         )
 
         assert config.layout == TmuxLayout.QUAD
@@ -77,7 +74,7 @@ class TestTmuxSessionInfo:
             pane_count=2,
             created_at="2024-01-01 12:00:00",
             attached=False,
-            working_directory="/tmp/test"
+            working_directory="/tmp/test",
         )
 
         assert info.session_name == "test-session"
@@ -102,7 +99,7 @@ class TestTmuxManager:
         """Test that session prefix is correctly defined."""
         assert TmuxManager.SESSION_PREFIX == "owt"
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_session_exists_true(self, mock_server_prop):
         """Test checking if session exists when it does."""
         mock_server = MagicMock()
@@ -115,7 +112,7 @@ class TestTmuxManager:
         assert result is True
         mock_server.has_session.assert_called_once_with("test-session")
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_session_exists_false(self, mock_server_prop):
         """Test checking if session exists when it doesn't."""
         mock_server = MagicMock()
@@ -127,7 +124,7 @@ class TestTmuxManager:
 
         assert result is False
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_session_exists_exception(self, mock_server_prop):
         """Test handling libtmux exception when checking session."""
         mock_server = MagicMock()
@@ -139,7 +136,7 @@ class TestTmuxManager:
 
         assert result is False
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_already_exists(self, mock_server_prop, temp_dir: Path):
         """Test creating session when it already exists."""
         mock_server = MagicMock()
@@ -147,10 +144,7 @@ class TestTmuxManager:
         mock_server_prop.return_value = mock_server
 
         manager = TmuxManager()
-        config = TmuxSessionConfig(
-            session_name="existing-session",
-            working_directory=str(temp_dir)
-        )
+        config = TmuxSessionConfig(session_name="existing-session", working_directory=str(temp_dir))
 
         with pytest.raises(TmuxSessionExistsError) as exc_info:
             manager.create_session(config)
@@ -160,24 +154,16 @@ class TestTmuxManager:
     def test_create_session_invalid_directory(self):
         """Test creating session with non-existent directory."""
         manager = TmuxManager()
-        config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory="/nonexistent/path"
-        )
+        config = TmuxSessionConfig(session_name="test-session", working_directory="/nonexistent/path")
 
-        with patch.object(manager, 'session_exists', return_value=False):
+        with patch.object(manager, "session_exists", return_value=False):
             with pytest.raises(TmuxError) as exc_info:
                 manager.create_session(config)
 
         assert "Working directory does not exist" in str(exc_info.value)
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
-    def test_create_session_success(
-        self,
-        mock_server_prop,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
-    ):
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_create_session_success(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
         """Test successful session creation."""
         mock_server = MagicMock()
         mock_server.has_session.return_value = False
@@ -185,18 +171,14 @@ class TestTmuxManager:
         mock_server_prop.return_value = mock_server
 
         manager = TmuxManager()
-        config = TmuxSessionConfig(
-            session_name="new-session",
-            working_directory=str(temp_dir),
-            auto_start_ai=False
-        )
+        config = TmuxSessionConfig(session_name="new-session", working_directory=str(temp_dir), auto_start_ai=False)
 
         result = manager.create_session(config)
 
         assert isinstance(result, TmuxSessionInfo)
         mock_server.new_session.assert_called_once()
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_list_sessions_empty(self, mock_server_prop):
         """Test listing sessions when none exist."""
         mock_server = MagicMock()
@@ -208,7 +190,7 @@ class TestTmuxManager:
 
         assert result == []
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_list_sessions_filter_prefix(self, mock_server_prop, mock_libtmux_session):
         """Test listing sessions filters by prefix."""
         owt_session = MagicMock()
@@ -233,7 +215,7 @@ class TestTmuxManager:
         assert len(result) == 1
         assert result[0].session_name == "owt-test"
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_list_sessions_no_filter(self, mock_server_prop, mock_libtmux_session):
         """Test listing all sessions without prefix filter."""
         owt_session = MagicMock()
@@ -262,7 +244,7 @@ class TestTmuxManager:
         """Test attaching to non-existent session."""
         manager = TmuxManager()
 
-        with patch.object(manager, 'session_exists', return_value=False):
+        with patch.object(manager, "session_exists", return_value=False):
             with pytest.raises(TmuxSessionNotFoundError) as exc_info:
                 manager.attach("nonexistent")
 
@@ -273,15 +255,12 @@ class TestTmuxManager:
         """Test successful session attachment."""
         manager = TmuxManager()
 
-        with patch.object(manager, 'session_exists', return_value=True):
+        with patch.object(manager, "session_exists", return_value=True):
             manager.attach("test-session")
 
-        mock_run.assert_called_once_with(
-            ["tmux", "attach-session", "-t", "test-session"],
-            check=True
-        )
+        mock_run.assert_called_once_with(["tmux", "attach-session", "-t", "test-session"], check=True)
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_kill_session_not_found(self, mock_server_prop):
         """Test killing non-existent session."""
         mock_server = MagicMock()
@@ -293,7 +272,7 @@ class TestTmuxManager:
         with pytest.raises(TmuxSessionNotFoundError):
             manager.kill_session("nonexistent")
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_kill_session_success(self, mock_server_prop, mock_libtmux_session):
         """Test successful session killing."""
         mock_server = MagicMock()
@@ -350,13 +329,8 @@ class TestTmuxManager:
 
         assert result is None
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
-    def test_create_worktree_session(
-        self,
-        mock_server_prop,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
-    ):
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_create_worktree_session(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
         """Test creating session for worktree."""
         mock_server = MagicMock()
         mock_server.has_session.return_value = False
@@ -369,7 +343,7 @@ class TestTmuxManager:
             worktree_path=str(temp_dir),
             layout=TmuxLayout.THREE_PANE,
             pane_count=3,
-            auto_start_ai=False
+            auto_start_ai=False,
         )
 
         assert isinstance(result, TmuxSessionInfo)
@@ -379,12 +353,8 @@ class TestTmuxManager:
         assert call_kwargs["session_name"] == "owt-feature-test"
         assert call_kwargs["start_directory"] == str(temp_dir)
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
-    def test_get_session_for_worktree_found(
-        self,
-        mock_server_prop,
-        mock_libtmux_session: MagicMock
-    ):
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_get_session_for_worktree_found(self, mock_server_prop, mock_libtmux_session: MagicMock):
         """Test finding existing session for worktree."""
         mock_libtmux_session.name = "owt-feature-test"
 
@@ -402,7 +372,7 @@ class TestTmuxManager:
         assert result is not None
         assert result.session_name == "owt-feature-test"
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_get_session_for_worktree_not_found(self, mock_server_prop):
         """Test finding session for worktree when it doesn't exist."""
         mock_server = MagicMock()
@@ -414,7 +384,7 @@ class TestTmuxManager:
 
         assert result is None
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_send_keys_to_pane(self, mock_server_prop, mock_libtmux_session):
         """Test sending keys to a pane."""
         mock_server = MagicMock()
@@ -428,12 +398,9 @@ class TestTmuxManager:
         manager = TmuxManager()
         manager.send_keys_to_pane("test-session", "echo hello")
 
-        mock_libtmux_session.windows[0].panes[0].send_keys.assert_called_once_with(
-            "echo hello",
-            enter=True
-        )
+        mock_libtmux_session.windows[0].panes[0].send_keys.assert_called_once_with("echo hello", enter=True)
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_send_keys_session_not_found(self, mock_server_prop):
         """Test sending keys to non-existent session."""
         mock_server = MagicMock()
@@ -449,13 +416,8 @@ class TestTmuxManager:
 class TestTmuxLayoutSetup:
     """Tests for tmux layout setup methods."""
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
-    def test_setup_main_vertical_layout(
-        self,
-        mock_server_prop,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
-    ):
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_setup_main_vertical_layout(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
         """Test main-vertical layout setup."""
         mock_server = MagicMock()
         mock_server.has_session.return_value = False
@@ -468,7 +430,7 @@ class TestTmuxLayoutSetup:
             working_directory=str(temp_dir),
             layout=TmuxLayout.MAIN_VERTICAL,
             pane_count=2,
-            auto_start_ai=False
+            auto_start_ai=False,
         )
 
         manager.create_session(config)
@@ -476,13 +438,8 @@ class TestTmuxLayoutSetup:
         window = mock_libtmux_session.active_window
         window.select_layout.assert_called_with("main-vertical")
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
-    def test_setup_three_pane_layout(
-        self,
-        mock_server_prop,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
-    ):
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_setup_three_pane_layout(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
         """Test three-pane layout setup."""
         # The bottom pane (accessed via window.panes[-1]) will have split_window called
         mock_bottom_pane = MagicMock()
@@ -500,10 +457,7 @@ class TestTmuxLayoutSetup:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir),
-            layout=TmuxLayout.THREE_PANE,
-            auto_start_ai=False
+            session_name="test-session", working_directory=str(temp_dir), layout=TmuxLayout.THREE_PANE, auto_start_ai=False
         )
 
         manager.create_session(config)
@@ -515,13 +469,8 @@ class TestTmuxLayoutSetup:
         assert window.split.call_count == 1
         assert mock_bottom_pane.split.call_count == 1
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
-    def test_setup_quad_layout(
-        self,
-        mock_server_prop,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
-    ):
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_setup_quad_layout(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
         """Test quad layout setup."""
         mock_panes = [MagicMock() for _ in range(4)]
         mock_libtmux_session.active_window.panes = mock_panes
@@ -533,10 +482,7 @@ class TestTmuxLayoutSetup:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir),
-            layout=TmuxLayout.QUAD,
-            auto_start_ai=False
+            session_name="test-session", working_directory=str(temp_dir), layout=TmuxLayout.QUAD, auto_start_ai=False
         )
 
         manager.create_session(config)
@@ -562,40 +508,24 @@ class TestAIToolSupport:
 
     def test_session_config_default_ai_tool(self, temp_dir: Path):
         """Test default AI tool is Claude."""
-        config = TmuxSessionConfig(
-            session_name="test",
-            working_directory=str(temp_dir)
-        )
+        config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir))
         assert config.ai_tool == AITool.CLAUDE
 
     def test_session_config_custom_ai_tool(self, temp_dir: Path):
         """Test setting custom AI tool."""
-        config = TmuxSessionConfig(
-            session_name="test",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.OPENCODE
-        )
+        config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE)
         assert config.ai_tool == AITool.OPENCODE
 
     def test_session_config_droid_tool(self, temp_dir: Path):
         """Test setting Droid as AI tool."""
-        config = TmuxSessionConfig(
-            session_name="test",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.DROID
-        )
+        config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir), ai_tool=AITool.DROID)
         assert config.ai_tool == AITool.DROID
 
-    @patch.object(AITool, 'get_executable_path', return_value='opencode')
-    @patch.object(AITool, 'is_installed', return_value=True)
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(AITool, "get_executable_path", return_value="opencode")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_start_ai_tool_opencode(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        mock_get_path,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, mock_get_path, temp_dir: Path, mock_libtmux_session: MagicMock
     ):
         """Test starting OpenCode instead of Claude."""
         mock_server = MagicMock()
@@ -605,30 +535,19 @@ class TestAIToolSupport:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.OPENCODE,
-            auto_start_ai=True
+            session_name="test-session", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE, auto_start_ai=True
         )
 
         manager.create_session(config)
 
         # Verify opencode command was sent
-        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with(
-            "opencode",
-            enter=True
-        )
+        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with("opencode", enter=True)
 
-    @patch.object(AITool, 'get_executable_path', return_value='droid')
-    @patch.object(AITool, 'is_installed', return_value=True)
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(AITool, "get_executable_path", return_value="droid")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_start_ai_tool_droid(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        mock_get_path,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, mock_get_path, temp_dir: Path, mock_libtmux_session: MagicMock
     ):
         """Test starting Droid instead of Claude."""
         mock_server = MagicMock()
@@ -638,27 +557,16 @@ class TestAIToolSupport:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.DROID,
-            auto_start_ai=True
+            session_name="test-session", working_directory=str(temp_dir), ai_tool=AITool.DROID, auto_start_ai=True
         )
 
         manager.create_session(config)
 
         # Verify droid command was sent
-        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with(
-            "droid",
-            enter=True
-        )
+        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with("droid", enter=True)
 
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
-    def test_no_ai_tool_when_disabled(
-        self,
-        mock_server_prop,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
-    ):
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_no_ai_tool_when_disabled(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
         """Test no AI tool is started when auto_start_ai is False."""
         mock_server = MagicMock()
         mock_server.has_session.return_value = False
@@ -667,10 +575,7 @@ class TestAIToolSupport:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.OPENCODE,
-            auto_start_ai=False
+            session_name="test-session", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE, auto_start_ai=False
         )
 
         manager.create_session(config)
@@ -678,16 +583,11 @@ class TestAIToolSupport:
         # Verify no command was sent to the pane
         mock_libtmux_session.active_window.active_pane.send_keys.assert_not_called()
 
-    @patch.object(AITool, 'get_executable_path', return_value='opencode')
-    @patch.object(AITool, 'is_installed', return_value=True)
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(AITool, "get_executable_path", return_value="opencode")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_worktree_session_with_ai_tool(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        mock_get_path,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, mock_get_path, temp_dir: Path, mock_libtmux_session: MagicMock
     ):
         """Test creating worktree session with custom AI tool."""
         mock_server = MagicMock()
@@ -697,26 +597,20 @@ class TestAIToolSupport:
 
         manager = TmuxManager()
         result = manager.create_worktree_session(
-            worktree_name="feature-test",
-            worktree_path=str(temp_dir),
-            ai_tool=AITool.OPENCODE,
-            auto_start_ai=True
+            worktree_name="feature-test", worktree_path=str(temp_dir), ai_tool=AITool.OPENCODE, auto_start_ai=True
         )
 
         assert isinstance(result, TmuxSessionInfo)
-        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with(
-            "opencode",
-            enter=True
-        )
+        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with("opencode", enter=True)
 
-    @patch.object(AITool, 'get_known_paths', return_value=[])
-    @patch('shutil.which', return_value=None)
+    @patch.object(AITool, "get_known_paths", return_value=[])
+    @patch("shutil.which", return_value=None)
     def test_ai_tool_not_installed(self, mock_which, mock_known_paths):
         """Test is_installed returns False when tool is not found."""
         assert AITool.is_installed(AITool.OPENCODE) is False
         mock_which.assert_called_with("opencode")
 
-    @patch('shutil.which', return_value='/usr/local/bin/claude')
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
     def test_ai_tool_installed(self, mock_which):
         """Test is_installed returns True when tool is found in PATH."""
         assert AITool.is_installed(AITool.CLAUDE) is True
@@ -767,11 +661,7 @@ class TestDroidAutoLevel:
         """Test Droid command with all options combined."""
         from open_orchestrator.config import DroidAutoLevel
 
-        cmd = AITool.get_command(
-            AITool.DROID,
-            droid_auto=DroidAutoLevel.HIGH,
-            droid_skip_permissions=True
-        )
+        cmd = AITool.get_command(AITool.DROID, droid_auto=DroidAutoLevel.HIGH, droid_skip_permissions=True)
         assert "droid" in cmd
         assert "--auto high" in cmd
         assert "--skip-permissions-unsafe" in cmd
@@ -785,21 +675,17 @@ class TestDroidAutoLevel:
             working_directory=str(temp_dir),
             ai_tool=AITool.DROID,
             droid_auto=DroidAutoLevel.MEDIUM,
-            droid_skip_permissions=True
+            droid_skip_permissions=True,
         )
 
         assert config.ai_tool == AITool.DROID
         assert config.droid_auto == DroidAutoLevel.MEDIUM
         assert config.droid_skip_permissions is True
 
-    @patch.object(AITool, 'is_installed', return_value=True)
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_with_droid_auto(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, temp_dir: Path, mock_libtmux_session: MagicMock
     ):
         """Test creating session with Droid auto level."""
         from open_orchestrator.config import DroidAutoLevel
@@ -815,7 +701,7 @@ class TestDroidAutoLevel:
             working_directory=str(temp_dir),
             ai_tool=AITool.DROID,
             droid_auto=DroidAutoLevel.HIGH,
-            auto_start_ai=True
+            auto_start_ai=True,
         )
 
         manager.create_session(config)
@@ -845,23 +731,16 @@ class TestOpenCodeConfig:
     def test_session_config_opencode_options(self, temp_dir: Path):
         """Test session config with OpenCode-specific options."""
         config = TmuxSessionConfig(
-            session_name="test",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.OPENCODE,
-            opencode_config="/custom/config.json"
+            session_name="test", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE, opencode_config="/custom/config.json"
         )
 
         assert config.ai_tool == AITool.OPENCODE
         assert config.opencode_config == "/custom/config.json"
 
-    @patch.object(AITool, 'is_installed', return_value=True)
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_with_opencode_config(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, temp_dir: Path, mock_libtmux_session: MagicMock
     ):
         """Test creating session with OpenCode config path."""
         mock_server = MagicMock()
@@ -875,7 +754,7 @@ class TestOpenCodeConfig:
             working_directory=str(temp_dir),
             ai_tool=AITool.OPENCODE,
             opencode_config="/my/config.json",
-            auto_start_ai=True
+            auto_start_ai=True,
         )
 
         manager.create_session(config)
@@ -890,14 +769,10 @@ class TestOpenCodeConfig:
 class TestToolInstallationCheck:
     """Tests for AI tool installation checking."""
 
-    @patch.object(AITool, 'is_installed', return_value=False)
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(AITool, "is_installed", return_value=False)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_fails_when_tool_not_installed(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, temp_dir: Path, mock_libtmux_session: MagicMock
     ):
         """Test session creation fails when AI tool is not installed."""
         mock_server = MagicMock()
@@ -907,10 +782,7 @@ class TestToolInstallationCheck:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.OPENCODE,
-            auto_start_ai=True
+            session_name="test-session", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE, auto_start_ai=True
         )
 
         with pytest.raises(TmuxError) as exc_info:
@@ -918,14 +790,10 @@ class TestToolInstallationCheck:
 
         assert "not installed" in str(exc_info.value)
 
-    @patch.object(AITool, 'is_installed', return_value=False)
-    @patch.object(TmuxManager, 'server', new_callable=PropertyMock)
+    @patch.object(AITool, "is_installed", return_value=False)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_skips_check_when_disabled(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, temp_dir: Path, mock_libtmux_session: MagicMock
     ):
         """Test session creation skips tool check when auto_start_ai is False."""
         mock_server = MagicMock()
@@ -938,7 +806,7 @@ class TestToolInstallationCheck:
             session_name="test-session",
             working_directory=str(temp_dir),
             ai_tool=AITool.OPENCODE,
-            auto_start_ai=False  # Tool not started, so no check needed
+            auto_start_ai=False,  # Tool not started, so no check needed
         )
 
         # Should not raise an error

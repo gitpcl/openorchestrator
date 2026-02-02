@@ -92,7 +92,7 @@ class SyncService:
                 worktree_path=worktree_path,
                 branch_name="unknown",
                 status=SyncStatus.ERROR,
-                message=f"Worktree path does not exist: {worktree_path}"
+                message=f"Worktree path does not exist: {worktree_path}",
             )
 
         branch_name = self._get_current_branch(path)
@@ -103,7 +103,7 @@ class SyncService:
                 worktree_path=worktree_path,
                 branch_name=branch_name,
                 status=SyncStatus.NO_UPSTREAM,
-                message="No upstream branch configured"
+                message="No upstream branch configured",
             )
 
         if self._has_uncommitted_changes(path) and not self.config.auto_stash:
@@ -112,7 +112,7 @@ class SyncService:
                 branch_name=branch_name,
                 status=SyncStatus.UNCOMMITTED_CHANGES,
                 message="Uncommitted changes present and auto_stash is disabled",
-                upstream_branch=upstream
+                upstream_branch=upstream,
             )
 
         try:
@@ -138,7 +138,7 @@ class SyncService:
                         message=f"Local branch is ahead by {commits_ahead} commits. Push to sync.",
                         commits_behind=0,
                         commits_ahead=commits_ahead,
-                        upstream_branch=upstream
+                        upstream_branch=upstream,
                     )
 
                 return WorktreeSyncResult(
@@ -148,7 +148,7 @@ class SyncService:
                     message="Already up to date",
                     commits_behind=0,
                     commits_ahead=commits_ahead,
-                    upstream_branch=upstream
+                    upstream_branch=upstream,
                 )
 
             pull_result = self._pull_changes(path)
@@ -164,7 +164,7 @@ class SyncService:
                         message=f"Pulled {commits_behind} commits but stash pop failed: {stash_result.stderr}",
                         commits_pulled=commits_behind,
                         commits_ahead=commits_ahead,
-                        upstream_branch=upstream
+                        upstream_branch=upstream,
                     )
 
             if pull_result.returncode != 0:
@@ -175,7 +175,7 @@ class SyncService:
                     message=f"Merge conflicts detected: {pull_result.stderr}",
                     commits_behind=commits_behind,
                     commits_ahead=commits_ahead,
-                    upstream_branch=upstream
+                    upstream_branch=upstream,
                 )
 
             return WorktreeSyncResult(
@@ -185,7 +185,7 @@ class SyncService:
                 message=f"Successfully pulled {commits_behind} commits",
                 commits_pulled=commits_behind,
                 commits_ahead=commits_ahead,
-                upstream_branch=upstream
+                upstream_branch=upstream,
             )
 
         except Exception as e:
@@ -194,7 +194,7 @@ class SyncService:
                 branch_name=branch_name,
                 status=SyncStatus.ERROR,
                 message=f"Sync failed: {str(e)}",
-                upstream_branch=upstream
+                upstream_branch=upstream,
             )
 
     def sync_all(self, worktree_paths: list[str]) -> SyncReport:
@@ -208,12 +208,7 @@ class SyncService:
             SyncReport with aggregate results
         """
         report = SyncReport(
-            timestamp=datetime.now(),
-            worktrees_synced=len(worktree_paths),
-            successful=0,
-            failed=0,
-            up_to_date=0,
-            with_conflicts=0
+            timestamp=datetime.now(), worktrees_synced=len(worktree_paths), successful=0, failed=0, up_to_date=0, with_conflicts=0
         )
 
         for path in worktree_paths:
@@ -248,7 +243,7 @@ class SyncService:
                 worktree_path=worktree_path,
                 branch_name="unknown",
                 status=SyncStatus.ERROR,
-                message=f"Worktree path does not exist: {worktree_path}"
+                message=f"Worktree path does not exist: {worktree_path}",
             )
 
         branch_name = self._get_current_branch(path)
@@ -259,7 +254,7 @@ class SyncService:
                 worktree_path=worktree_path,
                 branch_name=branch_name,
                 status=SyncStatus.NO_UPSTREAM,
-                message="No upstream branch configured"
+                message="No upstream branch configured",
             )
 
         try:
@@ -283,7 +278,7 @@ class SyncService:
                 message=message,
                 commits_behind=commits_behind,
                 commits_ahead=commits_ahead,
-                upstream_branch=upstream
+                upstream_branch=upstream,
             )
 
         except Exception as e:
@@ -292,15 +287,10 @@ class SyncService:
                 branch_name=branch_name,
                 status=SyncStatus.ERROR,
                 message=f"Failed to get status: {str(e)}",
-                upstream_branch=upstream
+                upstream_branch=upstream,
             )
 
-    def setup_upstream(
-        self,
-        worktree_path: str,
-        remote: str = "origin",
-        branch: str | None = None
-    ) -> bool:
+    def setup_upstream(self, worktree_path: str, remote: str = "origin", branch: str | None = None) -> bool:
         """
         Setup upstream tracking for a worktree.
 
@@ -320,25 +310,14 @@ class SyncService:
         if branch is None:
             branch = self._get_current_branch(path)
 
-        result = self._run_git_command(
-            path,
-            ["branch", "--set-upstream-to", f"{remote}/{branch}"]
-        )
+        result = self._run_git_command(path, ["branch", "--set-upstream-to", f"{remote}/{branch}"])
 
         return result.returncode == 0
 
-    def _run_git_command(
-        self,
-        worktree_path: Path,
-        args: list[str]
-    ) -> CompletedProcess[str]:
+    def _run_git_command(self, worktree_path: Path, args: list[str]) -> CompletedProcess[str]:
         """Run a git command in the worktree directory."""
         return subprocess.run(
-            ["git"] + args,
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            timeout=self.config.timeout_seconds
+            ["git"] + args, cwd=worktree_path, capture_output=True, text=True, timeout=self.config.timeout_seconds
         )
 
     def _get_current_branch(self, worktree_path: Path) -> str:
@@ -348,10 +327,7 @@ class SyncService:
 
     def _get_upstream_branch(self, worktree_path: Path) -> str | None:
         """Get the upstream branch for the current branch."""
-        result = self._run_git_command(
-            worktree_path,
-            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]
-        )
+        result = self._run_git_command(worktree_path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
 
         if result.returncode == 0:
             return result.stdout.strip()
@@ -375,16 +351,9 @@ class SyncService:
 
         self._run_git_command(worktree_path, args)
 
-    def _get_commit_counts(
-        self,
-        worktree_path: Path,
-        upstream: str
-    ) -> tuple[int, int]:
+    def _get_commit_counts(self, worktree_path: Path, upstream: str) -> tuple[int, int]:
         """Get the number of commits behind and ahead of upstream."""
-        result = self._run_git_command(
-            worktree_path,
-            ["rev-list", "--left-right", "--count", f"{upstream}...HEAD"]
-        )
+        result = self._run_git_command(worktree_path, ["rev-list", "--left-right", "--count", f"{upstream}...HEAD"])
 
         if result.returncode != 0:
             return 0, 0

@@ -36,11 +36,7 @@ class TestCleanupConfig:
         assert config.stats_file_path is None
 
     def test_custom_values(self):
-        config = CleanupConfig(
-            stale_threshold_days=7,
-            protect_uncommitted=False,
-            protect_unpushed=False
-        )
+        config = CleanupConfig(stale_threshold_days=7, protect_uncommitted=False, protect_unpushed=False)
 
         assert config.stale_threshold_days == 7
         assert config.protect_uncommitted is False
@@ -152,23 +148,24 @@ class TestCleanupService:
             "branch_name": "test",
             "created_at": old_date.isoformat(),
             "last_accessed": old_date.isoformat() if "old" in path else recent_date.isoformat(),
-            "access_count": 1
+            "access_count": 1,
         }
 
-        with patch.object(service, '_get_worktree_stats') as mock_stats:
-            mock_stats.side_effect = lambda path: WorktreeUsageStats(
-                worktree_path=path,
-                branch_name="test",
-                created_at=old_date,
-                last_accessed=old_date if "old" in path else recent_date,
-                access_count=1
-            ) if Path(path).exists() or True else None
-
-            with patch('pathlib.Path.exists', return_value=True):
-                stale = service.get_stale_worktrees(
-                    ["/path/old-worktree", "/path/recent-worktree"],
-                    threshold_days=14
+        with patch.object(service, "_get_worktree_stats") as mock_stats:
+            mock_stats.side_effect = (
+                lambda path: WorktreeUsageStats(
+                    worktree_path=path,
+                    branch_name="test",
+                    created_at=old_date,
+                    last_accessed=old_date if "old" in path else recent_date,
+                    access_count=1,
                 )
+                if Path(path).exists() or True
+                else None
+            )
+
+            with patch("pathlib.Path.exists", return_value=True):
+                stale = service.get_stale_worktrees(["/path/old-worktree", "/path/recent-worktree"], threshold_days=14)
 
         assert len(stale) == 1
         assert stale[0].worktree_path == "/path/old-worktree"
@@ -179,7 +176,7 @@ class TestCleanupService:
             branch_name="test",
             created_at=datetime.now(),
             last_accessed=datetime.now(),
-            has_uncommitted_changes=True
+            has_uncommitted_changes=True,
         )
 
         should_protect, reason = service.should_protect_worktree(stats)
@@ -193,7 +190,7 @@ class TestCleanupService:
             branch_name="test",
             created_at=datetime.now(),
             last_accessed=datetime.now(),
-            has_unpushed_commits=True
+            has_unpushed_commits=True,
         )
 
         should_protect, reason = service.should_protect_worktree(stats)
@@ -208,7 +205,7 @@ class TestCleanupService:
             created_at=datetime.now(),
             last_accessed=datetime.now(),
             has_uncommitted_changes=False,
-            has_unpushed_commits=False
+            has_unpushed_commits=False,
         )
 
         should_protect, reason = service.should_protect_worktree(stats)
@@ -219,7 +216,7 @@ class TestCleanupService:
     def test_cleanup_dry_run_does_not_delete(self, service, mock_tracker):
         old_date = datetime.now() - timedelta(days=20)
 
-        with patch.object(service, 'get_stale_worktrees') as mock_stale:
+        with patch.object(service, "get_stale_worktrees") as mock_stale:
             mock_stale.return_value = [
                 WorktreeUsageStats(
                     worktree_path="/path/stale-worktree",
@@ -227,11 +224,11 @@ class TestCleanupService:
                     created_at=old_date,
                     last_accessed=old_date,
                     has_uncommitted_changes=False,
-                    has_unpushed_commits=False
+                    has_unpushed_commits=False,
                 )
             ]
 
-            with patch.object(service, '_delete_worktree') as mock_delete:
+            with patch.object(service, "_delete_worktree") as mock_delete:
                 report = service.cleanup(["/path/stale-worktree"], dry_run=True)
 
         mock_delete.assert_not_called()
@@ -242,7 +239,7 @@ class TestCleanupService:
     def test_cleanup_skips_protected_worktrees(self, service, mock_tracker):
         old_date = datetime.now() - timedelta(days=20)
 
-        with patch.object(service, 'get_stale_worktrees') as mock_stale:
+        with patch.object(service, "get_stale_worktrees") as mock_stale:
             mock_stale.return_value = [
                 WorktreeUsageStats(
                     worktree_path="/path/dirty-worktree",
@@ -250,7 +247,7 @@ class TestCleanupService:
                     created_at=old_date,
                     last_accessed=old_date,
                     has_uncommitted_changes=True,
-                    has_unpushed_commits=False
+                    has_unpushed_commits=False,
                 )
             ]
 
@@ -262,7 +259,7 @@ class TestCleanupService:
     def test_cleanup_force_ignores_protection(self, service, mock_tracker):
         old_date = datetime.now() - timedelta(days=20)
 
-        with patch.object(service, 'get_stale_worktrees') as mock_stale:
+        with patch.object(service, "get_stale_worktrees") as mock_stale:
             mock_stale.return_value = [
                 WorktreeUsageStats(
                     worktree_path="/path/dirty-worktree",
@@ -270,21 +267,17 @@ class TestCleanupService:
                     created_at=old_date,
                     last_accessed=old_date,
                     has_uncommitted_changes=True,
-                    has_unpushed_commits=False
+                    has_unpushed_commits=False,
                 )
             ]
 
-            report = service.cleanup(
-                ["/path/dirty-worktree"],
-                dry_run=True,
-                force=True
-            )
+            report = service.cleanup(["/path/dirty-worktree"], dry_run=True, force=True)
 
         assert report.worktrees_cleaned == 1
         assert report.worktrees_skipped == 0
 
     def test_cleanup_report_structure(self, service, mock_tracker):
-        with patch.object(service, 'get_stale_worktrees') as mock_stale:
+        with patch.object(service, "get_stale_worktrees") as mock_stale:
             mock_stale.return_value = []
 
             report = service.cleanup(["/path/worktree"], dry_run=True)
@@ -294,3 +287,198 @@ class TestCleanupService:
         assert report.dry_run is True
         assert report.stale_threshold_days == 14
         assert report.worktrees_scanned == 1
+
+
+class TestCleanupCLIJsonOutput:
+    """Test JSON output for 'owt cleanup --json' command."""
+
+    @pytest.fixture
+    def cli_runner(self):
+        from click.testing import CliRunner
+
+        return CliRunner()
+
+    @patch("open_orchestrator.core.cleanup.CleanupService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_cleanup_json_output_with_no_worktrees(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_cleanup_service: MagicMock,
+        cli_runner,
+    ) -> None:
+        """Test --json output when no worktrees exist."""
+        import json
+
+        from open_orchestrator.cli import main
+
+        # Arrange
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = []
+
+        # Act
+        result = cli_runner.invoke(main, ["cleanup", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "stale_worktrees" in output
+        assert output["stale_worktrees"] == []
+        assert "message" in output
+
+    @patch("open_orchestrator.core.cleanup.CleanupService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_cleanup_json_output_with_no_stale_worktrees(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_cleanup_service: MagicMock,
+        cli_runner,
+        temp_directory: Path,
+    ) -> None:
+        """Test --json output when no stale worktrees found."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        mock_worktree = WorktreeInfo(
+            path=temp_directory / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = [mock_worktree]
+
+        mock_cleanup_instance = mock_cleanup_service.return_value
+        mock_cleanup_instance.get_stale_worktrees.return_value = []
+
+        # Act
+        result = cli_runner.invoke(main, ["cleanup", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "stale_worktrees" in output
+        assert output["stale_worktrees"] == []
+        assert "threshold_days" in output
+        assert output["threshold_days"] == 14
+
+    @patch("open_orchestrator.core.cleanup.CleanupService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_cleanup_json_output_with_stale_worktrees_dry_run(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_cleanup_service: MagicMock,
+        cli_runner,
+        temp_directory: Path,
+    ) -> None:
+        """Test --json output with stale worktrees in dry-run mode."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        old_date = datetime.now() - timedelta(days=20)
+
+        mock_worktree = WorktreeInfo(
+            path=temp_directory / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = [mock_worktree]
+
+        mock_stale_stats = WorktreeUsageStats(
+            worktree_path=str(temp_directory / "test-worktree"),
+            branch_name="feature/test",
+            created_at=old_date,
+            last_accessed=old_date,
+            has_uncommitted_changes=False,
+            has_unpushed_commits=False,
+        )
+
+        mock_cleanup_instance = mock_cleanup_service.return_value
+        mock_cleanup_instance.get_stale_worktrees.return_value = [mock_stale_stats]
+
+        # Act
+        result = cli_runner.invoke(main, ["cleanup", "--json"])
+
+        # Assert
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert "stale_worktrees" in output
+        assert len(output["stale_worktrees"]) == 1
+        assert output["stale_worktrees"][0]["path"] == str(temp_directory / "test-worktree")
+        assert output["stale_worktrees"][0]["branch"] == "feature/test"
+        assert "last_accessed" in output["stale_worktrees"][0]
+        assert "has_uncommitted_changes" in output["stale_worktrees"][0]
+        assert "has_unpushed_commits" in output["stale_worktrees"][0]
+        assert output["threshold_days"] == 14
+        assert output["dry_run"] is True
+
+    @patch("open_orchestrator.core.cleanup.CleanupService")
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_cleanup_json_output_validates_parseable(
+        self,
+        mock_wt_manager: MagicMock,
+        mock_cleanup_service: MagicMock,
+        cli_runner,
+        temp_directory: Path,
+    ) -> None:
+        """Test --json output is valid JSON and parseable."""
+        import json
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.models.worktree_info import WorktreeInfo
+
+        # Arrange
+        old_date = datetime.now() - timedelta(days=20)
+
+        mock_worktree = WorktreeInfo(
+            path=temp_directory / "test-worktree",
+            branch="feature/test",
+            head_commit="abc123f",
+            is_bare=False,
+            is_detached=False,
+            is_locked=False,
+            lock_reason=None,
+            prunable=None,
+        )
+        mock_wt_instance = mock_wt_manager.return_value
+        mock_wt_instance.list_all.return_value = [mock_worktree]
+
+        mock_stale_stats = WorktreeUsageStats(
+            worktree_path=str(temp_directory / "test-worktree"),
+            branch_name="feature/test",
+            created_at=old_date,
+            last_accessed=old_date,
+            has_uncommitted_changes=True,
+            has_unpushed_commits=True,
+        )
+
+        mock_cleanup_instance = mock_cleanup_service.return_value
+        mock_cleanup_instance.get_stale_worktrees.return_value = [mock_stale_stats]
+
+        # Act
+        result = cli_runner.invoke(main, ["cleanup", "--json", "--days", "7"])
+
+        # Assert
+        assert result.exit_code == 0
+        # Should not raise json.JSONDecodeError
+        output = json.loads(result.output)
+        # Validate schema
+        assert isinstance(output, dict)
+        assert isinstance(output["stale_worktrees"], list)
+        assert isinstance(output["threshold_days"], int)
+        assert isinstance(output["dry_run"], bool)

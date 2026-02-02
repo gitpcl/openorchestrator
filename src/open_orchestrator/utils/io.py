@@ -6,6 +6,7 @@ permissions.
 
 Also provides cross-platform file locking via shared_file_lock().
 """
+
 from __future__ import annotations
 
 import logging
@@ -108,10 +109,7 @@ def atomic_write_text(path: str | Path, data: str, perms: int = 0o600) -> None:
         try:
             os.chmod(dest, perms)
         except PermissionError:
-            logger.warning(
-                f"Could not set permissions {oct(perms)} on {dest}. "
-                f"File was written but permissions may be insecure."
-            )
+            logger.warning(f"Could not set permissions {oct(perms)} on {dest}. File was written but permissions may be insecure.")
     finally:
         # Clean up temp file if replace failed
         if tmp_name is not None:

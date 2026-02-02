@@ -13,7 +13,6 @@ from open_orchestrator.config import AITool, DroidAutoLevel
 from open_orchestrator.core.environment import (
     EnvironmentSetup,
     EnvironmentSetupError,
-    sync_claude_md,
 )
 from open_orchestrator.core.project_detector import ProjectDetector
 from open_orchestrator.core.status import StatusTracker
@@ -220,8 +219,8 @@ def skill_install(symlink: bool, force: bool) -> None:
         owt skill install --force      # Overwrite existing
     """
     from open_orchestrator.core.skill_installer import (
-        SkillInstallError,
         SkillInstaller,
+        SkillInstallError,
         SkillNotFoundError,
     )
 
@@ -238,7 +237,7 @@ def skill_install(symlink: bool, force: bool) -> None:
         else:
             console.print(f"[green]✓[/green] Copied {installer.SKILL_FILE} to {target_path}")
 
-        console.print(f"[green]✓[/green] Skill installed successfully!")
+        console.print("[green]✓[/green] Skill installed successfully!")
         console.print()
         console.print("[dim]Restart Claude Code to use the skill.[/dim]")
 
@@ -262,7 +261,7 @@ def skill_uninstall(yes: bool) -> None:
         owt skill uninstall
         owt skill uninstall -y
     """
-    from open_orchestrator.core.skill_installer import SkillInstallError, SkillInstaller
+    from open_orchestrator.core.skill_installer import SkillInstaller, SkillInstallError
 
     installer = SkillInstaller()
 
@@ -281,7 +280,7 @@ def skill_uninstall(yes: bool) -> None:
         installer.uninstall()
         console.print()
         console.print(f"[green]✓[/green] Removed {installer.target_dir}/")
-        console.print(f"[green]✓[/green] Skill uninstalled successfully!")
+        console.print("[green]✓[/green] Skill uninstalled successfully!")
 
     except SkillInstallError as e:
         raise click.ClickException(str(e)) from e
@@ -494,17 +493,12 @@ def create_worktree(
 
                     if deps and project_config.package_manager:
                         console.print()
-                        with console.status(
-                            f"[bold blue]Installing dependencies "
-                            f"({project_config.package_manager.value})..."
-                        ):
+                        with console.status(f"[bold blue]Installing dependencies ({project_config.package_manager.value})..."):
                             try:
                                 env_setup.install_dependencies(str(worktree.path))
                                 console.print("[green]Dependencies installed[/green]")
                             except EnvironmentSetupError as e:
-                                console.print(
-                                    f"[yellow]Warning: Could not install dependencies: {e}[/yellow]"
-                                )
+                                console.print(f"[yellow]Warning: Could not install dependencies: {e}[/yellow]")
 
                     if env:
                         try:
@@ -970,10 +964,7 @@ def cleanup_worktrees(threshold_days: int, dry_run: bool, force: bool, yes: bool
         return
 
     if not yes and not force:
-        protected_count = sum(
-            1 for s in stale_worktrees
-            if s.has_uncommitted_changes or s.has_unpushed_commits
-        )
+        protected_count = sum(1 for s in stale_worktrees if s.has_uncommitted_changes or s.has_unpushed_commits)
         if protected_count > 0:
             console.print(f"[yellow]{protected_count} worktree(s) will be skipped (uncommitted/unpushed).[/yellow]")
 
@@ -1073,17 +1064,9 @@ def send_to_worktree(
     try:
         if no_enter:
             # Send without Enter - use raw tmux command
-            subprocess.run(
-                ["tmux", "send-keys", "-t", f"{session.session_name}:{window}.{pane}", command],
-                check=True
-            )
+            subprocess.run(["tmux", "send-keys", "-t", f"{session.session_name}:{window}.{pane}", command], check=True)
         else:
-            tmux_manager.send_keys_to_pane(
-                session_name=session.session_name,
-                keys=command,
-                pane_index=pane,
-                window_index=window
-            )
+            tmux_manager.send_keys_to_pane(session_name=session.session_name, keys=command, pane_index=pane, window_index=window)
 
         # Track the command in the status system
         wt_status = status_tracker.get_status(worktree.name)
@@ -1370,6 +1353,7 @@ def show_status(
             if wt_status:
                 wt_status.activity_status = status_map[activity_status]
                 from datetime import datetime
+
                 wt_status.updated_at = datetime.now()
                 status_tracker.set_status(wt_status)
                 console.print(f"[green]Status updated:[/green] {activity_status}")
@@ -1464,10 +1448,7 @@ def show_status(
 
         # Summary stats
         console.print("[bold]Summary:[/bold]")
-        console.print(
-            f"  Working: {summary.active_ai_sessions}  |  "
-            f"Idle: {summary.idle_ai_sessions}"
-        )
+        console.print(f"  Working: {summary.active_ai_sessions}  |  Idle: {summary.idle_ai_sessions}")
         console.print(f"  Blocked: {summary.blocked_ai_sessions}")
         console.print(f"  Total commands sent: {summary.total_commands_sent}")
 
@@ -1481,7 +1462,7 @@ def show_status(
             console.print(f"  Estimated cost: ${summary.total_estimated_cost_usd:.4f}")
 
         if summary.most_recent_activity:
-            latest = summary.most_recent_activity.strftime('%Y-%m-%d %H:%M')
+            latest = summary.most_recent_activity.strftime("%Y-%m-%d %H:%M")
             console.print(f"  Most recent activity: {latest}")
 
 
@@ -1799,7 +1780,11 @@ def show_session_info(identifier: str | None, show_all: bool, as_json: bool) -> 
 
             if session:
                 has_session = "[green]yes[/green]" if session.has_session else "[yellow]no[/yellow]"
-                session_id = session.session_id[:12] + "..." if session.session_id and len(session.session_id) > 12 else session.session_id or "[dim]-[/dim]"
+                session_id = (
+                    session.session_id[:12] + "..."
+                    if session.session_id and len(session.session_id) > 12
+                    else session.session_id or "[dim]-[/dim]"
+                )
                 copied_from = session.copied_from or "[dim]-[/dim]"
                 updated = session.updated_at.strftime("%m/%d %H:%M")
 
@@ -1888,14 +1873,16 @@ def list_hooks(as_json: bool) -> None:
 @click.option(
     "--type",
     "hook_type",
-    type=click.Choice([
-        "on_status_changed",
-        "on_task_started",
-        "on_task_completed",
-        "on_blocked",
-        "on_error",
-        "on_idle",
-    ]),
+    type=click.Choice(
+        [
+            "on_status_changed",
+            "on_task_started",
+            "on_task_completed",
+            "on_blocked",
+            "on_error",
+            "on_idle",
+        ]
+    ),
     required=True,
     help="When to trigger the hook.",
 )
@@ -2226,7 +2213,7 @@ def link_pr(identifier: str, pr_number: int | None, no_check: bool) -> None:
         console.print(f"[green]{result.message}[/green]")
         console.print(f"  URL: {result.pr_url}")
         if result.auto_detected:
-            console.print(f"  [dim](auto-detected from branch name)[/dim]")
+            console.print("  [dim](auto-detected from branch name)[/dim]")
     else:
         raise click.ClickException(result.message)
 
@@ -2638,7 +2625,7 @@ def process_stop(worktree_name: str, force: bool) -> None:
         if stopped:
             console.print(f"[green]Stopped process for {worktree_name}[/green]")
         else:
-            console.print(f"[yellow]Process was already stopped[/yellow]")
+            console.print("[yellow]Process was already stopped[/yellow]")
     except ProcessNotFoundError as e:
         raise click.ClickException(str(e)) from e
     except ProcessError as e:
