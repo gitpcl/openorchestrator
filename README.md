@@ -11,8 +11,11 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 ## Features
 
 - **Git Worktree Management**: Create, list, switch, and delete worktrees with automatic branch management
+- **Template-Based Workflows**: Pre-configured templates for common tasks (bugfix, feature, research, security-audit, etc.)
 - **tmux Integration**: Auto-create tmux sessions with customizable layouts for each worktree
 - **Multi-AI Tool Support**: Auto-launch Claude Code, OpenCode, or Droid in new sessions
+- **Health Monitoring**: Detect stuck tasks, high costs, stale worktrees with actionable recommendations
+- **Cost Optimization**: Track token usage, compare AI tool costs, get cheapest tool recommendations
 - **Project Detection**: Automatically detect project type (Python, Node.js, Rust, Go, PHP) and package manager
 - **Dependency Installation**: Auto-install dependencies when creating new worktrees
 - **Environment Setup**: Copy `.env` files and `CLAUDE.md` with path adjustments
@@ -61,6 +64,12 @@ pip install -e .
 ```bash
 # Create a worktree for a new feature branch
 owt create feature/add-login
+
+# Create a worktree from a template
+owt create bugfix/auth-error --template bugfix
+
+# Create with auto-optimized AI tool (cheapest for task complexity)
+owt create feature/refactor --auto-optimize --task "Refactor auth module"
 
 # Create a worktree from an existing branch
 owt create feature/existing-branch --no-create-branch
@@ -112,8 +121,12 @@ owt cleanup
 # Launch live dashboard
 owt dashboard
 
-# Check token usage
+# Check token usage and cost comparison
 owt tokens show
+owt cost
+
+# Check worktree health
+owt health --all
 ```
 
 ## CLI Command Reference
@@ -131,6 +144,20 @@ owt tokens show
 | `owt send <name> "cmd"` | Send a command to another worktree's Claude session |
 | `owt status [name]` | Show Claude activity status across all worktrees |
 | `owt dashboard` | Launch live TUI dashboard to monitor all worktrees |
+
+### Template Commands
+
+| Command | Description |
+|---------|-------------|
+| `owt template list` | List all available templates |
+| `owt template show <name>` | Show template details and configuration |
+
+### Health & Cost Commands
+
+| Command | Description |
+|---------|-------------|
+| `owt health [name]` | Check worktree health (stuck tasks, high costs, etc.) |
+| `owt cost [name]` | Compare AI tool costs for current token usage |
 
 ### Session & Token Commands
 
@@ -226,6 +253,9 @@ owt tokens show
 | `--env / --no-env` | Copy .env file (default: enabled) |
 | `--plan-mode` | Start Claude in plan mode (safe exploration) |
 | `--sync-claude-md / --no-sync-claude-md` | Copy CLAUDE.md files (default: enabled) |
+| `--template <name>` | Use a template (bugfix, feature, research, etc.) |
+| `--auto-optimize` | Auto-select cheapest AI tool for task complexity |
+| `--task <description>` | Task description (used with --auto-optimize) |
 
 #### `owt list`
 
@@ -356,6 +386,18 @@ skip_permissions_unsafe = false
 # OpenCode-specific configuration
 [opencode]
 config_path = "~/.config/opencode/opencode.json"
+
+# Custom templates (extends built-in templates)
+[[templates]]
+name = "my-feature"
+description = "My custom feature template"
+base_branch = "develop"
+ai_tool = "claude"
+plan_mode = true
+tmux_layout = "three-pane"
+ai_instructions = "Follow TDD approach"
+auto_commands = ["npm run test:watch"]
+tags = ["feature", "tdd"]
 ```
 
 ### Configuration Options
@@ -403,6 +445,42 @@ Available layouts:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `config_path` | `null` | Path to OpenCode configuration file |
+
+### Templates
+
+Open Orchestrator includes 8 built-in templates for common workflows:
+
+| Template | Description | Base Branch | AI Tool | Plan Mode |
+|----------|-------------|-------------|---------|-----------|
+| `bugfix` | Quick bug fixes with minimal setup | `main` | `claude-haiku` | ✗ |
+| `feature` | New feature development | `develop` | `claude` | ✓ |
+| `research` | Research and exploration tasks | `main` | `claude` | ✓ |
+| `security-audit` | Security reviews and audits | `main` | `claude-opus` | ✓ |
+| `refactor` | Code refactoring and cleanup | `develop` | `claude` | ✓ |
+| `hotfix` | Production hotfixes | `main` | `claude` | ✗ |
+| `experiment` | Experimental changes, no deps install | `develop` | `opencode` | ✓ |
+| `docs` | Documentation updates | `main` | `claude-haiku` | ✗ |
+
+Create custom templates in your `.worktreerc` file:
+
+```toml
+[[templates]]
+name = "tdd-feature"
+description = "Feature development with TDD"
+base_branch = "develop"
+ai_tool = "claude"
+plan_mode = true
+tmux_layout = "three-pane"
+ai_instructions = """
+Follow test-driven development:
+1. Write failing test
+2. Make it pass
+3. Refactor
+"""
+auto_commands = ["npm run test:watch"]
+install_deps = true
+tags = ["feature", "tdd", "testing"]
+```
 
 ## Project Detection
 
@@ -482,6 +560,15 @@ Once configured, Claude Code can use these slash commands:
 Example usage in Claude Code:
 ```
 /worktree create feature/add-authentication
+
+# Use templates
+/wt-create bugfix/auth-error --template bugfix
+
+# Check health
+What's the health status of all worktrees?
+
+# Optimize costs
+Show me cost comparison for feature/api worktree
 ```
 
 #### Context Hook (Optional)
@@ -883,6 +970,142 @@ $ owt process stop feature/api
 
 Processes are tracked via PID files and logs are saved to `~/.cache/open-orchestrator/logs/`.
 
+### Template-Based Development
+
+Use templates to standardize workflows and reduce setup time:
+
+```bash
+# List available templates
+$ owt template list
+Available Templates:
+  bugfix         - Quick bug fixes with minimal setup
+  feature        - New feature development with plan mode
+  research       - Research and exploration tasks
+  security-audit - Security reviews and audits
+  ...
+
+# Show template details
+$ owt template show bugfix
+Template: bugfix
+Description: Quick bug fixes with minimal setup
+Base Branch: main
+AI Tool: claude-haiku (cost-optimized)
+Plan Mode: No
+Auto Commands: None
+
+# Create worktree from template
+$ owt create bugfix/fix-auth-error --template bugfix
+✅ Applied template: bugfix
+✅ AI Tool: claude-haiku (optimized for quick fixes)
+✅ Base Branch: main
+✅ Created worktree: bugfix/fix-auth-error
+
+# Create with custom template from .worktreerc
+$ owt create feature/tdd-login --template tdd-feature
+✅ Applied template: tdd-feature
+✅ Auto Commands: npm run test:watch
+✅ AI Instructions loaded
+✅ Created worktree with 3-pane layout
+```
+
+**Benefits:**
+- ✅ Consistent workflows across team
+- ✅ Automatic AI tool selection (haiku for bugs, opus for security)
+- ✅ Pre-configured layouts and commands
+- ✅ Faster worktree creation
+
+### Health Monitoring
+
+Monitor worktree health and catch issues early:
+
+```bash
+# Check specific worktree health
+$ owt health feature/api
+Health Report: feature/api
+Status: ⚠️  Needs Attention
+
+Issues Found:
+  ⚠️  WARNING: High Token Usage
+      Current: 150,000 tokens ($12.75)
+      Recommendation: Consider switching to claude-sonnet
+      Savings: $10.20 (80% reduction)
+
+  ⚠️  WARNING: Stuck Task
+      Task has been "working" for 45 minutes
+      Last Activity: 45m ago
+      Recommendation: Check if AI is blocked, restart session
+
+# Check all worktrees
+$ owt health --all
+Health Summary (3 worktrees checked)
+  Healthy: 1
+  Warnings: 2
+  Critical: 0
+
+Worktrees needing attention:
+  feature/api    - High token usage, stuck task
+  feature/refactor - Idle too long (3 hours)
+
+# Filter by severity
+$ owt health --all --min-severity critical
+No critical issues found ✓
+```
+
+**Issue Types Detected:**
+- 🔴 **CRITICAL:** Stuck tasks (>30min), repeated errors, very high cost
+- ⚠️  **WARNING:** High token usage, idle too long, blocked state
+- ℹ️  **INFO:** Stale worktree, optimization suggestions
+
+### Cost Optimization
+
+Track and optimize AI tool costs:
+
+```bash
+# Compare costs for current usage
+$ owt cost feature/api
+Cost Comparison for feature/api
+Current Usage: 150,000 input / 50,000 output tokens
+
+AI Tool         Cost      vs Current    Savings
+claude-opus     $12.75    (current)     -
+claude-sonnet   $2.55     -$10.20       80% ↓
+claude-haiku    $0.10     -$12.65       99% ↓
+gpt-4o          $3.75     -$9.00        71% ↓
+gpt-4o-mini     $0.05     -$12.70       99% ↓
+
+💡 Recommendation: Switch to claude-sonnet for 80% cost savings
+   Command: owt create <branch> --ai-tool claude-sonnet
+
+# Auto-optimize AI tool selection
+$ owt create feature/simple-fix --auto-optimize --task "Fix typo in README"
+🔍 Analyzing task complexity...
+💡 Selected: claude-haiku (low complexity, $0.99/day estimated)
+✅ Created worktree with cost-optimized AI tool
+
+$ owt create feature/security --auto-optimize --task "Audit authentication flow for vulnerabilities"
+🔍 Analyzing task complexity...
+💡 Selected: claude-opus (high complexity, security keywords)
+✅ Created worktree with appropriate AI tool
+
+# Compare costs across all worktrees
+$ owt cost --all
+Total Cost Analysis (3 worktrees)
+Total Spend: $25.40
+Potential Savings: $18.60 (73%)
+
+Worktree         Current Tool    Cost     Recommended    Savings
+feature/api      claude-opus     $12.75   claude-sonnet  $10.20
+feature/docs     claude-opus     $8.45    claude-haiku   $8.35
+bugfix/typo      claude          $4.20    claude-haiku   $4.15
+```
+
+**Cost Optimization Features:**
+- ✅ Real-time cost tracking across all AI tools
+- ✅ Smart AI tool recommendations based on task complexity
+- ✅ Auto-optimization with `--auto-optimize` flag
+- ✅ Compare costs for different AI tools
+- ✅ Identify potential savings
+
 ### Benefits
 
 ✅ **Stay in Flow:** No context switching - send tasks and continue working
@@ -890,6 +1113,9 @@ Processes are tracked via PID files and logs are saved to `~/.cache/open-orchest
 ✅ **Visibility:** Always know what each AI is doing via `owt status`
 ✅ **Async Coordination:** Fire-and-forget task delegation
 ✅ **Audit Trail:** Full command history logged for each worktree
+✅ **Cost Control:** Track spending, optimize AI tool selection
+✅ **Health Monitoring:** Catch stuck tasks and issues early
+✅ **Template Workflows:** Standardize team practices
 
 ## Development
 

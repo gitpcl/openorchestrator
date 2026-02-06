@@ -1,6 +1,6 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI coding tool orchestration for parallel development. Use when: (1) Creating isolated development environments, (2) Managing multiple AI coding sessions, (3) Delegating tasks to parallel worktrees, (4) Orchestrating Claude Code/OpenCode/Droid across branches, (5) Cleaning up stale worktrees, (6) Syncing worktrees with upstream, (7) Monitoring with live dashboard, (8) Tracking token usage and costs, (9) Linking worktrees to GitHub PRs, (10) Managing status change hooks/notifications, (11) Copying/resuming Claude sessions. Triggers: worktree, parallel development, multi-branch, AI orchestration, owt commands, dashboard, token tracking, PR integration, hooks, session management, completion."
+description: "Git worktree + AI coding tool orchestration for parallel development. Use when: (1) Creating isolated development environments, (2) Using workflow templates for common patterns, (3) Managing multiple AI coding sessions, (4) Delegating tasks to parallel worktrees, (5) Orchestrating Claude Code/OpenCode/Droid across branches, (6) Monitoring worktree health and detecting issues, (7) Optimizing AI tool costs and comparing pricing, (8) Cleaning up stale worktrees, (9) Syncing worktrees with upstream, (10) Monitoring with live dashboard, (11) Tracking token usage and costs, (12) Linking worktrees to GitHub PRs, (13) Managing status change hooks/notifications, (14) Copying/resuming Claude sessions. Triggers: worktree, parallel development, multi-branch, AI orchestration, owt commands, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
@@ -13,11 +13,17 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 |---------|-------------|
 | `owt create <branch>` | Create worktree + tmux session + AI tool |
 | `owt create <branch> --plan-mode` | Create with Claude in plan mode |
+| `owt create <branch> --template <name>` | Create with workflow template |
+| `owt create <branch> --auto-optimize` | Auto-select cost-effective AI tool |
+| `owt template list` | List available workflow templates |
+| `owt template show <name>` | Show template details |
 | `owt list [--all]` | List worktrees with status |
 | `owt switch <name>` | Switch to worktree (use `--tmux` for session) |
 | `owt delete <name>` | Delete worktree and cleanup |
 | `owt send <name> "task"` | Send command to AI in another worktree |
 | `owt status [name]` | Track AI activity across worktrees |
+| `owt health [name]` | Check worktree health and detect issues |
+| `owt cost [name]` | Compare AI tool costs and show savings |
 | `owt cleanup [--dry-run]` | Remove stale worktrees |
 | `owt sync [--all]` | Sync worktrees with upstream |
 | `owt dashboard` | Live TUI monitoring of all worktrees |
@@ -41,6 +47,14 @@ owt create feature/new-auth
 
 # Create with Claude in plan mode (safe exploration)
 owt create feature/new-auth --plan-mode
+
+# Create with workflow template (pre-configured settings)
+owt create feature/new-auth --template feature
+owt create bugfix/login --template bugfix
+owt create research/options --template research
+
+# Create with cost optimization (auto-select cheap AI tool)
+owt create feature/simple-fix --template bugfix --auto-optimize
 
 # Create with specific AI tool
 owt create feature/api-refactor --tool opencode
@@ -94,7 +108,131 @@ owt status --json
 # └──────────────┴─────────┴────────────────────────────┘
 ```
 
-### 4. Switch Between Worktrees
+### 4. Workflow Templates
+
+Use pre-configured templates for common workflows:
+
+```bash
+# List all available templates
+owt template list
+
+# Filter by tags
+owt template list --tags security
+owt template list --tags development
+
+# Show template details
+owt template show bugfix
+owt template show feature
+
+# Create worktree with template
+owt create bugfix/fix-123 --template bugfix
+# ✓ Uses main as base branch
+# ✓ Uses three-pane layout
+# ✓ Runs: git log --oneline -10, git diff main
+# ✓ Sends AI: "Focus on root cause, tests first, minimal changes"
+
+owt create feature/auth --template feature
+# ✓ Uses develop as base branch
+# ✓ Starts in plan mode
+# ✓ Uses quad layout
+# ✓ Sends AI: "Plan first, TDD workflow, document as you go"
+```
+
+**Built-in Templates:**
+- `bugfix` - Quick bugfixes with minimal changes
+- `feature` - Full TDD feature development
+- `research` - Safe read-only exploration
+- `security-audit` - Security review workflow
+- `refactor` - Code refactoring with tests
+- `hotfix` - Emergency production fixes
+- `experiment` - Isolated prototyping
+- `docs` - Documentation updates
+
+### 5. Health Monitoring
+
+Check worktree health and detect issues automatically:
+
+```bash
+# Check current worktree health
+owt health
+
+# Check specific worktree
+owt health feature/api
+
+# Check all worktrees
+owt health --all
+
+# Custom thresholds
+owt health --all --stuck-threshold 60 --cost-threshold 5.0
+
+# JSON output for automation
+owt health --all --json
+```
+
+**Detected Issues:**
+- **Stuck tasks** - Same task for too long (default: 30 min)
+- **High token usage** - Possible infinite loops (> 100K tokens)
+- **High costs** - Expensive sessions (> $10 USD)
+- **Repeated errors** - Multiple failed commands
+- **Stale worktrees** - No activity for days (default: 7 days)
+- **Idle too long** - No productive work (> 24 hours)
+- **Blocked state** - AI is blocked and needs guidance
+
+**Example Output:**
+```
+✗ feature/api-refactor
+
+Critical Issues:
+  ✗ Very high token usage detected: 120,000 tokens
+    → Check for infinite loops or consider switching to a cheaper AI tool
+
+Warnings:
+  ⚠ High cost session: $15.50
+    → Consider switching to a cheaper AI tool (claude-haiku, gpt-4o-mini)
+```
+
+### 6. Cost Optimization
+
+Compare AI tool costs and find savings:
+
+```bash
+# Show cost comparison for current worktree
+owt cost
+
+# Show cost for specific worktree
+owt cost feature/api
+
+# JSON output
+owt cost --json
+
+# Create with automatic cost optimization
+owt create feature/simple --template bugfix --auto-optimize
+```
+
+**Example Output:**
+```
+Cost Analysis: feature/api
+
+Current AI tool: claude-opus
+Total tokens: 45,320
+Current cost: $4.0740
+
+Cost by AI Tool:
+  opencode             $0.0000
+  claude-haiku         $0.0680
+  gpt-4o-mini          $0.0611
+  claude-sonnet        $0.8154
+  gpt-4o               $1.3580
+→ claude-opus          $4.0740
+
+💰 Potential Savings:
+  Cheapest: claude-haiku ($0.0680)
+  Savings: $4.0060 (98.3%)
+
+  Tip: Use --auto-optimize when creating new worktrees to save costs
+```
+
+### 7. Switch Between Worktrees
 
 ```bash
 # Switch to worktree directory
@@ -424,7 +562,60 @@ owt create feature/x --tool droid --auto-level high
 
 ## Common Patterns
 
-### Pattern 1: Parallel Feature Development
+### Pattern 1: Template-Based Development
+```bash
+# Use templates for consistent workflows
+owt template list
+
+# Create bugfix with pre-configured settings
+owt create bugfix/memory-leak --template bugfix
+# Auto-runs: git log, git diff main
+# AI gets: "Focus on root cause, tests first, minimal changes"
+
+# Create feature with TDD workflow
+owt create feature/payments --template feature
+# Starts in plan mode
+# AI gets: "Plan first, implement with tests, document"
+
+# Create with cost optimization
+owt create feature/simple --template bugfix --auto-optimize
+# Auto-selects claude-haiku instead of opus (85% cheaper)
+```
+
+### Pattern 2: Health-Monitored Development
+```bash
+# Create multiple worktrees
+owt create feature/api --template feature
+owt create feature/frontend --template feature
+owt create bugfix/critical --template hotfix
+
+# Monitor health across all worktrees
+owt health --all
+
+# Check specific worktree if issues detected
+owt health feature/api
+
+# Use dashboard for real-time monitoring
+owt dashboard
+```
+
+### Pattern 3: Cost-Aware Development
+```bash
+# Check current costs
+owt cost feature/api
+
+# Create new worktrees with cost optimization
+owt create feature/docs --template docs --auto-optimize
+# Uses claude-haiku for simple documentation tasks
+
+owt create feature/complex --template feature
+# Uses claude-opus for complex features (quality over cost)
+
+# Review savings across all worktrees
+owt tokens show
+```
+
+### Pattern 4: Parallel Feature Development
 ```bash
 # Main worktree: Core feature
 owt create feature/payments
