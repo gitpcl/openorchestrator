@@ -10,6 +10,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Features
 
+- **Unified Workspace Mode**: See all worktrees in a single tmux session with split panes (like Claude Code Agent Teams)
 - **Git Worktree Management**: Create, list, switch, and delete worktrees with automatic branch management
 - **Template-Based Workflows**: Pre-configured templates for common tasks (bugfix, feature, research, security-audit, etc.)
 - **tmux Integration**: Auto-create tmux sessions with customizable layouts for each worktree
@@ -589,6 +590,195 @@ To automatically inject worktree context into Claude Code prompts, add the hook 
 ```
 
 This will show `[Worktree: name | Branch: branch]` in your prompts when working in a worktree.
+
+## Unified Workspace Mode
+
+**NEW:** Open Orchestrator now uses **unified workspace mode** by default, inspired by [Claude Code's Agent Teams](https://code.claude.com/docs/en/agent-teams). Instead of creating separate tmux sessions for each worktree, all your worktrees are visible as panes in a single tmux session.
+
+### What is Workspace Mode?
+
+Workspace mode gives you a split-pane view where you can see multiple worktrees (and their AI sessions) simultaneously in one tmux window:
+
+```
+┌──────────┬─────────────────────┐
+│          │   feature/api       │
+│          │   (Claude working)  │
+│          ├─────────────────────┤
+│   main   │   bugfix/auth       │
+│  (ready) │   (testing...)      │
+│          ├─────────────────────┤
+│          │   research/perf     │
+│          │   (analyzing...)    │
+└──────────┴─────────────────────┘
+```
+
+**Benefits:**
+- ✅ See all worktrees at once (no session switching)
+- ✅ Monitor multiple AI agents working in parallel
+- ✅ Navigate between panes with `Ctrl+b → arrow keys`
+- ✅ Main repo always visible on left for orchestration
+- ✅ Up to 3 worktrees visible simultaneously
+
+### Default Layout: main-focus
+
+The default "main-focus" layout gives you:
+- **Left 1/3**: Main repository (your orchestration center)
+- **Right 2/3**: Up to 3 worktree panes stacked horizontally
+
+Perfect for:
+- Monitoring parallel development
+- Coordinating work across branches
+- Quick context switching with keyboard navigation
+
+### Quick Start with Workspaces
+
+```bash
+# Create your first worktree (automatically creates workspace)
+$ owt create feature/api
+✅ Created workspace: owt-myproject
+✅ Added pane for feature/api
+┌──────────┬─────────────────────┐
+│   main   │   feature/api       │
+│          │                     │
+└──────────┴─────────────────────┘
+
+# Create second worktree (adds pane to workspace)
+$ owt create bugfix/login
+✅ Added pane to workspace!
+Workspace: owt-myproject
+Pane: 2
+Total: 3 / 4 panes
+
+┌──────────┬─────────────────────┐
+│          │   feature/api       │
+│   main   ├─────────────────────┤
+│          │   bugfix/login      │
+└──────────┴─────────────────────┘
+
+# Create third worktree
+$ owt create research/options
+┌──────────┬─────────────────────┐
+│          │   feature/api       │
+│          ├─────────────────────┤
+│   main   │   bugfix/login      │
+│          ├─────────────────────┤
+│          │   research/options  │
+└──────────┴─────────────────────┘
+
+# All visible! No session switching needed.
+# Navigate with: Ctrl+b → arrow keys
+```
+
+### Workspace Commands
+
+```bash
+# List all workspaces
+$ owt workspace list
+Workspaces
+┌─────────────────┬─────────────┬───────┬───────────┬──────────────────────────┐
+│ Name            │ Layout      │ Panes │ Available │ Worktrees                │
+├─────────────────┼─────────────┼───────┼───────────┼──────────────────────────┤
+│ owt-myproject   │ main-focus  │ 4 / 4 │ 0 (full)  │ feature/api, bugfix/...  │
+└─────────────────┴─────────────┴───────┴───────────┴──────────────────────────┘
+
+# Show workspace details
+$ owt workspace show owt-myproject
+owt-myproject
+Layout: main-focus
+Capacity: 4 / 4 panes
+
+Panes:
+  [0] main (orchestration center)
+  [1] feature/api (/path/to/feature-api)
+  [2] bugfix/login (/path/to/bugfix-login)
+  [3] research/options (/path/to/research-options)
+
+# Attach to workspace
+$ owt workspace attach owt-myproject
+# [Opens tmux session with all panes visible]
+
+# Destroy workspace (doesn't delete worktrees!)
+$ owt workspace destroy owt-myproject
+```
+
+### Separate Session Mode (Opt-Out)
+
+If you prefer the old behavior (separate tmux sessions), use `--separate-session`:
+
+```bash
+# Create standalone tmux session (not in workspace)
+$ owt create feature/standalone --separate-session
+✅ tmux session created!
+Session: owt-feature-standalone
+Layout: main-vertical
+Panes: 2
+
+# This creates its own session, not added to workspace
+```
+
+### Workspace Configuration
+
+Customize workspace behavior in `.worktreerc`:
+
+```toml
+[workspace]
+# Use unified workspace mode by default
+unified_mode = true
+
+# Default layout (main-focus, grid, stack, focus, tile)
+default_layout = "main-focus"
+
+# Maximum panes per workspace (1 main + N worktrees)
+max_panes = 4
+
+# Auto-balance pane sizes when adding/removing
+auto_balance = true
+
+# Focus new pane when worktree created
+focus_on_create = true
+```
+
+### Switching Between Workspaces and Separate Sessions
+
+```bash
+# Workspace mode (default)
+$ owt create feature/a    # → Adds to workspace
+$ owt create feature/b    # → Adds to workspace
+$ owt create feature/c    # → Adds to workspace
+
+# Separate session mode (opt-out)
+$ owt create feature/d --separate-session  # → Creates own session
+
+# You now have:
+# - 1 workspace (owt-myproject) with 4 panes
+# - 1 separate session (owt-feature-d)
+
+# Attach to workspace
+$ owt workspace attach owt-myproject
+
+# Or attach to separate session
+$ tmux attach -t owt-feature-d
+```
+
+### Workspace Limits
+
+Each workspace has a maximum of 4 panes (1 main + 3 worktrees) by default. When full:
+
+```bash
+$ owt create feature/fourth
+✗ Workspace 'owt-myproject' is full (4 panes).
+  Use --separate-session to create a new tmux session instead.
+
+# Solution 1: Use separate session
+$ owt create feature/fourth --separate-session
+
+# Solution 2: Delete a worktree to free space
+$ owt delete feature/api  # Removes pane from workspace
+
+# Solution 3: Create a new workspace manually
+$ owt workspace create owt-myproject-2
+$ owt create feature/fourth  # Will use new workspace
+```
 
 ## Orchestration Workflow
 

@@ -24,6 +24,12 @@ from open_orchestrator.core.tmux_manager import (
     TmuxManager,
     TmuxSessionExistsError,
 )
+from open_orchestrator.core.workspace import (
+    WorkspaceError,
+    WorkspaceFullError,
+    WorkspaceManager,
+    WorkspaceNotFoundError,
+)
 from open_orchestrator.core.worktree import (
     NotAGitRepositoryError,
     WorktreeAlreadyExistsError,
@@ -31,6 +37,7 @@ from open_orchestrator.core.worktree import (
     WorktreeManager,
     WorktreeNotFoundError,
 )
+from open_orchestrator.models.workspace import WorkspaceLayout
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 from open_orchestrator.models.worktree_info import WorktreeInfo
 
@@ -444,6 +451,156 @@ def template_show(name: str) -> None:
     console.print(f"\n[dim]Usage: owt create <branch> --template {name}[/dim]")
 
 
+@main.group("workspace")
+def workspace_group() -> None:
+    """Manage unified workspaces for multi-pane development.
+
+    Workspaces allow you to see multiple worktrees in a single tmux session
+    with split panes, similar to Claude Code Agent Teams.
+    """
+
+
+@workspace_group.command("list")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+def workspace_list(output_json: bool) -> None:
+    """List all workspaces."""
+    workspace_manager = WorkspaceManager()
+    workspaces = workspace_manager.list_workspaces()
+
+    if output_json:
+        import json
+
+        data = [
+            {
+                "name": ws.name,
+                "layout": ws.layout.value,
+                "panes": len(ws.panes),
+                "max_panes": ws.max_panes,
+                "available": ws.available_panes,
+                "worktrees": [p.worktree_name for p in ws.panes if p.worktree_name],
+            }
+            for ws in workspaces
+        ]
+        console.print(json.dumps(data, indent=2))
+        return
+
+    if not workspaces:
+        console.print("[dim]No workspaces found.[/dim]")
+        console.print("\nCreate a worktree to automatically create a workspace:")
+        console.print("  owt create feature/new-feature")
+        return
+
+    table = Table(title="Workspaces")
+    table.add_column("Name", style="cyan")
+    table.add_column("Layout", style="blue")
+    table.add_column("Panes", justify="center")
+    table.add_column("Available", justify="center")
+    table.add_column("Worktrees")
+
+    for ws in workspaces:
+        worktree_names = [p.worktree_name for p in ws.panes if p.worktree_name]
+        worktrees_str = ", ".join(worktree_names) if worktree_names else "[dim]main only[/dim]"
+
+        panes_str = f"{len(ws.panes)} / {ws.max_panes}"
+        available_str = f"[green]{ws.available_panes}[/green]" if ws.available_panes > 0 else "[red]0 (full)[/red]"
+
+        table.add_row(ws.name, ws.layout.value, panes_str, available_str, worktrees_str)
+
+    console.print(table)
+
+
+@workspace_group.command("show")
+@click.argument("name")
+def workspace_show(name: str) -> None:
+    """Show detailed workspace information."""
+    workspace_manager = WorkspaceManager()
+
+    try:
+        workspace = workspace_manager.get_workspace(name)
+    except WorkspaceNotFoundError:
+        console.print(f"[red]✗[/red] Workspace not found: {name}")
+        console.print("\nAvailable workspaces:")
+        console.print("  Run 'owt workspace list' to see all workspaces")
+        raise click.Abort()
+
+    console.print(f"\n[bold cyan]{workspace.name}[/bold cyan]")
+    console.print(f"Layout: {workspace.layout.value}")
+    console.print(f"Capacity: {len(workspace.panes)} / {workspace.max_panes} panes")
+
+    if workspace.panes:
+        console.print(f"\n[bold]Panes:[/bold]")
+        for pane in workspace.panes:
+            if pane.is_main:
+                console.print(f"  [{pane.pane_index}] [cyan]main[/cyan] (orchestration center)")
+            else:
+                console.print(f"  [{pane.pane_index}] {pane.worktree_name} [dim]({pane.worktree_path})[/dim]")
+
+    console.print(f"\n[dim]Attach: tmux attach -t {workspace.name}[/dim]")
+
+
+@workspace_group.command("attach")
+@click.argument("name")
+def workspace_attach(name: str) -> None:
+    """Attach to a workspace tmux session."""
+    workspace_manager = WorkspaceManager()
+
+    try:
+        workspace = workspace_manager.get_workspace(name)
+    except WorkspaceNotFoundError:
+        console.print(f"[red]✗[/red] Workspace not found: {name}")
+        raise click.Abort()
+
+    import subprocess
+
+    try:
+        subprocess.run(["tmux", "attach", "-t", workspace.name], check=True)
+    except subprocess.CalledProcessError:
+        console.print(f"[red]✗[/red] Failed to attach to workspace: {workspace.name}")
+        console.print("[dim]The tmux session may no longer exist.[/dim]")
+        raise click.Abort()
+
+
+@workspace_group.command("destroy")
+@click.argument("name")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
+def workspace_destroy(name: str, yes: bool) -> None:
+    """Destroy a workspace and its tmux session.
+
+    WARNING: This will close all panes and end all AI sessions in the workspace.
+    Worktrees will not be deleted, only the workspace view.
+    """
+    workspace_manager = WorkspaceManager()
+
+    try:
+        workspace = workspace_manager.get_workspace(name)
+    except WorkspaceNotFoundError:
+        console.print(f"[red]✗[/red] Workspace not found: {name}")
+        raise click.Abort()
+
+    # Confirm destruction
+    if not yes:
+        worktree_count = len([p for p in workspace.panes if not p.is_main])
+        console.print(f"\n[bold yellow]Warning:[/bold yellow] This will destroy workspace '{name}'")
+        console.print(f"This workspace contains {worktree_count} worktree pane(s).")
+        console.print("\n[dim]Worktrees will NOT be deleted, only the workspace view.[/dim]")
+
+        if not click.confirm("Are you sure you want to continue?"):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+    # Kill tmux session
+    tmux_manager = TmuxManager()
+    try:
+        tmux_manager.kill_session(workspace.name)
+        console.print(f"[green]✓[/green] Killed tmux session: {workspace.name}")
+    except TmuxError as e:
+        console.print(f"[yellow]Warning:[/yellow] Could not kill tmux session: {e}")
+
+    # Remove workspace from store
+    workspace_manager.delete_workspace(name)
+    console.print(f"[green]✓[/green] Workspace destroyed: {name}")
+
+
 @main.command("create")
 @click.argument("branch")
 @click.option(
@@ -505,9 +662,9 @@ def template_show(name: str) -> None:
 @click.option(
     "-l",
     "--layout",
-    type=click.Choice(["main-vertical", "three-pane", "quad", "even-horizontal", "even-vertical"]),
-    default="main-vertical",
-    help="tmux pane layout for the session.",
+    type=click.Choice(["main-focus", "main-vertical", "three-pane", "quad", "even-horizontal", "even-vertical"]),
+    default="main-focus",
+    help="tmux pane layout for the session (default: main-focus for workspace mode).",
 )
 @click.option(
     "--panes",
@@ -546,6 +703,11 @@ def template_show(name: str) -> None:
     default=True,
     help="Sync CLAUDE.md files from main repo (default: enabled).",
 )
+@click.option(
+    "--separate-session",
+    is_flag=True,
+    help="Create separate tmux session instead of adding to workspace (opt-out of default unified mode).",
+)
 def create_worktree(
     branch: str,
     base_branch: str | None,
@@ -566,21 +728,26 @@ def create_worktree(
     plan_mode: bool,
     auto_optimize: bool,
     sync_claude_md: bool,
+    separate_session: bool,
 ) -> None:
-    """Create a new worktree for BRANCH with tmux session.
+    """Create a new worktree for BRANCH with unified workspace mode.
 
     If BRANCH doesn't exist, it will be created from the base branch
     (or current branch if not specified).
 
-    By default, creates a tmux session, installs dependencies, copies .env,
-    and starts Claude Code.
+    By default:
+    - Adds worktree as a new pane in your workspace (unified view)
+    - Installs dependencies and copies .env
+    - Starts Claude Code in the new pane
+    - Uses main-focus layout (1/3 left main + 3 horizontal right)
 
-    Example:
+    Use --separate-session to create a standalone tmux session instead.
+
+    Examples:
         owt create feature/new-feature
-        owt create bugfix/fix-123 --base main
-        owt create feature/test --no-tmux
-        owt create feature/dev --layout three-pane --attach
-        owt create feature/quick --no-deps --no-env
+        owt create bugfix/fix-123 --template bugfix
+        owt create feature/api --base main
+        owt create feature/standalone --separate-session
         owt create feature/research --plan-mode
     """
     wt_manager = get_worktree_manager()
@@ -710,12 +877,14 @@ def create_worktree(
             except Exception as e:
                 console.print(f"[yellow]Warning: Could not sync CLAUDE.md: {e}[/yellow]")
 
-        # Create tmux session if enabled
+        # Create tmux session if enabled (workspace mode or separate session)
         tmux_session = None
+        workspace_name = None
         if tmux and tmux_manager:
             try:
                 layout_map = {
                     "main-vertical": TmuxLayout.MAIN_VERTICAL,
+                    "main-focus": TmuxLayout.MAIN_FOCUS,
                     "three-pane": TmuxLayout.THREE_PANE,
                     "quad": TmuxLayout.QUAD,
                     "even-horizontal": TmuxLayout.EVEN_HORIZONTAL,
@@ -726,25 +895,112 @@ def create_worktree(
                 ai_tool_enum = AITool(ai_tool)
                 droid_auto_enum = DroidAutoLevel(droid_auto) if droid_auto else None
 
-                with console.status("[bold blue]Creating tmux session..."):
-                    tmux_session = tmux_manager.create_worktree_session(
-                        worktree_name=worktree.name,
-                        worktree_path=str(worktree.path),
-                        layout=layout_map[layout],
-                        pane_count=panes,
-                        auto_start_ai=claude,
-                        ai_tool=ai_tool_enum,
-                        droid_auto=droid_auto_enum,
-                        droid_skip_permissions=droid_skip_permissions,
-                        opencode_config=opencode_config,
-                        plan_mode=plan_mode,
-                    )
+                # Workspace mode (default) vs separate session
+                if not separate_session:
+                    # WORKSPACE MODE: Add pane to existing workspace or create new one
+                    workspace_manager = WorkspaceManager()
 
-                console.print()
-                console.print("[bold green]tmux session created!")
-                console.print(f"[bold]Session:[/bold] {tmux_session.session_name}")
-                console.print(f"[bold]Layout:[/bold]  {layout}")
-                console.print(f"[bold]Panes:[/bold]   {tmux_session.pane_count}")
+                    # Get or create default workspace for this project
+                    workspace_name = f"owt-{wt_manager.project_name}"
+
+                    # Check if workspace exists
+                    try:
+                        workspace = workspace_manager.get_workspace(workspace_name)
+                        existing_workspace = True
+                    except WorkspaceNotFoundError:
+                        # Create new workspace with main-focus layout
+                        with console.status(f"[bold blue]Creating workspace '{workspace_name}'..."):
+                            # First create the tmux session for the workspace
+                            from open_orchestrator.core.tmux_manager import TmuxSessionConfig
+
+                            session_config = TmuxSessionConfig(
+                                session_name=workspace_name,
+                                working_directory=main_repo_path,
+                                layout=TmuxLayout.MAIN_FOCUS,
+                                pane_count=1,  # Start with just main pane
+                                auto_start_ai=claude,
+                                ai_tool=ai_tool_enum,
+                                plan_mode=plan_mode,
+                                droid_auto=droid_auto_enum,
+                                droid_skip_permissions=droid_skip_permissions,
+                                opencode_config=opencode_config,
+                            )
+
+                            session_info = tmux_manager.create_session(session_config)
+
+                            # Register workspace
+                            workspace = workspace_manager.create_workspace(
+                                name=workspace_name,
+                                session_id=session_info.session_id,
+                                layout=WorkspaceLayout.MAIN_FOCUS,
+                                max_panes=4,
+                            )
+
+                        existing_workspace = False
+                        console.print(f"[green]✓[/green] Created workspace: {workspace_name}")
+
+                    # Check if workspace has space
+                    if workspace.is_full:
+                        raise WorkspaceFullError(
+                            f"Workspace '{workspace_name}' is full ({workspace.max_panes} panes). "
+                            f"Use --separate-session to create a new tmux session instead."
+                        )
+
+                    # Add worktree pane to workspace
+                    with console.status(f"[bold blue]Adding pane to workspace..."):
+                        pane_index = tmux_manager.add_worktree_pane(
+                            session_name=workspace_name,
+                            worktree_path=str(worktree.path),
+                            ai_tool=ai_tool_enum,
+                            plan_mode=plan_mode,
+                            droid_auto=droid_auto_enum,
+                            droid_skip_permissions=droid_skip_permissions,
+                            opencode_config=opencode_config,
+                        )
+
+                        # Register pane in workspace
+                        workspace_manager.add_worktree_pane(
+                            workspace_name=workspace_name,
+                            pane_index=pane_index,
+                            worktree_name=worktree.name,
+                            worktree_path=worktree.path,
+                        )
+
+                    console.print()
+                    console.print("[bold green]✓ Pane added to workspace!")
+                    console.print(f"[bold]Workspace:[/bold] {workspace_name}")
+                    console.print(f"[bold]Pane:[/bold]      {pane_index}")
+                    console.print(f"[bold]Total:[/bold]     {len(workspace.panes) + 1} / {workspace.max_panes} panes")
+
+                    # Create a mock session info for compatibility
+                    class MockSessionInfo:
+                        def __init__(self, name, panes):
+                            self.session_name = name
+                            self.pane_count = panes
+
+                    tmux_session = MockSessionInfo(workspace_name, len(workspace.panes) + 1)
+
+                else:
+                    # SEPARATE SESSION MODE: Create standalone tmux session (old behavior)
+                    with console.status("[bold blue]Creating separate tmux session..."):
+                        tmux_session = tmux_manager.create_worktree_session(
+                            worktree_name=worktree.name,
+                            worktree_path=str(worktree.path),
+                            layout=layout_map.get(layout, TmuxLayout.MAIN_VERTICAL),
+                            pane_count=panes,
+                            auto_start_ai=claude,
+                            ai_tool=ai_tool_enum,
+                            droid_auto=droid_auto_enum,
+                            droid_skip_permissions=droid_skip_permissions,
+                            opencode_config=opencode_config,
+                            plan_mode=plan_mode,
+                        )
+
+                    console.print()
+                    console.print("[bold green]tmux session created!")
+                    console.print(f"[bold]Session:[/bold] {tmux_session.session_name}")
+                    console.print(f"[bold]Layout:[/bold]  {layout}")
+                    console.print(f"[bold]Panes:[/bold]   {tmux_session.pane_count}")
 
                 if claude:
                     tool_name = ai_tool_enum.value.title()

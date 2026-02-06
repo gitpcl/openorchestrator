@@ -5,10 +5,12 @@ filesystem and atomically replaces the destination, then sets restrictive
 permissions.
 
 Also provides cross-platform file locking via shared_file_lock().
+Also provides safe_read_json() and safe_write_json() for JSON persistence.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -16,7 +18,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 logger = logging.getLogger(__name__)
 
@@ -117,3 +119,38 @@ def atomic_write_text(path: str | Path, data: str, perms: int = 0o600) -> None:
                 os.unlink(tmp_name)
             except OSError:
                 pass
+
+
+def safe_read_json(path: str | Path) -> dict[str, Any] | None:
+    """Safely read JSON file with error handling.
+
+    Args:
+        path: Path to JSON file
+
+    Returns:
+        Parsed JSON as dict, or None if file doesn't exist or is invalid
+    """
+    path = Path(path)
+
+    if not path.exists():
+        return None
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            with shared_file_lock(f):
+                return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to read JSON from {path}: {e}")
+        return None
+
+
+def safe_write_json(path: str | Path, data: dict[str, Any] | list[Any], perms: int = 0o600) -> None:
+    """Safely write JSON file with atomic write.
+
+    Args:
+        path: Path to JSON file
+        data: Data to serialize as JSON
+        perms: File permissions (default: 0o600 - user read/write only)
+    """
+    json_str = json.dumps(data, indent=2, default=str)
+    atomic_write_text(path, json_str, perms=perms)

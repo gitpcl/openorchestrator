@@ -20,6 +20,7 @@ class TmuxLayout(Enum):
     """Available tmux pane layouts."""
 
     MAIN_VERTICAL = "main-vertical"
+    MAIN_FOCUS = "main-focus"  # 1/3 left + 3 horizontal right (workspace default)
     THREE_PANE = "three-pane"
     QUAD = "quad"
     EVEN_HORIZONTAL = "even-horizontal"
@@ -174,6 +175,8 @@ class TmuxManager:
 
         if layout == TmuxLayout.MAIN_VERTICAL:
             self._setup_main_vertical(window, pane_count, working_dir)
+        elif layout == TmuxLayout.MAIN_FOCUS:
+            self._setup_main_focus(window, working_dir)
         elif layout == TmuxLayout.THREE_PANE:
             self._setup_three_pane(window, working_dir)
         elif layout == TmuxLayout.QUAD:
@@ -203,6 +206,43 @@ class TmuxManager:
         panes = window.panes
         if panes:
             panes[0].select()
+
+    def _setup_main_focus(self, window: libtmux.Window, working_dir: str) -> None:
+        """
+        Create main-focus layout: 1/3 left main + 3 horizontal right (workspace default).
+
+        Layout:
+        ┌──────────┬─────────────────────┐
+        │          │   Worktree 1        │
+        │          ├─────────────────────┤
+        │   Main   │   Worktree 2        │
+        │  (33%)   ├─────────────────────┤
+        │          │   Worktree 3        │
+        └──────────┴─────────────────────┘
+        """
+        # Create right pane (2/3 width)
+        window.split(start_directory=working_dir, direction=PaneDirection.Right)
+
+        # Resize main (left) pane to 33%
+        panes = window.panes
+        if len(panes) >= 2:
+            # Select right pane and resize to 67% of total width
+            panes[1].select()
+            panes[1].resize(width="67%")
+
+            # Split right side into 3 horizontal panes
+            # First split creates 2 panes
+            window.split(start_directory=working_dir, direction=PaneDirection.Below)
+
+            # Second split creates 3 panes total on right
+            panes = window.panes
+            if len(panes) >= 2:
+                # Select middle-right pane and split it
+                panes[1].select()
+                window.split(start_directory=working_dir, direction=PaneDirection.Below)
+
+        # Select main (left) pane
+        window.panes[0].select()
 
     def _setup_three_pane(self, window: libtmux.Window, working_dir: str) -> None:
         """
@@ -509,3 +549,130 @@ class TmuxManager:
             pane.send_keys(keys, enter=True)
         except (libtmux.exc.LibTmuxException, IndexError) as e:
             raise TmuxError(f"Failed to send keys to pane: {e}") from e
+
+    def add_worktree_pane(
+        self,
+        session_name: str,
+        worktree_path: str,
+        ai_tool: AITool = AITool.CLAUDE,
+        plan_mode: bool = False,
+        droid_auto: DroidAutoLevel | None = None,
+        droid_skip_permissions: bool = False,
+        opencode_config: str | None = None,
+    ) -> int:
+        """
+        Add a new worktree pane to an existing workspace session.
+
+        Creates a new pane in the rightmost column of the main-focus layout.
+
+        Args:
+            session_name: Name of the workspace session
+            worktree_path: Path to the worktree
+            ai_tool: AI tool to start in the pane
+            plan_mode: Start Claude in plan mode
+            droid_auto: Droid auto mode level
+            droid_skip_permissions: Skip droid permissions
+            opencode_config: Custom config for OpenCode
+
+        Returns:
+            Index of the newly created pane
+
+        Raises:
+            TmuxSessionNotFoundError: If session doesn't exist
+            TmuxError: If pane creation fails
+        """
+        if not self.session_exists(session_name):
+            raise TmuxSessionNotFoundError(f"Session '{session_name}' not found")
+
+        if not os.path.isdir(worktree_path):
+            raise TmuxError(f"Worktree directory does not exist: {worktree_path}")
+
+        try:
+            session = self.server.sessions.filter(session_name=session_name)[0]
+            window = session.active_window
+
+            # Get current pane count
+            pane_count_before = len(window.panes)
+
+            # Find the rightmost pane (last pane in the right column)
+            # In main-focus layout: pane 0 is main (left), panes 1-3 are right column
+            if pane_count_before > 1:
+                # Select last pane in right column
+                window.panes[-1].select()
+
+            # Split below to add new pane in right column
+            new_pane = window.split(start_directory=worktree_path, direction=PaneDirection.Below)
+
+            # Start AI tool in the new pane
+            if new_pane:
+                self._start_ai_tool_in_pane(
+                    new_pane,
+                    ai_tool=ai_tool,
+                    plan_mode=plan_mode,
+                    droid_auto=droid_auto,
+                    droid_skip_permissions=droid_skip_permissions,
+                    opencode_config=opencode_config,
+                )
+
+            # Return the new pane's index
+            return int(new_pane.pane_index) if new_pane else -1
+
+        except libtmux.exc.LibTmuxException as e:
+            raise TmuxError(f"Failed to add worktree pane: {e}") from e
+
+    def remove_pane(self, session_name: str, pane_index: int) -> None:
+        """
+        Remove a pane from a workspace session.
+
+        Args:
+            session_name: Name of the workspace session
+            pane_index: Index of the pane to remove
+
+        Raises:
+            TmuxSessionNotFoundError: If session doesn't exist
+            TmuxError: If pane removal fails or trying to remove main pane
+        """
+        if not self.session_exists(session_name):
+            raise TmuxSessionNotFoundError(f"Session '{session_name}' not found")
+
+        try:
+            session = self.server.sessions.filter(session_name=session_name)[0]
+            window = session.active_window
+
+            # Don't allow removing pane 0 (main pane)
+            if pane_index == 0:
+                raise TmuxError("Cannot remove main pane (pane 0) from workspace")
+
+            # Find and kill the pane
+            for pane in window.panes:
+                if int(pane.pane_index) == pane_index:
+                    pane.kill()
+                    return
+
+            raise TmuxError(f"Pane {pane_index} not found in session '{session_name}'")
+
+        except libtmux.exc.LibTmuxException as e:
+            raise TmuxError(f"Failed to remove pane: {e}") from e
+
+    def get_pane_count(self, session_name: str) -> int:
+        """
+        Get the number of panes in a workspace session.
+
+        Args:
+            session_name: Name of the workspace session
+
+        Returns:
+            Number of panes
+
+        Raises:
+            TmuxSessionNotFoundError: If session doesn't exist
+        """
+        if not self.session_exists(session_name):
+            raise TmuxSessionNotFoundError(f"Session '{session_name}' not found")
+
+        try:
+            session = self.server.sessions.filter(session_name=session_name)[0]
+            window = session.active_window
+            return len(window.panes)
+        except libtmux.exc.LibTmuxException as e:
+            raise TmuxError(f"Failed to get pane count: {e}") from e

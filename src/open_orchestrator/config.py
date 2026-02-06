@@ -260,6 +260,31 @@ class TmuxConfig(BaseModel):
     )
 
 
+class WorkspaceConfig(BaseModel):
+    """Configuration for unified workspace mode."""
+
+    unified_mode: bool = Field(
+        default=True,
+        description="Use unified workspace mode by default (add panes instead of creating separate sessions)",
+    )
+    default_layout: str = Field(
+        default="main-focus",
+        description="Default workspace layout (main-focus, grid, stack, focus, tile)",
+    )
+    max_panes: int = Field(
+        default=4,
+        description="Maximum panes per workspace (1 main + N worktrees)",
+    )
+    auto_balance: bool = Field(
+        default=True,
+        description="Automatically balance pane sizes when adding/removing",
+    )
+    focus_on_create: bool = Field(
+        default=True,
+        description="Focus new pane when worktree is created",
+    )
+
+
 class EnvironmentConfig(BaseModel):
     """Configuration for environment setup."""
 
@@ -357,6 +382,7 @@ class Config(BaseModel):
 
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
+    workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
