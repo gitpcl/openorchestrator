@@ -1,10 +1,12 @@
 # Open Orchestrator
 
-A Git Worktree + AI coding tool orchestration tool combining a Python CLI with plugin integration for managing parallel development workflows. Supports Claude Code, OpenCode, and Droid.
+A Git Worktree + AI coding tool orchestration system for managing parallel development workflows with AI agent swarms. Coordinate multiple Claude Code sessions, Agent Teams, or AI agents across isolated branches with single-terminal control. Supports Claude Code, OpenCode, and Droid.
 
 ## Overview
 
 Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own Claude Code session and tmux pane. Perfect for parallel development workflows where you need to context-switch between features without losing your place.
+
+> **Agent Teams vs Open Orchestrator:** While [Claude Code's Agent Teams](https://code.claude.com/docs/en/agent-teams) coordinate multiple AI agents within the *same codebase*, Open Orchestrator manages multiple *isolated worktrees* (different branches, different directories, independent environments). They're complementary tools that can work together - use Agent Teams for intra-branch collaboration, Open Orchestrator for cross-branch orchestration. [Learn more](#open-orchestrator-vs-agent-teams)
 
 ## Features
 
@@ -521,6 +523,79 @@ Open Orchestrator lets you:
 2. **Send commands** to any worktree from your main terminal
 3. **Track AI activity** across all worktrees in real-time
 4. **Orchestrate work** without leaving your current context
+
+### Open Orchestrator vs Agent Teams
+
+**Not familiar with [Claude Code's Agent Teams](https://code.claude.com/docs/en/agent-teams)?** They're an experimental feature that lets multiple AI agents coordinate within the same codebase using shared task lists and inter-agent messaging.
+
+**Key Difference:**
+- **Agent Teams**: Multiple AI agents collaborating in the **same worktree** (same branch, same directory)
+- **Open Orchestrator**: Multiple **isolated worktrees** (different branches, different directories, different environments)
+
+| Feature | Agent Teams | Open Orchestrator |
+|---------|-------------|-------------------|
+| **Scope** | Same codebase, multiple agents | Multiple branches, multiple codebases |
+| **Coordination** | Agents message each other | Single-terminal command delegation |
+| **Isolation** | Shared git worktree | Separate worktrees with independent environments |
+| **Dependencies** | Same node_modules/venv | Each worktree has its own dependencies |
+| **Best For** | Code review, competing hypotheses, research | Parallel feature development, branch management |
+| **Infrastructure** | Built into Claude Code | CLI + git worktrees + tmux |
+
+### Using Both Together
+
+Open Orchestrator can **enhance your Agent Team workflows** by providing infrastructure for agent swarms across branches:
+
+**Pattern 1: Agent Teams per Feature Branch**
+```bash
+# Create isolated worktree for feature A
+owt create feature/auth --plan-mode
+
+# Inside that worktree, spawn Agent Team
+# Have multiple agents collaborate on auth implementation
+
+# Meanwhile, create another worktree for feature B
+owt create feature/payments
+# Spawn different Agent Team here
+
+# Monitor both from main terminal
+owt status --all
+```
+
+**Pattern 2: Parallel Agent Team Research**
+```bash
+# Create worktrees for different experiments
+owt create experiment/approach-a
+owt create experiment/approach-b
+owt create experiment/approach-c
+
+# In each worktree, spawn Agent Team to explore different approaches
+# Each team works in isolation with their own dependencies
+# Compare results across worktrees without conflicts
+```
+
+**Pattern 3: Agent Team + Infrastructure Orchestration**
+```bash
+# Use Open Orchestrator for infrastructure
+owt create feature/refactor
+
+# Use Agent Teams inside for collaboration
+# One agent on security review
+# One agent on performance
+# One agent on test coverage
+
+# Use Open Orchestrator to track progress
+owt status feature/refactor
+
+# Use Open Orchestrator to link to GitHub PR
+owt pr link feature/refactor --pr 123
+```
+
+**Why This Combination Works:**
+- ✅ **Agent Teams** handle *intra-branch* coordination (multiple agents, one codebase)
+- ✅ **Open Orchestrator** handles *cross-branch* orchestration (multiple worktrees, isolated environments)
+- ✅ Use Agent Teams when you need agents to debate, review, or collaborate on the same code
+- ✅ Use Open Orchestrator when you need complete isolation between different features/experiments
+- ✅ Combine both for maximum parallelism: agent swarms working across multiple isolated branches
 
 ### Example Workflow
 
