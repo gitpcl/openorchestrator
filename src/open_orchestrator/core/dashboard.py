@@ -5,6 +5,7 @@ This module provides a real-time terminal UI for monitoring the status
 of AI tools across all worktrees.
 """
 
+import gc
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -239,6 +240,7 @@ class Dashboard:
     def run(self) -> None:
         """Run the live dashboard."""
         self._running = True
+        iteration = 0
 
         try:
             with Live(
@@ -250,6 +252,11 @@ class Dashboard:
                 while self._running:
                     live.update(self._create_layout())
                     time.sleep(self.config.refresh_rate)
+
+                    # Force garbage collection every 30 iterations to prevent accumulation
+                    iteration += 1
+                    if iteration % 30 == 0:
+                        gc.collect()
         except KeyboardInterrupt:
             self._running = False
 

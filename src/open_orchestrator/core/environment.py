@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -170,21 +171,34 @@ class EnvironmentSetup:
         logger.info(f"Installing dependencies with {self.config.package_manager.value}: {' '.join(install_cmd)}")
 
         try:
-            result = subprocess.run(
-                install_cmd,
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=self._get_install_environment(),
-            )
+            # Stream output to temporary file instead of memory to prevent 3GB+ spikes
+            with tempfile.TemporaryFile(mode='w+', encoding='utf-8') as output_file:
+                result = subprocess.run(
+                    install_cmd,
+                    cwd=worktree_path,
+                    stdout=output_file,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=timeout,
+                    env=self._get_install_environment(),
+                )
 
-            if result.returncode != 0:
-                logger.error(f"Dependency installation failed: {result.stderr}")
-                raise DependencyInstallError(f"Installation failed with exit code {result.returncode}: {result.stderr}")
+                # Only read output if needed (on error)
+                output_text = ""
+                if result.returncode != 0:
+                    output_file.seek(0)
+                    output_text = output_file.read()
+                    logger.error(f"Dependency installation failed: {output_text}")
+                    raise DependencyInstallError(f"Installation failed with exit code {result.returncode}: {output_text}")
 
             logger.info("Dependencies installed successfully")
-            return result
+            # Return a CompletedProcess with empty stdout/stderr since we streamed to file
+            return CompletedProcess(
+                args=result.args,
+                returncode=result.returncode,
+                stdout="",
+                stderr="",
+            )
 
         except subprocess.TimeoutExpired as e:
             raise DependencyInstallError(f"Installation timed out after {timeout} seconds") from e

@@ -588,6 +588,19 @@ def workspace_destroy(name: str, yes: bool) -> None:
             console.print("[dim]Cancelled.[/dim]")
             return
 
+    # Clean up processes for all panes in workspace
+    from open_orchestrator.core.process_manager import ProcessManager
+
+    try:
+        process_manager = ProcessManager()
+        for pane in workspace.panes:
+            if pane.worktree_name and process_manager.has_process(pane.worktree_name):
+                console.print(f"[yellow]Stopping AI process for {pane.worktree_name}...[/yellow]")
+                process_manager.stop_ai_tool(pane.worktree_name, force=False)
+                console.print(f"[green]✓[/green] Stopped AI process for {pane.worktree_name}")
+    except Exception as e:
+        console.print(f"[yellow]Warning:[/yellow] Could not stop all AI processes: {e}")
+
     # Kill tmux session
     tmux_manager = TmuxManager()
     try:
@@ -753,6 +766,24 @@ def create_worktree(
     wt_manager = get_worktree_manager()
     tmux_manager = TmuxManager() if tmux else None
     main_repo_path = wt_manager.repo.working_dir
+
+    # NEW: Check active worktree count and warn about resource usage
+    active_worktrees = wt_manager.list_all()
+    active_count = len([wt for wt in active_worktrees if not wt.is_main])
+
+    if active_count >= 5:
+        console.print()
+        console.print(
+            f"[yellow]Warning:[/yellow] You have {active_count} active worktree(s). "
+            f"Running many parallel worktrees can consume significant memory (~500MB-1GB each). "
+            f"Consider running 'owt cleanup --all' to clean up unused worktrees."
+        )
+        console.print()
+
+        if active_count >= 8:
+            if not click.confirm("Continue anyway?"):
+                console.print("[yellow]Aborted.[/yellow]")
+                raise click.Abort()
 
     # Apply template configuration if specified
     template_config = {}
@@ -1211,7 +1242,19 @@ def delete_worktree(identifier: str, force: bool, yes: bool, keep_tmux: bool) ->
             return
 
     try:
-        # Kill tmux session first if it exists and --keep-tmux not specified
+        # Check and clean up any ProcessManager processes first
+        from open_orchestrator.core.process_manager import ProcessManager
+
+        try:
+            process_manager = ProcessManager()
+            if process_manager.has_process(worktree.name):
+                console.print(f"[yellow]Stopping AI tool process for {worktree.name}...[/yellow]")
+                process_manager.stop_ai_tool(worktree.name, force=force)
+                console.print(f"[green]✓[/green] Stopped AI tool process")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not stop AI process: {e}[/yellow]")
+
+        # Kill tmux session if it exists and --keep-tmux not specified
         if tmux_session and not keep_tmux:
             try:
                 with console.status(f"[bold red]Killing tmux session '{tmux_session.session_name}'..."):
@@ -1316,8 +1359,33 @@ def switch_worktree(identifier: str, tmux: bool) -> None:
     is_flag=True,
     help="Output as JSON (for scripting).",
 )
-def cleanup_worktrees(threshold_days: int, dry_run: bool, force: bool, yes: bool, as_json: bool) -> None:
-    """Clean up stale worktrees that haven't been used recently.
+@click.option(
+    "--processes",
+    is_flag=True,
+    help="Also clean up orphaned AI tool processes.",
+)
+@click.option(
+    "--sessions",
+    is_flag=True,
+    help="Also clean up orphaned tmux sessions.",
+)
+@click.option(
+    "--all",
+    "cleanup_all",
+    is_flag=True,
+    help="Clean up everything (worktrees + processes + sessions).",
+)
+def cleanup_worktrees(
+    threshold_days: int,
+    dry_run: bool,
+    force: bool,
+    yes: bool,
+    as_json: bool,
+    processes: bool,
+    sessions: bool,
+    cleanup_all: bool,
+) -> None:
+    """Clean up stale worktrees, orphaned processes, and tmux sessions.
 
     By default, runs in dry-run mode showing what would be deleted.
     Use --no-dry-run to actually delete stale worktrees.
@@ -1326,11 +1394,14 @@ def cleanup_worktrees(threshold_days: int, dry_run: bool, force: bool, yes: bool
     by default. Use --force to override this protection.
 
     Example:
-        owt cleanup                    # Dry run with default 14 days
-        owt cleanup --days 7           # Dry run with 7 days threshold
-        owt cleanup --no-dry-run -y    # Actually delete stale worktrees
-        owt cleanup --force            # Include worktrees with uncommitted changes
-        owt cleanup --json             # Output as JSON
+        owt cleanup                        # Dry run with default 14 days
+        owt cleanup --days 7               # Dry run with 7 days threshold
+        owt cleanup --no-dry-run -y        # Actually delete stale worktrees
+        owt cleanup --force                # Include worktrees with uncommitted changes
+        owt cleanup --processes            # Also clean up orphaned processes
+        owt cleanup --sessions             # Also clean up orphaned tmux sessions
+        owt cleanup --all                  # Clean up everything
+        owt cleanup --json                 # Output as JSON
     """
     import json as json_module
 
@@ -1455,6 +1526,60 @@ def cleanup_worktrees(threshold_days: int, dry_run: bool, force: bool, yes: bool
         console.print("[bold red]Errors:[/bold red]")
         for error in report.errors:
             console.print(f"  [red]{error}[/red]")
+
+    # NEW: Orphaned process cleanup
+    if processes or cleanup_all:
+        console.print()
+        console.print("[bold]Cleaning up orphaned processes...[/bold]")
+        proc_report = cleanup_service.cleanup_orphaned_processes(dry_run=dry_run)
+
+        if as_json:
+            console.print(json_module.dumps({
+                "orphaned_processes": proc_report.orphaned_processes,
+                "processes_killed": proc_report.processes_killed,
+                "dry_run": dry_run,
+            }, indent=2))
+        else:
+            if proc_report.orphaned_processes:
+                console.print(f"[yellow]Found {len(proc_report.orphaned_processes)} orphaned process(es):[/yellow]")
+                for proc_name in proc_report.orphaned_processes:
+                    console.print(f"  - {proc_name}")
+                if not dry_run:
+                    console.print(f"[green]Killed {proc_report.processes_killed} process(es)[/green]")
+            else:
+                console.print("[green]No orphaned processes found[/green]")
+
+            if proc_report.errors:
+                console.print("[bold red]Errors:[/bold red]")
+                for error in proc_report.errors:
+                    console.print(f"  [red]{error}[/red]")
+
+    # NEW: Orphaned session cleanup
+    if sessions or cleanup_all:
+        console.print()
+        console.print("[bold]Cleaning up orphaned tmux sessions...[/bold]")
+        session_report = cleanup_service.cleanup_orphaned_tmux_sessions(dry_run=dry_run)
+
+        if as_json:
+            console.print(json_module.dumps({
+                "orphaned_sessions": session_report.orphaned_sessions,
+                "sessions_killed": session_report.sessions_killed,
+                "dry_run": dry_run,
+            }, indent=2))
+        else:
+            if session_report.orphaned_sessions:
+                console.print(f"[yellow]Found {len(session_report.orphaned_sessions)} orphaned session(s):[/yellow]")
+                for session_name in session_report.orphaned_sessions:
+                    console.print(f"  - {session_name}")
+                if not dry_run:
+                    console.print(f"[green]Killed {session_report.sessions_killed} session(s)[/green]")
+            else:
+                console.print("[green]No orphaned sessions found[/green]")
+
+            if session_report.errors:
+                console.print("[bold red]Errors:[/bold red]")
+                for error in session_report.errors:
+                    console.print(f"  [red]{error}[/red]")
 
 
 @main.command("send")

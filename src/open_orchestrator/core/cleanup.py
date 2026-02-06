@@ -44,6 +44,11 @@ class CleanupReport(BaseModel):
     errors: list[str] = []
     cleaned_paths: list[str] = []
     skipped_paths: list[str] = []
+    # NEW: Orphaned resource cleanup
+    orphaned_processes: list[str] = []
+    orphaned_sessions: list[str] = []
+    processes_killed: int = 0
+    sessions_killed: int = 0
 
 
 @dataclass
@@ -341,3 +346,120 @@ class CleanupService:
                 stats_list.append(stats)
 
         return sorted(stats_list, key=lambda s: s.last_accessed)
+
+    def cleanup_orphaned_processes(self, dry_run: bool = True) -> CleanupReport:
+        """
+        Find and clean up orphaned AI tool processes.
+
+        Args:
+            dry_run: If True, only report what would be cleaned up
+
+        Returns:
+            CleanupReport with orphaned process details
+        """
+        from open_orchestrator.core.process_manager import ProcessManager
+        from open_orchestrator.core.worktree import WorktreeManager
+
+        process_manager = ProcessManager()
+        wt_manager = WorktreeManager()
+
+        # Get active worktree names
+        active_worktrees = {wt.name for wt in wt_manager.list_all()}
+
+        # Get tracked processes
+        tracked_processes = process_manager.list_processes()
+
+        orphans = []
+        killed = 0
+        errors = []
+
+        for proc in tracked_processes:
+            if proc.worktree_name not in active_worktrees:
+                orphans.append(proc.worktree_name)
+                if not dry_run:
+                    try:
+                        process_manager.stop_ai_tool(proc.worktree_name, force=True)
+                        killed += 1
+                    except Exception as e:
+                        errors.append(f"Failed to stop process for {proc.worktree_name}: {e}")
+
+        return CleanupReport(
+            timestamp=datetime.now(),
+            dry_run=dry_run,
+            stale_threshold_days=0,
+            worktrees_scanned=0,
+            stale_worktrees_found=0,
+            worktrees_cleaned=0,
+            worktrees_skipped=0,
+            orphaned_processes=orphans,
+            processes_killed=killed,
+            errors=errors,
+        )
+
+    def cleanup_orphaned_tmux_sessions(self, dry_run: bool = True) -> CleanupReport:
+        """
+        Find and clean up tmux sessions for deleted worktrees.
+
+        Args:
+            dry_run: If True, only report what would be cleaned up
+
+        Returns:
+            CleanupReport with orphaned session details
+        """
+        from open_orchestrator.core.tmux_manager import TmuxManager
+        from open_orchestrator.core.worktree import WorktreeManager
+
+        tmux_manager = TmuxManager()
+        wt_manager = WorktreeManager()
+
+        # Get active worktree names
+        active_worktrees = {wt.name for wt in wt_manager.list_all()}
+
+        orphan_sessions = []
+        killed = 0
+        errors = []
+
+        try:
+            for session in tmux_manager.list_sessions():
+                # Extract worktree name from session (e.g., "owt-feature-foo")
+                if session.session_name.startswith(f"{tmux_manager.SESSION_PREFIX}-"):
+                    # Remove prefix and convert hyphens back to slashes for feature branches
+                    wt_name_candidate = session.session_name[len(f"{tmux_manager.SESSION_PREFIX}-"):]
+
+                    # Try direct match first
+                    if wt_name_candidate not in active_worktrees:
+                        # Try converting first hyphen to slash (for feature/branch format)
+                        parts = wt_name_candidate.split("-", 1)
+                        if len(parts) == 2:
+                            wt_name_with_slash = f"{parts[0]}/{parts[1]}"
+                            if wt_name_with_slash not in active_worktrees:
+                                orphan_sessions.append(session.session_name)
+                                if not dry_run:
+                                    try:
+                                        tmux_manager.kill_session(session.session_name)
+                                        killed += 1
+                                    except Exception as e:
+                                        errors.append(f"Failed to kill session {session.session_name}: {e}")
+                        else:
+                            orphan_sessions.append(session.session_name)
+                            if not dry_run:
+                                try:
+                                    tmux_manager.kill_session(session.session_name)
+                                    killed += 1
+                                except Exception as e:
+                                    errors.append(f"Failed to kill session {session.session_name}: {e}")
+        except Exception as e:
+            errors.append(f"Failed to list tmux sessions: {e}")
+
+        return CleanupReport(
+            timestamp=datetime.now(),
+            dry_run=dry_run,
+            stale_threshold_days=0,
+            worktrees_scanned=0,
+            stale_worktrees_found=0,
+            worktrees_cleaned=0,
+            worktrees_skipped=0,
+            orphaned_sessions=orphan_sessions,
+            sessions_killed=killed,
+            errors=errors,
+        )

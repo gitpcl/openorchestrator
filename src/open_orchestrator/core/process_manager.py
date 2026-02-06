@@ -28,6 +28,7 @@ class ProcessInfo(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     pid: int = Field(description="Process ID")
+    pgid: int | None = Field(default=None, description="Process group ID")
     worktree_name: str = Field(description="Associated worktree name")
     worktree_path: str = Field(description="Path to the worktree")
     ai_tool: str = Field(description="AI tool being run")
@@ -152,9 +153,18 @@ class ProcessManager:
             self._save_store()
 
     def _is_process_alive(self, pid: int) -> bool:
-        """Check if a process is still running."""
+        """Check if a process is still running and reap if zombie."""
         try:
             os.kill(pid, 0)
+            # Process exists, try to reap if it's a zombie
+            try:
+                status = os.waitpid(pid, os.WNOHANG)
+                if status != (0, 0):
+                    logger.debug(f"Reaped zombie process {pid}")
+                    return False
+            except (ProcessLookupError, ChildProcessError):
+                # Not our child or already reaped
+                pass
             return True
         except (OSError, ProcessLookupError):
             return False
@@ -213,11 +223,20 @@ class ProcessManager:
             plan_mode=plan_mode,
         )
 
-        # Set up log file
+        # Set up log file with rotation
         log_file = None
         if self.config.log_directory:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             log_file = self.config.log_directory / f"{worktree_name}_{timestamp}.log"
+
+            # Rotate if existing log is too large (10MB limit)
+            if log_file.exists():
+                log_size = log_file.stat().st_size
+                if log_size > 10 * 1024 * 1024:  # 10MB
+                    # Rotate: .log → .log.1
+                    old_log = log_file.with_suffix('.log.1')
+                    log_file.rename(old_log)
+                    logger.info(f"Rotated log file {log_file} to {old_log}")
 
         try:
             # Start the process
@@ -232,8 +251,15 @@ class ProcessManager:
                     start_new_session=True,  # Detach from parent
                 )
 
+            # Capture process group ID for proper cleanup of child processes
+            try:
+                pgid = os.getpgid(process.pid)
+            except (ProcessLookupError, PermissionError):
+                pgid = None
+
             proc_info = ProcessInfo(
                 pid=process.pid,
+                pgid=pgid,
                 worktree_name=worktree_name,
                 worktree_path=str(worktree_path),
                 ai_tool=ai_tool.value,
@@ -282,19 +308,57 @@ class ProcessManager:
             return False
 
         try:
-            # Try graceful shutdown first
             sig = signal.SIGKILL if force else signal.SIGTERM
-            os.kill(proc_info.pid, sig)
+
+            # Kill entire process group instead of just main PID
+            # This ensures child processes (language servers, etc.) are also terminated
+            if proc_info.pgid is not None:
+                try:
+                    os.killpg(proc_info.pgid, sig)
+                    logger.debug(f"Sent {sig.name} to process group {proc_info.pgid}")
+                except (ProcessLookupError, PermissionError) as e:
+                    # Fall back to killing just the main process
+                    logger.warning(f"Could not kill process group {proc_info.pgid}: {e}, falling back to main PID")
+                    os.kill(proc_info.pid, sig)
+            else:
+                # No PGID tracked, kill just the main process
+                os.kill(proc_info.pid, sig)
 
             if not force:
                 # Wait for graceful shutdown
-                for _ in range(timeout * 10):
-                    if not self._is_process_alive(proc_info.pid):
+                deadline = time.time() + timeout
+                while time.time() < deadline:
+                    # Check if process group still exists
+                    try:
+                        if proc_info.pgid is not None:
+                            os.killpg(proc_info.pgid, 0)  # Check if group exists
+                        else:
+                            os.kill(proc_info.pid, 0)  # Check if process exists
+                        time.sleep(0.1)
+                    except (ProcessLookupError, PermissionError):
+                        # Process/group is gone
                         break
-                    time.sleep(0.1)
                 else:
-                    # Force kill if still running
-                    os.kill(proc_info.pid, signal.SIGKILL)
+                    # Force kill if still running after timeout
+                    logger.warning(f"Process {proc_info.pid} did not terminate gracefully, force killing")
+                    if proc_info.pgid is not None:
+                        try:
+                            os.killpg(proc_info.pgid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError):
+                            pass
+                    else:
+                        try:
+                            os.kill(proc_info.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+
+            # Reap zombie processes
+            try:
+                os.waitpid(proc_info.pid, os.WNOHANG)
+                logger.debug(f"Reaped zombie process {proc_info.pid}")
+            except (ProcessLookupError, ChildProcessError):
+                # Process already reaped or not our child
+                pass
 
             del self._store.processes[worktree_name]
             self._save_store()
@@ -303,7 +367,12 @@ class ProcessManager:
             return True
 
         except ProcessLookupError:
-            # Process already dead
+            # Process already dead, clean up
+            try:
+                os.waitpid(proc_info.pid, os.WNOHANG)
+            except (ProcessLookupError, ChildProcessError):
+                pass
+
             del self._store.processes[worktree_name]
             self._save_store()
             return False

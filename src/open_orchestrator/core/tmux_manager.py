@@ -96,6 +96,25 @@ class TmuxManager:
         """Initialize TmuxManager with libtmux server connection."""
         self._server: libtmux.Server | None = None
 
+    def __enter__(self) -> "TmuxManager":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Context manager exit - clean up resources."""
+        self.close()
+        return False
+
+    def close(self) -> None:
+        """Explicitly close the tmux server connection."""
+        if self._server is not None:
+            # libtmux doesn't have explicit close, but we can clear the reference
+            self._server = None
+
+    def __del__(self) -> None:
+        """Cleanup on garbage collection."""
+        self.close()
+
     @property
     def server(self) -> libtmux.Server:
         """Get or create libtmux server instance."""
