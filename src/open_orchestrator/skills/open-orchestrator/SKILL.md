@@ -1,20 +1,25 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI coding tool orchestration for parallel development. Use when: (1) Creating isolated development environments, (2) Using workflow templates for common patterns, (3) Managing multiple AI coding sessions, (4) Delegating tasks to parallel worktrees, (5) Orchestrating Claude Code/OpenCode/Droid across branches, (6) Monitoring worktree health and detecting issues, (7) Optimizing AI tool costs and comparing pricing, (8) Cleaning up stale worktrees, (9) Syncing worktrees with upstream, (10) Monitoring with live dashboard, (11) Tracking token usage and costs, (12) Linking worktrees to GitHub PRs, (13) Managing status change hooks/notifications, (14) Copying/resuming Claude sessions. Triggers: worktree, parallel development, multi-branch, AI orchestration, owt commands, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management."
+description: "Git worktree + AI coding tool orchestration for parallel development with unified workspace mode. Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments, (3) Using workflow templates for common patterns, (4) Managing multiple AI coding sessions, (5) Delegating tasks to parallel worktrees, (6) Orchestrating Claude Code/OpenCode/Droid across branches, (7) Monitoring worktree health and detecting issues, (8) Optimizing AI tool costs and comparing pricing, (9) Cleaning up stale worktrees, (10) Syncing worktrees with upstream, (11) Monitoring with live dashboard, (12) Tracking token usage and costs, (13) Linking worktrees to GitHub PRs, (14) Managing status change hooks/notifications, (15) Copying/resuming Claude sessions. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, unified view, owt commands, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
-Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees, each with its own tmux session and AI coding tool instance (Claude Code, OpenCode, or Droid).
+Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees in a **unified workspace mode** (similar to Claude Code Agent Teams). See multiple worktrees as panes in a single tmux session, or use separate sessions with the `--separate-session` flag.
 
 ## Quick Reference
 
 | Command | Description |
 |---------|-------------|
-| `owt create <branch>` | Create worktree + tmux session + AI tool |
+| `owt create <branch>` | Create worktree + add pane to workspace (default) |
+| `owt create <branch> --separate-session` | Create separate tmux session (opt-out) |
 | `owt create <branch> --plan-mode` | Create with Claude in plan mode |
 | `owt create <branch> --template <name>` | Create with workflow template |
 | `owt create <branch> --auto-optimize` | Auto-select cost-effective AI tool |
+| `owt workspace list` | List all unified workspaces |
+| `owt workspace show <name>` | Show workspace details and panes |
+| `owt workspace attach <name>` | Attach to workspace tmux session |
+| `owt workspace destroy <name>` | Destroy workspace (keeps worktrees) |
 | `owt template list` | List available workflow templates |
 | `owt template show <name>` | Show template details |
 | `owt list [--all]` | List worktrees with status |
@@ -37,16 +42,79 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt process list` | List running AI processes |
 | `owt completion install` | Install shell auto-completion |
 
-## Core Workflow
+## 🆕 Unified Workspace Mode (Default)
 
-### 1. Create a Parallel Worktree
+**NEW:** Open Orchestrator now uses **workspace mode by default**, inspired by Claude Code Agent Teams. Instead of separate tmux sessions, all worktrees are visible as panes in a single session.
+
+### Default Behavior
 
 ```bash
-# Create worktree for a feature branch with AI tool
+# Create first worktree (auto-creates workspace)
+owt create feature/api
+# ✅ Created workspace: owt-myproject
+# ✅ Added pane for feature/api
+
+# Create second worktree (adds pane to workspace)
+owt create bugfix/login
+# ✅ Added pane to workspace!
+# Total: 3 / 4 panes
+
+# All visible in one tmux session:
+┌──────────┬─────────────────────┐
+│          │   feature/api       │
+│   main   ├─────────────────────┤
+│  (1/3)   │   bugfix/login      │
+└──────────┴─────────────────────┘
+
+# Navigate with: Ctrl+b → arrow keys
+```
+
+### Workspace Layout: main-focus
+
+- **Left 1/3**: Main repository (orchestration center, always visible)
+- **Right 2/3**: Up to 3 worktree panes stacked horizontally
+- **Max panes**: 4 total (1 main + 3 worktrees)
+
+### Opt-Out: Separate Sessions
+
+Use `--separate-session` for old behavior (standalone tmux session):
+
+```bash
+owt create feature/standalone --separate-session
+# ✅ tmux session created: owt-feature-standalone
+# (Not added to workspace)
+```
+
+### Workspace Commands
+
+```bash
+# List workspaces
+owt workspace list
+
+# Show workspace details
+owt workspace show owt-myproject
+
+# Attach to workspace
+owt workspace attach owt-myproject
+
+# Destroy workspace (keeps worktrees)
+owt workspace destroy owt-myproject
+```
+
+## Core Workflow
+
+### 1. Create a Worktree (Workspace Mode)
+
+```bash
+# Create worktree (adds pane to workspace by default)
 owt create feature/new-auth
+# ✅ Created workspace or added pane to existing workspace
 
 # Create with Claude in plan mode (safe exploration)
 owt create feature/new-auth --plan-mode
+
+# Create separate session (opt-out of workspace mode)
+owt create feature/new-auth --separate-session
 
 # Create with workflow template (pre-configured settings)
 owt create feature/new-auth --template feature
@@ -562,7 +630,36 @@ owt create feature/x --tool droid --auto-level high
 
 ## Common Patterns
 
-### Pattern 1: Template-Based Development
+### Pattern 1: Unified Workspace Development (Default)
+```bash
+# Create worktrees - all visible in one tmux session
+owt create feature/api
+owt create bugfix/auth
+owt create research/perf
+
+# Your workspace now looks like:
+┌──────────┬─────────────────────┐
+│          │   feature/api       │
+│          │   (working...)      │
+│          ├─────────────────────┤
+│   main   │   bugfix/auth       │
+│  (ready) │   (testing...)      │
+│          ├─────────────────────┤
+│          │   research/perf     │
+│          │   (analyzing...)    │
+└──────────┴─────────────────────┘
+
+# Navigate between panes: Ctrl+b → arrow keys
+# All AI agents visible and working in parallel
+
+# List workspaces
+owt workspace list
+
+# Attach to workspace
+owt workspace attach owt-myproject
+```
+
+### Pattern 2: Template-Based Development
 ```bash
 # Use templates for consistent workflows
 owt template list
@@ -582,7 +679,7 @@ owt create feature/simple --template bugfix --auto-optimize
 # Auto-selects claude-haiku instead of opus (85% cheaper)
 ```
 
-### Pattern 2: Health-Monitored Development
+### Pattern 3: Health-Monitored Development
 ```bash
 # Create multiple worktrees
 owt create feature/api --template feature
@@ -599,7 +696,7 @@ owt health feature/api
 owt dashboard
 ```
 
-### Pattern 3: Cost-Aware Development
+### Pattern 4: Cost-Aware Development
 ```bash
 # Check current costs
 owt cost feature/api
@@ -615,7 +712,7 @@ owt create feature/complex --template feature
 owt tokens show
 ```
 
-### Pattern 4: Parallel Feature Development
+### Pattern 5: Parallel Feature Development
 ```bash
 # Main worktree: Core feature
 owt create feature/payments
@@ -626,7 +723,7 @@ owt create feature/payments-tests
 owt send feature/payments-tests "Write tests for payment service"
 ```
 
-### Pattern 2: Bug Investigation + Fix
+### Pattern 6: Bug Investigation + Fix
 ```bash
 # Create investigation worktree
 owt create bugfix/memory-leak
@@ -638,7 +735,7 @@ owt send bugfix/memory-leak "Profile memory usage and identify leaks in user ser
 owt status bugfix/memory-leak
 ```
 
-### Pattern 3: Refactoring Across Modules
+### Pattern 7: Refactoring Across Modules
 ```bash
 owt create refactor/api-layer
 owt create refactor/data-layer
@@ -649,7 +746,7 @@ owt send refactor/data-layer "Implement repository pattern for database access"
 owt send refactor/tests "Update all integration tests for new patterns"
 ```
 
-### Pattern 4: PR-Centric Development
+### Pattern 8: PR-Centric Development
 ```bash
 # Create worktree and link to PR
 owt create feature/payments
@@ -665,7 +762,7 @@ owt status
 owt pr cleanup
 ```
 
-### Pattern 5: Monitored Parallel Development
+### Pattern 9: Monitored Parallel Development
 ```bash
 # Terminal 1: Launch dashboard for real-time monitoring
 owt dashboard
@@ -679,7 +776,7 @@ owt send feature/api "Add REST endpoints"
 # Dashboard auto-updates showing all activity
 ```
 
-### Pattern 6: No-tmux Workflow
+### Pattern 10: No-tmux Workflow
 ```bash
 # Create worktree without tmux session
 owt create feature/simple --no-tmux
@@ -694,7 +791,7 @@ owt process logs feature/simple
 owt process stop feature/simple
 ```
 
-### Pattern 7: Session Continuity
+### Pattern 11: Session Continuity
 ```bash
 # Work on feature, then need to restart
 owt create feature/complex-refactor
