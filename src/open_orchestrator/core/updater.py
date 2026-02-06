@@ -72,29 +72,49 @@ class Updater:
             logger.warning("Could not detect installation path")
             return None
 
-    def check_for_updates(self) -> UpdateInfo:
+    def check_for_updates(self, include_prereleases: bool = True) -> UpdateInfo:
         """Check if a new version is available on GitHub.
+
+        Args:
+            include_prereleases: Whether to include pre-release versions (default: True)
 
         Returns:
             UpdateInfo with details about available updates.
         """
         try:
-            # Fetch latest release from GitHub API
-            url = f"{self.GITHUB_API}/releases/latest"
+            # Fetch all releases from GitHub API (includes pre-releases)
+            url = f"{self.GITHUB_API}/releases"
             req = urllib.request.Request(
                 url,
                 headers={"Accept": "application/vnd.github.v3+json"},
             )
 
             with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode())
+                releases = json.loads(response.read().decode())
 
-            latest_version = data.get("tag_name", "").lstrip("v")
-            release_url = data.get("html_url")
-            release_notes = data.get("body", "")
+            if not releases:
+                raise ValueError("No releases found")
 
-            # Compare versions (simple string comparison for now)
+            # Filter releases based on prerelease preference
+            if not include_prereleases:
+                releases = [r for r in releases if not r.get("prerelease", False)]
+
+            if not releases:
+                raise ValueError("No stable releases found")
+
+            # Get the first release (most recent)
+            latest_release = releases[0]
+            latest_version = latest_release.get("tag_name", "").lstrip("v")
+            release_url = latest_release.get("html_url")
+            release_notes = latest_release.get("body", "")
+            is_prerelease = latest_release.get("prerelease", False)
+
+            # Compare versions
             update_available = self._is_newer_version(latest_version, self.current_version)
+
+            # Add pre-release indicator to notes if applicable
+            if is_prerelease and release_notes:
+                release_notes = f"⚠️  **Pre-release version**\n\n{release_notes}"
 
             return UpdateInfo(
                 current_version=self.current_version,
