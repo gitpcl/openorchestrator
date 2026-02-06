@@ -28,6 +28,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Session Management**: Copy Claude sessions between worktrees, resume previous sessions
 - **Shell Completion**: Auto-completion for bash, zsh, and fish shells
 - **No-tmux Mode**: Manage AI processes without tmux for simpler setups
+- **Self-Update**: Built-in update checker and self-update functionality
 
 ## Installation
 
@@ -114,6 +115,23 @@ owt cleanup --dry-run
 
 # Actually clean up
 owt cleanup
+```
+
+### Update to latest version
+
+```bash
+# Check for updates
+owt update --check
+
+# Update to latest version
+owt update
+
+# Update to specific version
+owt update --version v0.2.0
+
+# Show version information
+owt version
+owt version --full
 ```
 
 ### Monitor with live dashboard
@@ -212,6 +230,16 @@ owt health --all
 | `owt completion zsh` | Generate zsh completion script |
 | `owt completion fish` | Generate fish completion script |
 | `owt completion install` | Show installation instructions |
+
+### Update & Version
+
+| Command | Description |
+|---------|-------------|
+| `owt version` | Show current version |
+| `owt version --full` | Show detailed installation information |
+| `owt update` | Update to latest version |
+| `owt update --check` | Check for updates without installing |
+| `owt update --version <tag>` | Update to specific version |
 
 ### Claude Code Skill
 

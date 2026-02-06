@@ -1,6 +1,6 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI coding tool orchestration for parallel development with unified workspace mode. Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments, (3) Using workflow templates for common patterns, (4) Managing multiple AI coding sessions, (5) Delegating tasks to parallel worktrees, (6) Orchestrating Claude Code/OpenCode/Droid across branches, (7) Monitoring worktree health and detecting issues, (8) Optimizing AI tool costs and comparing pricing, (9) Cleaning up stale worktrees, (10) Syncing worktrees with upstream, (11) Monitoring with live dashboard, (12) Tracking token usage and costs, (13) Linking worktrees to GitHub PRs, (14) Managing status change hooks/notifications, (15) Copying/resuming Claude sessions. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, unified view, owt commands, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management."
+description: "Git worktree + AI coding tool orchestration for parallel development with unified workspace mode. Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments, (3) Using workflow templates for common patterns, (4) Managing multiple AI coding sessions, (5) Delegating tasks to parallel worktrees, (6) Orchestrating Claude Code/OpenCode/Droid across branches, (7) Monitoring worktree health and detecting issues, (8) Optimizing AI tool costs and comparing pricing, (9) Cleaning up stale worktrees, (10) Syncing worktrees with upstream, (11) Monitoring with live dashboard, (12) Tracking token usage and costs, (13) Linking worktrees to GitHub PRs, (14) Managing status change hooks/notifications, (15) Copying/resuming Claude sessions, (16) Updating to latest version or checking for updates. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, unified view, owt commands, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management, update, version."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
@@ -41,6 +41,8 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt process start <name>` | Start AI tool without tmux |
 | `owt process list` | List running AI processes |
 | `owt completion install` | Install shell auto-completion |
+| `owt version [--full]` | Show version and installation info |
+| `owt update [--check]` | Update to latest version |
 
 ## 🆕 Unified Workspace Mode (Default)
 

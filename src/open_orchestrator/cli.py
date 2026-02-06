@@ -3654,5 +3654,117 @@ def dashboard(
     dash.run()
 
 
+@main.command("version")
+@click.option("--full", is_flag=True, help="Show detailed version information")
+def version_cmd(full: bool) -> None:
+    """Show version information.
+
+    Examples:
+        owt version              # Show version number
+        owt version --full       # Show detailed installation info
+    """
+    from open_orchestrator.core.updater import Updater
+
+    updater = Updater()
+
+    if full:
+        info = updater.get_install_info()
+        console.print(f"\n[bold cyan]Open Orchestrator v{info['version']}[/bold cyan]\n")
+
+        table = Table(show_header=False, box=None)
+        table.add_column("Key", style="cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Install Path", info.get("install_path", "Unknown"))
+        table.add_row("Python Version", info["python_version"].split()[0])
+        table.add_row("Dev Install", "Yes" if info.get("is_dev_install") else "No")
+
+        if "git_branch" in info:
+            table.add_row("Git Branch", info["git_branch"])
+        if "git_commit" in info:
+            table.add_row("Git Commit", info["git_commit"])
+        if info.get("has_local_changes"):
+            table.add_row("Local Changes", "[yellow]Yes[/yellow]")
+
+        console.print(table)
+        console.print()
+    else:
+        console.print(f"Open Orchestrator v{updater.get_current_version()}")
+
+
+@main.command("update")
+@click.option("--check", is_flag=True, help="Check for updates without installing")
+@click.option("--version", "target_version", help="Update to specific version (e.g., v0.2.0)")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
+def update_cmd(check: bool, target_version: str | None, yes: bool) -> None:
+    """Update Open Orchestrator to the latest version.
+
+    Examples:
+        owt update               # Update to latest version
+        owt update --check       # Check if updates are available
+        owt update --version v0.2.0  # Update to specific version
+        owt update -y            # Update without confirmation
+    """
+    from open_orchestrator.core.updater import Updater
+
+    updater = Updater()
+
+    if check:
+        # Check for updates only
+        console.print("[cyan]Checking for updates...[/cyan]")
+        update_info = updater.check_for_updates()
+
+        if update_info.update_available:
+            console.print(
+                f"\n[green]✓[/green] Update available: "
+                f"v{update_info.current_version} → [bold green]v{update_info.latest_version}[/bold green]\n"
+            )
+
+            if update_info.release_url:
+                console.print(f"Release URL: {update_info.release_url}")
+
+            if update_info.release_notes:
+                console.print("\n[bold]Release Notes:[/bold]")
+                console.print(update_info.release_notes[:500])
+                if len(update_info.release_notes) > 500:
+                    console.print("\n[dim]...[/dim]")
+
+            console.print(f"\nRun [cyan]owt update[/cyan] to install v{update_info.latest_version}")
+        else:
+            console.print(
+                f"\n[green]✓[/green] Already up to date (v{update_info.current_version})\n"
+            )
+        return
+
+    # Perform update
+    if not yes:
+        if target_version:
+            msg = f"Update to version {target_version}?"
+        else:
+            console.print("[cyan]Checking for updates...[/cyan]")
+            update_info = updater.check_for_updates()
+
+            if not update_info.update_available:
+                console.print(
+                    f"\n[green]✓[/green] Already up to date (v{update_info.current_version})\n"
+                )
+                return
+
+            msg = f"Update from v{update_info.current_version} to v{update_info.latest_version}?"
+
+        if not click.confirm(msg):
+            console.print("[yellow]Update cancelled[/yellow]")
+            return
+
+    console.print("[cyan]Updating Open Orchestrator...[/cyan]")
+    success, message = updater.update(target_version)
+
+    if success:
+        console.print(f"\n[green]✓[/green] {message}\n")
+    else:
+        console.print(f"\n[red]✗[/red] {message}\n")
+        raise click.Abort()
+
+
 if __name__ == "__main__":
     main()
