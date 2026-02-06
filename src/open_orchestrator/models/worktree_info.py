@@ -17,6 +17,7 @@ class WorktreeInfo(BaseModel):
     is_main: bool = Field(default=False, description="Whether this is the main worktree")
     is_detached: bool = Field(default=False, description="Whether HEAD is detached")
     created_at: datetime | None = Field(default=None, description="When the worktree was created")
+    template_name: str | None = Field(default=None, description="Template used to create this worktree")
 
     @property
     def name(self) -> str:
@@ -36,3 +37,4 @@ class WorktreeCreateResult(BaseModel):
     created_branch: bool = Field(default=False, description="Whether a new branch was created")
     deps_installed: bool = Field(default=False, description="Whether dependencies were installed")
     tmux_session: str | None = Field(default=None, description="Name of the tmux session if created")
+    template_applied: str | None = Field(default=None, description="Name of template that was applied")

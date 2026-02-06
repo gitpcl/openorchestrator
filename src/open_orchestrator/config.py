@@ -179,6 +179,45 @@ class DroidConfig(BaseModel):
     )
 
 
+class WorktreeTemplate(BaseModel):
+    """Template configuration for common worktree workflows."""
+
+    name: str = Field(..., description="Template name")
+    description: str = Field(..., description="Template description")
+    base_branch: str | None = Field(
+        default=None,
+        description="Default base branch for this template",
+    )
+    ai_tool: AITool | None = Field(
+        default=None,
+        description="AI tool to use (claude, opencode, droid)",
+    )
+    ai_instructions: str | None = Field(
+        default=None,
+        description="Instructions to send to AI when worktree is created",
+    )
+    tmux_layout: str | None = Field(
+        default=None,
+        description="tmux pane layout to use",
+    )
+    plan_mode: bool = Field(
+        default=False,
+        description="Start Claude in plan mode (safe exploration)",
+    )
+    auto_commands: list[str] = Field(
+        default_factory=list,
+        description="Commands to run automatically after creation",
+    )
+    install_deps: bool | None = Field(
+        default=None,
+        description="Override auto_install_deps setting",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Tags for categorizing templates",
+    )
+
+
 class WorktreeConfig(BaseModel):
     """Configuration for worktree operations."""
 
@@ -326,6 +365,149 @@ class Config(BaseModel):
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     droid: DroidConfig = Field(default_factory=DroidConfig)
+    # Worktree templates
+    templates: dict[str, WorktreeTemplate] = Field(
+        default_factory=dict,
+        description="Custom worktree templates",
+    )
+
+    def get_template(self, name: str) -> WorktreeTemplate | None:
+        """
+        Get a template by name, checking custom templates first, then built-in.
+
+        Args:
+            name: Template name to retrieve
+
+        Returns:
+            WorktreeTemplate if found, None otherwise
+        """
+        # Check custom templates first
+        if name in self.templates:
+            return self.templates[name]
+
+        # Fall back to built-in templates
+        return get_builtin_template(name)
+
+
+def get_builtin_templates() -> dict[str, WorktreeTemplate]:
+    """
+    Get built-in worktree templates inspired by Claude-Flow's specialized agents.
+
+    Returns:
+        Dictionary mapping template names to WorktreeTemplate instances
+    """
+    return {
+        "bugfix": WorktreeTemplate(
+            name="bugfix",
+            description="Quick bugfix workflow - identify root cause, minimal changes, tests first",
+            base_branch="main",
+            ai_tool=AITool.CLAUDE,
+            ai_instructions="Focus on: 1) Identifying root cause, 2) Writing tests that reproduce the bug, 3) Minimal code changes to fix",
+            tmux_layout="three-pane",
+            auto_commands=["git log --oneline -10", "git diff main"],
+            tags=["quick", "maintenance"],
+        ),
+        "feature": WorktreeTemplate(
+            name="feature",
+            description="Full feature development - plan first, implement with tests, document",
+            base_branch="develop",
+            ai_tool=AITool.CLAUDE,
+            ai_instructions="Follow this workflow: 1) Plan the implementation, 2) Write tests first (TDD), 3) Implement feature, 4) Document as you go",
+            tmux_layout="quad",
+            plan_mode=True,
+            tags=["development", "tdd"],
+        ),
+        "research": WorktreeTemplate(
+            name="research",
+            description="Safe exploration mode - read-only, no code changes, document findings",
+            base_branch="main",
+            ai_tool=AITool.CLAUDE,
+            ai_instructions="Explore and document options. Do NOT make code changes yet - this is research only. Document your findings thoroughly.",
+            tmux_layout="main-vertical",
+            plan_mode=True,
+            install_deps=False,
+            tags=["exploration", "read-only"],
+        ),
+        "security-audit": WorktreeTemplate(
+            name="security-audit",
+            description="Security review - scan for vulnerabilities, check dependencies, detect secrets",
+            base_branch="main",
+            ai_tool=AITool.CLAUDE,
+            ai_instructions="Security audit checklist: 1) Review for common vulnerabilities (XSS, SQL injection, etc), 2) Check dependency security, 3) Scan for exposed secrets",
+            tmux_layout="main-vertical",
+            auto_commands=["npm audit 2>/dev/null || pip-audit 2>/dev/null || echo 'No audit tools found'"],
+            tags=["security", "audit"],
+        ),
+        "refactor": WorktreeTemplate(
+            name="refactor",
+            description="Code refactoring - improve structure while maintaining functionality",
+            base_branch="develop",
+            ai_tool=AITool.CLAUDE,
+            ai_instructions="Refactoring focus: 1) Identify code smells, 2) Plan refactoring steps, 3) Ensure tests pass at each step, 4) Keep commits small and focused",
+            tmux_layout="three-pane",
+            plan_mode=True,
+            tags=["refactoring", "quality"],
+        ),
+        "hotfix": WorktreeTemplate(
+            name="hotfix",
+            description="Emergency production fix - fast, focused, minimal risk",
+            base_branch="main",
+            ai_tool=AITool.CLAUDE,
+            ai_instructions="HOTFIX MODE: 1) Minimal changes only, 2) Must include test, 3) Focus on production stability",
+            tmux_layout="main-vertical",
+            tags=["urgent", "production"],
+        ),
+        "experiment": WorktreeTemplate(
+            name="experiment",
+            description="Try new approaches - isolated environment, no pressure",
+            base_branch="develop",
+            ai_tool=AITool.CLAUDE,
+            ai_instructions="This is an experimental branch. Feel free to try different approaches. Document what works and what doesn't.",
+            tmux_layout="quad",
+            install_deps=True,
+            tags=["experimental", "prototype"],
+        ),
+        "docs": WorktreeTemplate(
+            name="docs",
+            description="Documentation updates - README, API docs, guides",
+            base_branch="main",
+            ai_tool=AITool.CLAUDE,
+            ai_instructions="Documentation focus: 1) Update relevant docs, 2) Check for outdated information, 3) Ensure examples work, 4) Improve clarity",
+            tmux_layout="main-vertical",
+            install_deps=False,
+            tags=["documentation"],
+        ),
+    }
+
+
+def get_builtin_template(name: str) -> WorktreeTemplate | None:
+    """
+    Get a built-in template by name.
+
+    Args:
+        name: Template name
+
+    Returns:
+        WorktreeTemplate if found, None otherwise
+    """
+    templates = get_builtin_templates()
+    return templates.get(name)
+
+
+def list_all_templates(config: Config) -> dict[str, WorktreeTemplate]:
+    """
+    Get all templates (built-in + custom).
+
+    Args:
+        config: Config instance with custom templates
+
+    Returns:
+        Dictionary of all available templates
+    """
+    templates = get_builtin_templates()
+    # Custom templates override built-in
+    templates.update(config.templates)
+    return templates
 
 
 def load_config(config_path: str | None = None) -> Config:

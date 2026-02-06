@@ -4,6 +4,7 @@ import json
 import subprocess
 from contextlib import nullcontext
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
@@ -32,6 +33,9 @@ from open_orchestrator.core.worktree import (
 )
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 from open_orchestrator.models.worktree_info import WorktreeInfo
+
+if TYPE_CHECKING:
+    from open_orchestrator.models.status import HealthReport
 
 console = Console()
 
@@ -336,6 +340,110 @@ def skill_status() -> None:
         console.print("  [bold]Up-to-date:[/bold] [red]Cannot verify (source missing)[/red]")
 
 
+@main.group("template")
+def template_group() -> None:
+    """Manage worktree templates for common workflows.
+
+    Templates provide pre-configured settings for different types of work:
+    bugfix, feature, research, security-audit, refactor, hotfix, experiment, docs.
+    """
+
+
+@template_group.command("list")
+@click.option(
+    "--tags",
+    help="Filter templates by tags (comma-separated)",
+)
+@click.option(
+    "--builtin-only",
+    is_flag=True,
+    help="Show only built-in templates",
+)
+def template_list(tags: str | None, builtin_only: bool) -> None:
+    """List all available worktree templates."""
+    from open_orchestrator.config import get_builtin_templates, list_all_templates, load_config
+
+    config = load_config()
+
+    if builtin_only:
+        templates = get_builtin_templates()
+    else:
+        templates = list_all_templates(config)
+
+    if not templates:
+        console.print("[yellow]No templates available[/yellow]")
+        return
+
+    # Filter by tags if specified
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",")]
+        templates = {name: tmpl for name, tmpl in templates.items() if any(tag in tmpl.tags for tag in tag_list)}
+
+    if not templates:
+        console.print(f"[yellow]No templates found with tags: {tags}[/yellow]")
+        return
+
+    table = Table(title="Worktree Templates", show_header=True)
+    table.add_column("Name", style="cyan")
+    table.add_column("Description")
+    table.add_column("AI Tool", style="magenta")
+    table.add_column("Tags", style="dim")
+
+    for name, template in sorted(templates.items()):
+        ai_tool = template.ai_tool.value if template.ai_tool else "default"
+        tags_str = ", ".join(template.tags) if template.tags else "-"
+        table.add_row(name, template.description, ai_tool, tags_str)
+
+    console.print(table)
+    console.print("\n[dim]Use 'owt template show <name>' to see template details[/dim]")
+
+
+@template_group.command("show")
+@click.argument("name")
+def template_show(name: str) -> None:
+    """Show detailed information about a template."""
+    from open_orchestrator.config import load_config
+
+    config = load_config()
+    template = config.get_template(name)
+
+    if not template:
+        console.print(f"[red]✗[/red] Template not found: {name}")
+        console.print("\nAvailable templates:")
+        console.print("  Run 'owt template list' to see all templates")
+        raise click.Abort()
+
+    console.print(f"\n[bold cyan]{template.name}[/bold cyan]")
+    console.print(f"[dim]{template.description}[/dim]\n")
+
+    console.print("[bold]Configuration:[/bold]")
+    if template.base_branch:
+        console.print(f"  Base branch: {template.base_branch}")
+    if template.ai_tool:
+        console.print(f"  AI tool: {template.ai_tool.value}")
+    if template.tmux_layout:
+        console.print(f"  tmux layout: {template.tmux_layout}")
+    if template.plan_mode:
+        console.print("  Plan mode: [green]enabled[/green]")
+    if template.install_deps is not None:
+        status = "[green]yes[/green]" if template.install_deps else "[red]no[/red]"
+        console.print(f"  Install dependencies: {status}")
+
+    if template.ai_instructions:
+        console.print(f"\n[bold]AI Instructions:[/bold]")
+        console.print(f"[dim]{template.ai_instructions}[/dim]")
+
+    if template.auto_commands:
+        console.print(f"\n[bold]Auto Commands:[/bold]")
+        for cmd in template.auto_commands:
+            console.print(f"  • {cmd}")
+
+    if template.tags:
+        console.print(f"\n[bold]Tags:[/bold] {', '.join(template.tags)}")
+
+    console.print(f"\n[dim]Usage: owt create <branch> --template {name}[/dim]")
+
+
 @main.command("create")
 @click.argument("branch")
 @click.option(
@@ -343,6 +451,12 @@ def skill_status() -> None:
     "--base",
     "base_branch",
     help="Base branch for creating new branches.",
+)
+@click.option(
+    "-t",
+    "--template",
+    "template_name",
+    help="Apply a worktree template (use 'owt template list' to see available templates).",
 )
 @click.option(
     "-p",
@@ -423,6 +537,11 @@ def skill_status() -> None:
     help="Start Claude in plan mode (--permission-mode plan).",
 )
 @click.option(
+    "--auto-optimize",
+    is_flag=True,
+    help="Automatically select cost-effective AI tool based on task (use with --template).",
+)
+@click.option(
     "--sync-claude-md/--no-sync-claude-md",
     default=True,
     help="Sync CLAUDE.md files from main repo (default: enabled).",
@@ -430,6 +549,7 @@ def skill_status() -> None:
 def create_worktree(
     branch: str,
     base_branch: str | None,
+    template_name: str | None,
     path: Path | None,
     force: bool,
     tmux: bool,
@@ -444,6 +564,7 @@ def create_worktree(
     deps: bool,
     env: bool,
     plan_mode: bool,
+    auto_optimize: bool,
     sync_claude_md: bool,
 ) -> None:
     """Create a new worktree for BRANCH with tmux session.
@@ -465,6 +586,67 @@ def create_worktree(
     wt_manager = get_worktree_manager()
     tmux_manager = TmuxManager() if tmux else None
     main_repo_path = wt_manager.repo.working_dir
+
+    # Apply template configuration if specified
+    template_config = {}
+    ai_instructions = None
+    auto_commands = []
+
+    if template_name:
+        try:
+            template_config = wt_manager.get_template_config(template_name)
+
+            # Template overrides CLI arguments
+            if "base_branch" in template_config and not base_branch:
+                base_branch = template_config["base_branch"]
+            if "ai_tool" in template_config:
+                ai_tool = template_config["ai_tool"].value
+            if "tmux_layout" in template_config:
+                layout = template_config["tmux_layout"]
+            if "plan_mode" in template_config:
+                plan_mode = template_config["plan_mode"]
+            if "install_deps" in template_config:
+                deps = template_config["install_deps"]
+            if "ai_instructions" in template_config:
+                ai_instructions = template_config["ai_instructions"]
+            if "auto_commands" in template_config:
+                auto_commands = template_config["auto_commands"]
+
+            console.print(f"[dim]Using template: {template_name}[/dim]")
+        except WorktreeError as e:
+            console.print(f"[red]✗[/red] {e}")
+            raise click.Abort() from e
+
+    # Auto-optimize AI tool selection
+    if auto_optimize and ai_instructions:
+        tracker = StatusTracker()
+        recommendation = tracker.recommend_ai_tool(
+            task_description=ai_instructions or branch,
+            prefer_quality=False,
+        )
+
+        recommended_tool = recommendation["recommended_tool"]
+        reasoning = recommendation["reasoning"]
+
+        # Show cost comparison
+        console.print()
+        console.print("[bold cyan]💰 Cost Optimization:[/bold cyan]")
+        console.print(f"  Recommended: [green]{recommended_tool}[/green]")
+        console.print(f"  Reason: [dim]{reasoning}[/dim]")
+
+        # Map recommendation to AI tool enum value
+        tool_mapping = {
+            "claude-opus": "claude",
+            "claude-sonnet": "claude",
+            "claude-haiku": "claude",
+            "gpt-4o": "opencode",  # Assuming opencode can use different models
+            "gpt-4o-mini": "opencode",
+        }
+
+        ai_tool = tool_mapping.get(recommended_tool, "claude")
+        console.print(f"  Using: [green]{ai_tool}[/green]")
+    elif auto_optimize:
+        console.print("[yellow]⚠[/yellow] [dim]--auto-optimize requires a template with AI instructions[/dim]")
 
     try:
         with console.status(f"[bold blue]Creating worktree for '{branch}'..."):
@@ -578,6 +760,34 @@ def create_worktree(
                     tmux_session=tmux_session.session_name,
                     ai_tool=ai_tool_enum,
                 )
+
+                # Send AI instructions from template if provided
+                if ai_instructions and claude:
+                    try:
+                        console.print(f"\n[dim]Sending template instructions to {ai_tool_enum.value}...[/dim]")
+                        tmux_manager.send_keys_to_session(
+                            session_name=tmux_session.session_name,
+                            keys=ai_instructions,
+                            pane_index=0,
+                        )
+                        status_tracker.update_task(worktree.name, ai_instructions[:100])
+                    except Exception as e:
+                        console.print(f"[yellow]Warning: Could not send AI instructions: {e}[/yellow]")
+
+                # Run auto commands from template
+                if auto_commands:
+                    console.print(f"\n[dim]Running {len(auto_commands)} auto command(s)...[/dim]")
+                    for cmd in auto_commands:
+                        try:
+                            # Run commands in a separate pane if available
+                            target_pane = 1 if tmux_session.pane_count > 1 else 0
+                            tmux_manager.send_keys_to_session(
+                                session_name=tmux_session.session_name,
+                                keys=cmd,
+                                pane_index=target_pane,
+                            )
+                        except Exception as e:
+                            console.print(f"[yellow]Warning: Could not run command '{cmd}': {e}[/yellow]")
 
                 # Auto-detect and link PR if pattern matches
                 try:
@@ -1515,6 +1725,229 @@ def _print_worktree_status_detail(wt_status: WorktreeAIStatus, worktree: Worktre
             cmd_display = cmd.command[:60] + "..." if len(cmd.command) > 60 else cmd.command
             time_str = cmd.timestamp.strftime("%H:%M")
             console.print(f"  [{time_str}] {cmd_display} {source}")
+
+
+@main.command("health")
+@click.argument("worktree", required=False)
+@click.option(
+    "-a",
+    "--all",
+    is_flag=True,
+    help="Check health of all worktrees",
+)
+@click.option(
+    "--stuck-threshold",
+    type=int,
+    default=30,
+    help="Minutes before task is considered stuck (default: 30)",
+)
+@click.option(
+    "--token-threshold",
+    type=int,
+    default=100_000,
+    help="Token count threshold for high usage warning (default: 100,000)",
+)
+@click.option(
+    "--cost-threshold",
+    type=float,
+    default=10.0,
+    help="Cost threshold in USD (default: 10.0)",
+)
+@click.option(
+    "--stale-days",
+    type=int,
+    default=7,
+    help="Days of inactivity before stale warning (default: 7)",
+)
+@click.option(
+    "--idle-hours",
+    type=int,
+    default=24,
+    help="Hours of idle before warning (default: 24)",
+)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output as JSON",
+)
+def health_check(
+    worktree: str | None,
+    all: bool,
+    stuck_threshold: int,
+    token_threshold: int,
+    cost_threshold: float,
+    stale_days: int,
+    idle_hours: int,
+    output_json: bool,
+) -> None:
+    """Check health of worktrees and detect issues.
+
+    Monitors for:
+    - Stuck tasks (same task for too long)
+    - High token usage (possible infinite loops)
+    - High cost sessions
+    - Repeated errors
+    - Stale worktrees (no activity)
+    - Idle AI sessions
+
+    Example:
+        owt health feature/api
+        owt health --all
+        owt health --all --stuck-threshold 60
+    """
+    tracker = StatusTracker()
+
+    if all:
+        # Check all worktrees
+        summary = tracker.check_all_health(
+            stuck_threshold_minutes=stuck_threshold,
+            high_token_threshold=token_threshold,
+            high_cost_threshold_usd=cost_threshold,
+            stale_threshold_days=stale_days,
+            idle_threshold_hours=idle_hours,
+        )
+
+        if output_json:
+            console.print_json(data=summary.model_dump(mode="json"))
+            return
+
+        # Display summary
+        console.print()
+        console.print("[bold]Health Summary[/bold]")
+        console.print(f"Total worktrees: {summary.total_worktrees}")
+        console.print(f"[green]Healthy: {summary.healthy_worktrees}[/green]")
+        if summary.worktrees_with_warnings:
+            console.print(f"[yellow]With warnings: {summary.worktrees_with_warnings}[/yellow]")
+        if summary.worktrees_with_critical_issues:
+            console.print(f"[red]Critical issues: {summary.worktrees_with_critical_issues}[/red]")
+
+        # Show unhealthy worktrees
+        unhealthy = [r for r in summary.reports if not r.healthy or r.issues]
+        if unhealthy:
+            console.print()
+            for report in unhealthy:
+                _display_health_report(report, console)
+        else:
+            console.print("\n[green]✓ All worktrees are healthy![/green]")
+
+    else:
+        # Check specific worktree or current
+        if not worktree:
+            worktree = tracker.get_current_worktree_name()
+            if not worktree:
+                console.print("[red]✗[/red] Not in a tracked worktree. Specify worktree name or use --all")
+                raise click.Abort()
+
+        report = tracker.check_health(
+            worktree_name=worktree,
+            stuck_threshold_minutes=stuck_threshold,
+            high_token_threshold=token_threshold,
+            high_cost_threshold_usd=cost_threshold,
+            stale_threshold_days=stale_days,
+            idle_threshold_hours=idle_hours,
+        )
+
+        if output_json:
+            console.print_json(data=report.model_dump(mode="json"))
+            return
+
+        _display_health_report(report, console)
+
+
+def _display_health_report(report: "HealthReport", console: Console) -> None:
+    """Display a health report in a formatted way."""
+    from open_orchestrator.models.status import HealthIssueSeverity
+
+    # Header
+    status_icon = "[green]✓[/green]" if report.healthy else "[red]✗[/red]"
+    console.print(f"\n{status_icon} [bold]{report.worktree_name}[/bold]")
+
+    if not report.issues:
+        console.print("[dim]No issues detected[/dim]")
+        return
+
+    # Group issues by severity
+    if report.critical_issues:
+        console.print("\n[bold red]Critical Issues:[/bold red]")
+        for issue in report.critical_issues:
+            console.print(f"  [red]✗[/red] {issue.message}")
+            if issue.recommendation:
+                console.print(f"    [dim]→ {issue.recommendation}[/dim]")
+
+    if report.warning_issues:
+        console.print("\n[bold yellow]Warnings:[/bold yellow]")
+        for issue in report.warning_issues:
+            console.print(f"  [yellow]⚠[/yellow] {issue.message}")
+            if issue.recommendation:
+                console.print(f"    [dim]→ {issue.recommendation}[/dim]")
+
+    if report.info_issues:
+        console.print("\n[bold cyan]Info:[/bold cyan]")
+        for issue in report.info_issues:
+            console.print(f"  [cyan]ℹ[/cyan] {issue.message}")
+            if issue.recommendation:
+                console.print(f"    [dim]→ {issue.recommendation}[/dim]")
+
+
+@main.command("cost")
+@click.argument("worktree", required=False)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output as JSON",
+)
+def cost_comparison(worktree: str | None, output_json: bool) -> None:
+    """Show cost comparison across AI tools for a worktree.
+
+    Displays current cost, alternative costs, and potential savings.
+
+    Example:
+        owt cost
+        owt cost feature/api
+        owt cost --json
+    """
+    tracker = StatusTracker()
+    result = tracker.show_cost_comparison(worktree)
+
+    if "error" in result:
+        console.print(f"[red]✗[/red] {result['error']}")
+        raise click.Abort()
+
+    if output_json:
+        console.print_json(data=result)
+        return
+
+    # Display formatted output
+    console.print()
+    console.print(f"[bold]Cost Analysis: {result['worktree']}[/bold]")
+    console.print()
+    console.print(f"Current AI tool: [cyan]{result['current_tool']}[/cyan]")
+    console.print(f"Total tokens: [dim]{result['total_tokens']:,}[/dim]")
+    console.print(f"Current cost: [yellow]${result['current_cost']:.4f}[/yellow]")
+    console.print()
+
+    # Show all costs
+    console.print("[bold]Cost by AI Tool:[/bold]")
+    sorted_costs = sorted(result["all_costs"].items(), key=lambda x: x[1])
+    for tool, cost in sorted_costs:
+        is_current = tool == result["current_tool"]
+        marker = "→" if is_current else " "
+        color = "yellow" if is_current else "dim"
+        console.print(f"  {marker} {tool:20s} ${cost:.4f}" if is_current else f"  {marker} [{color}]{tool:20s} ${cost:.4f}[/{color}]")
+
+    # Show savings
+    if result["potential_savings"] > 0.01:
+        console.print()
+        console.print(f"[bold green]💰 Potential Savings:[/bold green]")
+        console.print(f"  Cheapest: [green]{result['cheapest_tool']}[/green] (${result['cheapest_cost']:.4f})")
+        console.print(f"  Savings: [green]${result['potential_savings']:.4f}[/green] ({result['savings_percentage']:.1f}%)")
+        console.print()
+        console.print(f"[dim]  Tip: Use --auto-optimize when creating new worktrees to save costs[/dim]")
+    else:
+        console.print()
+        console.print("[green]✓ Already using the most cost-effective tool![/green]")
 
 
 @main.command("copy-session")

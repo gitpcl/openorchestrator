@@ -257,6 +257,50 @@ class WorktreeManager:
 
         return worktree
 
+    def get_template_config(self, template_name: str) -> dict[str, Any]:
+        """
+        Get configuration overrides from a template.
+
+        This method extracts template settings that can be used to override
+        default configuration for tmux layout, AI tool, installation settings, etc.
+
+        Args:
+            template_name: Name of the template to load
+
+        Returns:
+            Dictionary of configuration overrides from the template
+
+        Raises:
+            WorktreeError: If template not found
+        """
+        from open_orchestrator.config import load_config
+
+        config = load_config()
+        template = config.get_template(template_name)
+
+        if not template:
+            raise WorktreeError(f"Template not found: {template_name}")
+
+        # Build configuration overrides from template
+        overrides: dict[str, Any] = {}
+
+        if template.base_branch:
+            overrides["base_branch"] = template.base_branch
+        if template.ai_tool:
+            overrides["ai_tool"] = template.ai_tool
+        if template.tmux_layout:
+            overrides["tmux_layout"] = template.tmux_layout
+        if template.plan_mode is not None:
+            overrides["plan_mode"] = template.plan_mode
+        if template.install_deps is not None:
+            overrides["install_deps"] = template.install_deps
+        if template.ai_instructions:
+            overrides["ai_instructions"] = template.ai_instructions
+        if template.auto_commands:
+            overrides["auto_commands"] = template.auto_commands
+
+        return overrides
+
     def _branch_exists(self, branch: str) -> bool:
         """
         Check if a branch exists in the repository.
