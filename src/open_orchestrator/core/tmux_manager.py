@@ -43,6 +43,7 @@ class TmuxSessionConfig:
     opencode_config: str | None = None
     plan_mode: bool = False
     window_name: str | None = None
+    mouse_mode: bool = True
 
 
 @dataclass
@@ -178,6 +179,14 @@ class TmuxManager:
                     droid_skip_permissions=config.droid_skip_permissions,
                     opencode_config=config.opencode_config,
                     plan_mode=config.plan_mode,
+                )
+
+            # Enable mouse mode if configured
+            if config.mouse_mode:
+                # Set as global option for this session
+                subprocess.run(
+                    ["tmux", "set-option", "-t", session.name, "mouse", "on"],
+                    check=False,  # Don't fail if this doesn't work
                 )
 
             return self._get_session_info(session)
@@ -472,6 +481,7 @@ class TmuxManager:
         droid_skip_permissions: bool = False,
         opencode_config: str | None = None,
         plan_mode: bool = False,
+        mouse_mode: bool = True,
     ) -> TmuxSessionInfo:
         """
         Create a tmux session for a worktree.
@@ -490,6 +500,7 @@ class TmuxManager:
             droid_skip_permissions: Skip droid permissions check
             opencode_config: OpenCode config path
             plan_mode: Start Claude in plan mode
+            mouse_mode: Enable mouse support (click to switch panes, drag to resize)
 
         Returns:
             TmuxSessionInfo with created session details
@@ -508,6 +519,7 @@ class TmuxManager:
             opencode_config=opencode_config,
             plan_mode=plan_mode,
             window_name=worktree_name,
+            mouse_mode=mouse_mode,
         )
 
         return self.create_session(config)

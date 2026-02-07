@@ -10,7 +10,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from open_orchestrator.config import AITool, DroidAutoLevel
+from open_orchestrator.config import AITool, DroidAutoLevel, load_config
 from open_orchestrator.core.environment import (
     EnvironmentSetup,
     EnvironmentSetupError,
@@ -763,6 +763,7 @@ def create_worktree(
         owt create feature/standalone --separate-session
         owt create feature/research --plan-mode
     """
+    config = load_config()
     wt_manager = get_worktree_manager()
     tmux_manager = TmuxManager() if tmux else None
     main_repo_path = wt_manager.repo.working_dir
@@ -955,6 +956,7 @@ def create_worktree(
                                 droid_auto=droid_auto_enum,
                                 droid_skip_permissions=droid_skip_permissions,
                                 opencode_config=opencode_config,
+                                mouse_mode=config.tmux.mouse_mode,
                             )
 
                             session_info = tmux_manager.create_session(session_config)
@@ -1025,6 +1027,7 @@ def create_worktree(
                             droid_skip_permissions=droid_skip_permissions,
                             opencode_config=opencode_config,
                             plan_mode=plan_mode,
+                            mouse_mode=config.tmux.mouse_mode,
                         )
 
                     console.print()

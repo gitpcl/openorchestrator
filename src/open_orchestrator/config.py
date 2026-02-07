@@ -258,6 +258,10 @@ class TmuxConfig(BaseModel):
         default="owt",
         description="Prefix for tmux session names",
     )
+    mouse_mode: bool = Field(
+        default=True,
+        description="Enable mouse support (click to switch panes, drag to resize)",
+    )
 
 
 class WorkspaceConfig(BaseModel):
