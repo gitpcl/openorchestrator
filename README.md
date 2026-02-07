@@ -11,6 +11,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 ## Features
 
 - **Unified Workspace Mode**: See all worktrees in a single tmux session with split panes (like Claude Code Agent Teams)
+- **Mouse-Enabled tmux**: Click to switch panes, drag to resize - mouse support enabled by default
 - **Git Worktree Management**: Create, list, switch, and delete worktrees with automatic branch management
 - **Template-Based Workflows**: Pre-configured templates for common tasks (bugfix, feature, research, security-audit, etc.)
 - **tmux Integration**: Auto-create tmux sessions with customizable layouts for each worktree
@@ -402,6 +403,7 @@ default_layout = "main-vertical"
 auto_start_ai = true
 ai_tool = "claude"  # Options: claude, opencode, droid
 pane_count = 2
+mouse_mode = true  # Enable mouse support (click to switch, drag to resize)
 
 [environment]
 auto_install_deps = true
@@ -447,6 +449,7 @@ tags = ["feature", "tdd"]
 | `auto_start_ai` | `true` | Auto-start AI tool in first pane |
 | `ai_tool` | `"claude"` | AI tool to start: `claude`, `opencode`, `droid` |
 | `pane_count` | `2` | Number of panes to create |
+| `mouse_mode` | `true` | Enable mouse support (click to switch panes, drag to resize) |
 
 Available layouts:
 - `main-vertical`: Large left pane, smaller right panes
@@ -643,7 +646,8 @@ Workspace mode gives you a split-pane view where you can see multiple worktrees 
 **Benefits:**
 - ✅ See all worktrees at once (no session switching)
 - ✅ Monitor multiple AI agents working in parallel
-- ✅ Navigate between panes with `Ctrl+b → arrow keys`
+- ✅ **Click to switch panes** or use `Ctrl+b → arrow keys` (mouse mode enabled by default)
+- ✅ **Drag borders to resize** panes to your preference
 - ✅ Main repo always visible on left for orchestration
 - ✅ Up to 3 worktrees visible simultaneously
 
@@ -694,7 +698,30 @@ $ owt create research/options
 └──────────┴─────────────────────┘
 
 # All visible! No session switching needed.
-# Navigate with: Ctrl+b → arrow keys
+```
+
+### Navigating Panes
+
+**Mouse Navigation (Enabled by Default):**
+```bash
+# Click on any pane to switch to it
+# Drag pane borders to resize
+# Scroll with trackpad/mouse wheel
+```
+
+**Keyboard Navigation:**
+```bash
+Ctrl+b → ←↑↓→   # Navigate between panes with arrow keys
+Ctrl+b → o      # Cycle through panes
+Ctrl+b → q      # Show pane numbers, press number to jump
+Ctrl+b → d      # Detach from tmux session
+```
+
+**Disable Mouse Mode (if needed):**
+```toml
+# In .worktreerc
+[tmux]
+mouse_mode = false
 ```
 
 ### Workspace Commands

@@ -984,6 +984,7 @@ def create_worktree(
                         pane_index = tmux_manager.add_worktree_pane(
                             session_name=workspace_name,
                             worktree_path=str(worktree.path),
+                            worktree_name=worktree.name,
                             ai_tool=ai_tool_enum,
                             plan_mode=plan_mode,
                             droid_auto=droid_auto_enum,

@@ -183,11 +183,17 @@ class TmuxManager:
 
             # Enable mouse mode if configured
             if config.mouse_mode:
-                # Set as global option for this session
-                subprocess.run(
-                    ["tmux", "set-option", "-t", session.name, "mouse", "on"],
-                    check=False,  # Don't fail if this doesn't work
-                )
+                session.set_option("mouse", "on")
+
+            # Enable pane border status to show worktree names
+            if window:
+                window.set_window_option("pane-border-status", "top")
+                window.set_window_option("pane-border-format", " #{pane_title} ")
+
+                # Set title for main pane
+                if window.panes:
+                    main_pane = window.panes[0]
+                    main_pane.set_title("main")
 
             return self._get_session_info(session)
 
@@ -585,6 +591,7 @@ class TmuxManager:
         self,
         session_name: str,
         worktree_path: str,
+        worktree_name: str | None = None,
         ai_tool: AITool = AITool.CLAUDE,
         plan_mode: bool = False,
         droid_auto: DroidAutoLevel | None = None,
@@ -599,6 +606,7 @@ class TmuxManager:
         Args:
             session_name: Name of the workspace session
             worktree_path: Path to the worktree
+            worktree_name: Name of the worktree (for pane title)
             ai_tool: AI tool to start in the pane
             plan_mode: Start Claude in plan mode
             droid_auto: Droid auto mode level
@@ -636,6 +644,10 @@ class TmuxManager:
 
             # Start AI tool in the new pane
             if new_pane:
+                # Set pane title to worktree name
+                if worktree_name:
+                    new_pane.set_title(worktree_name)
+
                 self._start_ai_tool_in_pane(
                     new_pane,
                     ai_tool=ai_tool,
