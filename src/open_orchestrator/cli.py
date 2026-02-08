@@ -3,6 +3,7 @@
 import json
 import subprocess
 from contextlib import nullcontext
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -1613,6 +1614,17 @@ def cleanup_worktrees(
     is_flag=True,
     help="Do not persist this command in status history.",
 )
+@click.option(
+    "--autonomous",
+    is_flag=True,
+    help="Execute autonomously without user interaction (auto-handles prompts).",
+)
+@click.option(
+    "--ai-tool",
+    type=click.Choice(["claude", "opencode", "droid"]),
+    default="claude",
+    help="AI tool to use for autonomous execution (default: claude).",
+)
 def send_to_worktree(
     identifier: str,
     command: str,
@@ -1620,6 +1632,8 @@ def send_to_worktree(
     window: int,
     no_enter: bool,
     no_log: bool,
+    autonomous: bool,
+    ai_tool: str,
 ) -> None:
     """Send a command to another worktree's tmux session.
 
@@ -1629,13 +1643,16 @@ def send_to_worktree(
     By default, sends to the main pane (pane 0) where Claude Code runs.
     Commands sent are tracked and visible via `owt status`.
 
+    With --autonomous, starts an autonomous agent that handles the task
+    independently without requiring user interaction.
+
     Example:
         owt send feature/auth "implement login validation"
         owt send my-worktree "run the tests"
         owt send feature/api "fix the bug in user service" --pane 1
+        owt send my-feature "implement auth" --autonomous
     """
     wt_manager = get_worktree_manager()
-    tmux_manager = TmuxManager()
     status_tracker = StatusTracker()
 
     try:
@@ -1643,6 +1660,55 @@ def send_to_worktree(
     except WorktreeNotFoundError as e:
         raise click.ClickException(str(e)) from e
 
+    # Handle autonomous mode
+    if autonomous:
+        from open_orchestrator.core.auto_agent import AutoAgent, AutoAgentError
+
+        # Set up log directory
+        log_dir = Path.home() / ".cache" / "open-orchestrator" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = log_dir / f"{worktree.name}_{timestamp}.log"
+
+        # Parse AI tool
+        tool_enum = AITool(ai_tool)
+
+        try:
+            console.print(f"[cyan]Starting autonomous execution for {worktree.name}...[/cyan]")
+
+            # Create and start agent
+            agent = AutoAgent(
+                worktree_path=worktree.path,
+                task=command,
+                ai_tool=tool_enum,
+                log_file=log_file,
+            )
+
+            # Initialize status tracking if needed
+            wt_status = status_tracker.get_status(worktree.name)
+            if not wt_status:
+                status_tracker.initialize_status(
+                    worktree_name=worktree.name,
+                    worktree_path=str(worktree.path),
+                    branch=worktree.branch,
+                    ai_tool=tool_enum,
+                )
+
+            # Start agent
+            agent.start()
+
+            # Update status
+            status_tracker.update_task(worktree.name, command, AIActivityStatus.WORKING)
+
+            console.print(f"[green]✓[/green] Autonomous agent started for {worktree.name}")
+            console.print(f"Log file: {log_file}")
+            return
+
+        except AutoAgentError as e:
+            raise click.ClickException(f"Failed to start autonomous agent: {e}") from e
+
+    # Standard tmux mode
+    tmux_manager = TmuxManager()
     session = tmux_manager.get_session_for_worktree(worktree.name)
 
     if not session:
@@ -3893,6 +3959,326 @@ def update_cmd(check: bool, target_version: str | None, yes: bool) -> None:
     else:
         console.print(f"\n[red]✗[/red] {message}\n")
         raise click.Abort()
+
+
+# =============================================================================
+# Autonomous Agent Commands
+# =============================================================================
+
+
+@main.group("agent")
+def agent_group() -> None:
+    """Manage autonomous AI agents for worktrees.
+
+    Start, stop, and monitor autonomous agents that work independently
+    without user interaction.
+    """
+
+
+@agent_group.command("start")
+@click.argument("worktree_identifier")
+@click.argument("task")
+@click.option(
+    "--ai-tool",
+    type=click.Choice(["claude", "opencode", "droid"]),
+    default="claude",
+    help="AI tool to use (default: claude)",
+)
+@click.option(
+    "--plan-mode",
+    is_flag=True,
+    help="Start Claude in plan mode",
+)
+def agent_start(worktree_identifier: str, task: str, ai_tool: str, plan_mode: bool) -> None:
+    """Start an autonomous agent for a worktree.
+
+    The agent will work on the task independently, automatically handling
+    workspace trust prompts and other interactive inputs.
+
+    Example:
+        owt agent start my-feature "Implement user authentication"
+        owt agent start my-feature "Fix bug in checkout flow" --plan-mode
+    """
+    from open_orchestrator.config import AITool
+    from open_orchestrator.core.auto_agent import AutoAgent, AutoAgentError
+
+    wt_manager = get_worktree_manager()
+    status_tracker = StatusTracker()
+
+    # Find worktree
+    try:
+        worktree = wt_manager.get(worktree_identifier)
+    except WorktreeNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    # Check if already running
+    existing_status = status_tracker.get_status(worktree.name)
+    if existing_status and existing_status.activity_status == AIActivityStatus.WORKING:
+        raise click.ClickException(
+            f"Agent is already working on {worktree.name}. Use 'owt agent stop {worktree.name}' first."
+        )
+
+    # Set up log directory
+    log_dir = Path.home() / ".cache" / "open-orchestrator" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f"{worktree.name}_{timestamp}.log"
+
+    # Parse AI tool
+    tool_enum = AITool(ai_tool)
+
+    try:
+        console.print(f"[cyan]Starting autonomous agent for {worktree.name}...[/cyan]")
+        console.print(f"Task: {task}")
+        console.print(f"AI tool: {ai_tool}")
+        console.print(f"Log file: {log_file}")
+        console.print()
+
+        # Create and start agent
+        agent = AutoAgent(
+            worktree_path=worktree.path,
+            task=task,
+            ai_tool=tool_enum,
+            log_file=log_file,
+            plan_mode=plan_mode,
+        )
+
+        # Initialize status tracking
+        status_tracker.initialize_status(
+            worktree_name=worktree.name,
+            worktree_path=str(worktree.path),
+            branch=worktree.branch,
+            ai_tool=tool_enum,
+        )
+
+        # Start agent in background (we won't block)
+        agent.start()
+
+        # Update status
+        status_tracker.update_task(worktree.name, task, AIActivityStatus.WORKING)
+
+        console.print(f"[green]✓[/green] Autonomous agent started for {worktree.name}")
+        console.print()
+        console.print("[dim]Monitor with:[/dim]")
+        console.print(f"  owt agent status")
+        console.print(f"  owt agent logs {worktree.name}")
+
+    except AutoAgentError as e:
+        raise click.ClickException(f"Failed to start agent: {e}") from e
+
+
+@agent_group.command("stop")
+@click.argument("worktree_identifier")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force kill the agent process",
+)
+def agent_stop(worktree_identifier: str, force: bool) -> None:
+    """Stop a running autonomous agent.
+
+    Example:
+        owt agent stop my-feature
+        owt agent stop my-feature --force
+    """
+    from open_orchestrator.core.process_manager import ProcessManager, ProcessNotFoundError
+
+    wt_manager = get_worktree_manager()
+    status_tracker = StatusTracker()
+
+    try:
+        worktree = wt_manager.get(worktree_identifier)
+    except WorktreeNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    # Try to stop via ProcessManager
+    process_manager = ProcessManager()
+
+    try:
+        console.print(f"[cyan]Stopping agent for {worktree.name}...[/cyan]")
+        success = process_manager.stop_ai_tool(worktree.name, force=force)
+
+        if success:
+            console.print(f"[green]✓[/green] Agent stopped for {worktree.name}")
+            status_tracker.mark_idle(worktree.name)
+        else:
+            console.print(f"[yellow]No running agent found for {worktree.name}[/yellow]")
+
+    except ProcessNotFoundError:
+        console.print(f"[yellow]No running agent found for {worktree.name}[/yellow]")
+
+
+@agent_group.command("status")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def agent_status(json_output: bool) -> None:
+    """Show status of all autonomous agents.
+
+    Example:
+        owt agent status
+        owt agent status --json
+    """
+    status_tracker = StatusTracker()
+    wt_manager = get_worktree_manager()
+
+    worktrees = wt_manager.list_all()
+    worktree_names = [wt.name for wt in worktrees]
+
+    summary = status_tracker.get_summary(worktree_names)
+
+    if json_output:
+        output = {
+            "active_agents": summary.active_ai_sessions,
+            "idle_agents": summary.idle_ai_sessions,
+            "blocked_agents": summary.blocked_ai_sessions,
+            "agents": [
+                {
+                    "name": s.worktree_name,
+                    "status": s.activity_status.value if hasattr(s.activity_status, "value") else str(s.activity_status),
+                    "task": s.current_task,
+                    "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                }
+                for s in summary.statuses
+            ],
+        }
+        console.print(json.dumps(output, indent=2))
+        return
+
+    if not summary.statuses:
+        console.print("[yellow]No active agents found.[/yellow]")
+        console.print("\nStart an agent with:")
+        console.print('  owt agent start <worktree> "<task>"')
+        return
+
+    console.print("[bold]Autonomous Agent Status[/bold]")
+    console.print()
+    console.print(f"Active: {summary.active_ai_sessions} | Idle: {summary.idle_ai_sessions} | Blocked: {summary.blocked_ai_sessions}")
+    console.print()
+
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Worktree")
+    table.add_column("Status")
+    table.add_column("Current Task")
+    table.add_column("Last Updated")
+
+    for wt_status in summary.statuses:
+        status_display = wt_status.activity_status.value if hasattr(wt_status.activity_status, "value") else str(wt_status.activity_status)
+
+        if wt_status.activity_status == AIActivityStatus.WORKING:
+            status_style = "[green]working[/green]"
+        elif wt_status.activity_status == AIActivityStatus.BLOCKED:
+            status_style = "[red]blocked[/red]"
+        else:
+            status_style = "[dim]idle[/dim]"
+
+        task = wt_status.current_task or "-"
+        updated = wt_status.updated_at.strftime("%H:%M:%S") if wt_status.updated_at else "-"
+
+        table.add_row(wt_status.worktree_name, status_style, task, updated)
+
+    console.print(table)
+
+
+@agent_group.command("logs")
+@click.argument("worktree_identifier")
+@click.option("-f", "--follow", is_flag=True, help="Follow log output (like tail -f)")
+@click.option("-n", "--lines", default=50, help="Number of lines to show (default: 50)")
+def agent_logs(worktree_identifier: str, follow: bool, lines: int) -> None:
+    """View logs for an autonomous agent.
+
+    Example:
+        owt agent logs my-feature
+        owt agent logs my-feature -f
+        owt agent logs my-feature -n 100
+    """
+    from open_orchestrator.core.process_manager import ProcessManager
+
+    wt_manager = get_worktree_manager()
+
+    try:
+        worktree = wt_manager.get(worktree_identifier)
+    except WorktreeNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    process_manager = ProcessManager()
+    log_path = process_manager.get_log_path(worktree.name)
+
+    if not log_path or not log_path.exists():
+        raise click.ClickException(f"No log file found for {worktree.name}")
+
+    if follow:
+        # Use tail -f to follow the log
+        subprocess.run(["tail", "-f", str(log_path)], check=True)
+    else:
+        # Show last N lines
+        subprocess.run(["tail", "-n", str(lines), str(log_path)], check=True)
+
+
+@agent_group.command("health")
+@click.argument("worktree_identifier", required=False)
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def agent_health(worktree_identifier: str | None, json_output: bool) -> None:
+    """Check health of autonomous agents and detect issues.
+
+    Example:
+        owt agent health              # Check all agents
+        owt agent health my-feature   # Check specific agent
+        owt agent health --json
+    """
+    status_tracker = StatusTracker()
+    wt_manager = get_worktree_manager()
+
+    if worktree_identifier:
+        # Check single worktree
+        try:
+            worktree = wt_manager.get(worktree_identifier)
+        except WorktreeNotFoundError as e:
+            raise click.ClickException(str(e)) from e
+
+        report = status_tracker.check_health(worktree.name)
+
+        if json_output:
+            console.print(report.model_dump_json(indent=2))
+            return
+
+        console.print(f"[bold]Health Report for {worktree.name}[/bold]")
+        console.print()
+
+        if report.healthy:
+            console.print("[green]✓[/green] Agent is healthy")
+        else:
+            console.print("[red]✗[/red] Issues detected:")
+
+        if report.issues:
+            console.print()
+            for issue in report.issues:
+                severity_color = "red" if issue.severity.value == "critical" else "yellow"
+                console.print(f"[{severity_color}]{issue.severity.value.upper()}[/{severity_color}] {issue.message}")
+                console.print(f"  → {issue.recommendation}")
+                console.print()
+
+    else:
+        # Check all worktrees
+        health_summary = status_tracker.check_all_health()
+
+        if json_output:
+            console.print(health_summary.model_dump_json(indent=2))
+            return
+
+        console.print("[bold]Health Summary Across All Agents[/bold]")
+        console.print()
+        console.print(f"Total: {health_summary.total_worktrees}")
+        console.print(f"[green]Healthy: {health_summary.healthy_worktrees}[/green]")
+        console.print(f"[yellow]Warnings: {health_summary.worktrees_with_warnings}[/yellow]")
+        console.print(f"[red]Critical: {health_summary.worktrees_with_critical_issues}[/red]")
+        console.print()
+
+        if health_summary.worktrees_with_critical_issues > 0:
+            console.print("[bold]Critical Issues:[/bold]")
+            for report in health_summary.reports:
+                if report.critical_issues:
+                    console.print(f"  [red]✗[/red] {report.worktree_name}")
+                    for issue in report.critical_issues:
+                        console.print(f"      {issue.message}")
 
 
 if __name__ == "__main__":

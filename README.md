@@ -164,6 +164,10 @@ owt health --all
 | `owt send <name> "cmd"` | Send a command to another worktree's Claude session |
 | `owt status [name]` | Show Claude activity status across all worktrees |
 | `owt dashboard` | Launch live TUI dashboard to monitor all worktrees |
+| `owt agent start <wt> "<task>"` | Start autonomous agent that works independently |
+| `owt agent status` | Show status of all autonomous agents |
+| `owt agent logs <wt>` | View logs for autonomous agent |
+| `owt agent health` | Check health of autonomous agents |
 
 ### Template Commands
 
@@ -1361,6 +1365,158 @@ bugfix/typo      claude          $4.20    claude-haiku   $4.15
 ✅ **Cost Control:** Track spending, optimize AI tool selection
 ✅ **Health Monitoring:** Catch stuck tasks and issues early
 ✅ **Template Workflows:** Standardize team practices
+
+## Autonomous Agent Mode
+
+**EXPERIMENTAL:** Autonomous agents can work independently on tasks without user interaction by automatically handling workspace trust prompts and other interactive inputs.
+
+### What is Autonomous Mode?
+
+Autonomous mode allows AI tools (Claude Code, OpenCode, Droid) to work completely independently on tasks:
+- ✅ **Auto-approves workspace trust prompts**
+- ✅ **Automatically executes commands without waiting for Enter**
+- ✅ **Runs in background** - no terminal attachment needed
+- ✅ **Health monitoring** - detects stuck or blocked agents
+- ✅ **Auto-recovery** - attempts to recover from common issues
+- ✅ **Full logging** - everything is logged for review
+
+### Quick Start
+
+```bash
+# Start an autonomous agent for a worktree
+owt agent start feature/new-ui "Implement dark mode toggle"
+
+# Monitor all autonomous agents
+owt agent status
+
+# View logs for a specific agent
+owt agent logs feature/new-ui -f
+
+# Check agent health
+owt agent health feature/new-ui
+
+# Stop an agent
+owt agent stop feature/new-ui
+```
+
+### Autonomous `send` Command
+
+Use `--autonomous` with the `send` command for one-off autonomous execution:
+
+```bash
+# Standard send (requires user interaction in tmux)
+owt send feature/api "implement user authentication"
+
+# Autonomous send (works independently)
+owt send feature/api "implement user authentication" --autonomous
+
+# With different AI tool
+owt send feature/api "implement auth" --autonomous --ai-tool opencode
+```
+
+### Agent Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `owt agent start <worktree> "<task>"` | Start autonomous agent for a worktree |
+| `owt agent stop <worktree>` | Stop running autonomous agent |
+| `owt agent status` | Show status of all autonomous agents |
+| `owt agent logs <worktree> [-f]` | View agent logs (use -f to follow) |
+| `owt agent health [worktree]` | Check agent health and detect issues |
+
+### How It Works
+
+1. **Process Spawning:** Uses `pexpect` to spawn the AI tool process
+2. **Prompt Detection:** Watches for common prompts (workspace trust, ready state)
+3. **Auto-Response:** Automatically responds to detected prompts
+4. **Task Execution:** Sends the task and monitors execution
+5. **Health Monitoring:** Periodically checks for stuck/blocked states
+6. **Auto-Recovery:** Attempts Ctrl+C + retry on common issues
+
+### Health Monitoring
+
+Autonomous agents are continuously monitored for:
+- **Stuck tasks** - No output for extended period
+- **Error loops** - Repeated error patterns
+- **Blocked state** - Agent requesting help or clarification
+- **Resource issues** - High CPU/memory usage
+- **Unexpected termination** - Process crashes
+
+```bash
+# Check all agents
+owt agent health
+
+# Check specific agent
+owt agent health feature/new-ui
+
+# JSON output for scripting
+owt agent health --json
+```
+
+### Limitations & Known Issues
+
+⚠️ **Current Limitations:**
+- Claude Code's interactive prompts may change between versions
+- Complex multi-step workflows may require human intervention
+- Cost tracking is passive (agent can rack up costs unmonitored)
+- No built-in approval for destructive operations (git force-push, rm -rf)
+
+⚠️ **Use with caution when:**
+- Working with production code or main branch
+- Agent has write access to sensitive files
+- Task involves external APIs or services
+- Cost is a concern (monitor token usage actively)
+
+### Best Practices
+
+1. **Start small:** Test with simple tasks first
+2. **Monitor actively:** Use `owt agent status` and `owt agent logs -f`
+3. **Set boundaries:** Use templates with restricted permissions
+4. **Review work:** Always review agent's changes before committing
+5. **Use health checks:** Run `owt agent health` regularly
+6. **Budget limits:** Track token usage with `owt tokens show`
+
+### Example Workflows
+
+**Parallel Feature Development:**
+```bash
+# Create multiple worktrees
+owt create feature/auth
+owt create feature/ui
+owt create feature/api
+
+# Start autonomous agents for each
+owt agent start feature/auth "Implement JWT authentication"
+owt agent start feature/ui "Build login component"
+owt agent start feature/api "Create user registration endpoint"
+
+# Monitor all agents
+owt agent status
+
+# Check health every 5 minutes
+watch -n 300 'owt agent health --json | jq .'
+```
+
+**Automated Testing:**
+```bash
+# Agent runs tests and reports results
+owt agent start feature/new-feature "Run all tests and fix any failures"
+
+# Follow the logs
+owt agent logs feature/new-feature -f
+
+# Review results
+owt agent status
+```
+
+**Multi-step Refactoring:**
+```bash
+# Agent works through refactoring plan
+owt agent start refactor/cleanup "Read REFACTOR_PLAN.md and implement step 1"
+
+# Once complete, continue to next step
+owt send refactor/cleanup "Implement step 2 from REFACTOR_PLAN.md" --autonomous
+```
 
 ## Development
 

@@ -30,6 +30,7 @@ dependencies = [
     "toml>=0.10.0",
     "gitpython>=3.1.0",
     "libtmux>=0.25.0",
+    "pexpect>=4.9.0",
 ]
 
 [project.optional-dependencies]
