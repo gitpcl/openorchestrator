@@ -485,6 +485,7 @@ dependencies = [
     { name = "pexpect" },
     { name = "pydantic" },
     { name = "rich" },
+    { name = "textual" },
     { name = "toml" },
 ]
 
@@ -516,6 +517,7 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "textual", specifier = ">=0.47.0" },
     { name = "toml", specifier = ">=0.10.0" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'", specifier = ">=2.0.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.0" },
