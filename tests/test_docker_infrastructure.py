@@ -207,6 +207,69 @@ class TestPytestConfiguration:
         # Assert
         assert any("pytest-textual-snapshot" in dep for dep in dev_deps), "pytest-textual-snapshot not in dev dependencies"
 
+    def test_pyproject_toml_has_textual_dependency(self) -> None:
+        """Verify textual>=0.47.0 is in main dependencies for TUI mode."""
+        # Arrange
+        pyproject = Path("pyproject.toml")
+
+        # Act
+        with pyproject.open("rb") as f:
+            config = tomllib.load(f)
+
+        deps = config["project"]["dependencies"]
+
+        # Assert
+        textual_deps = [dep for dep in deps if dep.startswith("textual")]
+        assert len(textual_deps) > 0, "textual not in main dependencies"
+        assert any("textual>=" in dep for dep in textual_deps), "textual should have version constraint"
+
+    def test_textual_import_succeeds(self) -> None:
+        """Verify textual can be imported and meets minimum version."""
+        # Arrange & Act
+        result = subprocess.run(
+            [
+                "python",
+                "-c",
+                "import textual; "
+                "v = textual.__version__; "
+                "parts = v.split('.'); "
+                "major, minor = int(parts[0]), int(parts[1]); "
+                "assert major > 0 or (major == 0 and minor >= 47), f'textual {v} < 0.47.0'; "
+                "print(f'textual {v} OK')",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        # Assert
+        assert result.returncode == 0, f"textual import or version check failed: {result.stderr}"
+        assert "OK" in result.stdout, "textual version check did not complete"
+
+    def test_existing_dependencies_functional_after_textual(self) -> None:
+        """Verify all existing dependencies remain functional after adding textual."""
+        # Arrange - core dependencies that must remain functional
+        core_imports = [
+            "click",
+            "pydantic",
+            "rich",
+            "toml",
+            "git",  # gitpython
+            "libtmux",
+            "pexpect",
+            "textual",  # new dependency
+        ]
+
+        # Act & Assert
+        for module in core_imports:
+            result = subprocess.run(
+                ["python", "-c", f"import {module}; print('{module} OK')"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert result.returncode == 0, f"Core dependency '{module}' import failed: {result.stderr}"
+
 
 class TestCoverageConfiguration:
     """Tests for coverage configuration in pyproject.toml."""
