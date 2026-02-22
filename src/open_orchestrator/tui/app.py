@@ -5,13 +5,16 @@ Provides dmux-style interactive worktree management with keyboard navigation.
 """
 
 import sys
+from pathlib import Path
 from typing import Any
 
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Footer, Header
 
+from open_orchestrator.core.ab_launcher import ABLauncher
 from open_orchestrator.core.status import StatusTracker
 from open_orchestrator.core.worktree import WorktreeManager
+from open_orchestrator.tui.screens import ABCompareScreen
 from open_orchestrator.tui.widgets import WorktreeTableWidget
 
 
@@ -46,6 +49,7 @@ class OrchestratorApp(App[None]):
         self,
         status_tracker: StatusTracker | None = None,
         wt_manager: WorktreeManager | None = None,
+        ab_launcher: ABLauncher | None = None,
         **kwargs: Any,
     ):
         """
@@ -54,11 +58,13 @@ class OrchestratorApp(App[None]):
         Args:
             status_tracker: StatusTracker instance for state polling
             wt_manager: WorktreeManager instance for worktree operations
+            ab_launcher: ABLauncher instance for A/B workspace management
             **kwargs: Additional app arguments
         """
         super().__init__(**kwargs)
         self.status_tracker = status_tracker or StatusTracker()
         self.wt_manager = wt_manager or WorktreeManager()
+        self.ab_launcher = ab_launcher or ABLauncher()
         self._refresh_interval: float = 2.0
 
     def compose(self) -> ComposeResult:
@@ -159,10 +165,28 @@ class OrchestratorApp(App[None]):
         self.notify(f"Attach to worktree '{selected}' not yet implemented")
 
     def action_ab_launch(self) -> None:
-        """Handle 'a' key - launch A/B comparison."""
-        # Placeholder for A/B launcher
-        # Will be implemented in Task 6
-        self.notify("A/B launch not yet implemented")
+        """Handle 'a' key - launch A/B comparison screen."""
+        selected = self._get_selected_worktree()
+        if selected is None:
+            self.notify("No worktree selected")
+            return
+
+        # Find A/B workspace containing this worktree
+        workspace = self.ab_launcher.store.find_by_worktree(selected)
+        if workspace is None:
+            self.notify(
+                f"'{selected}' is not part of an A/B workspace. "
+                "Create one with: owt create <branch> --ab <tool1> <tool2>"
+            )
+            return
+
+        # Push A/B comparison screen
+        screen = ABCompareScreen(
+            workspace=workspace,
+            status_tracker=self.status_tracker,
+            wt_manager=self.wt_manager,
+        )
+        self.push_screen(screen)
 
 
 def is_interactive_terminal() -> bool:
@@ -178,6 +202,7 @@ def is_interactive_terminal() -> bool:
 def launch_tui(
     status_tracker: StatusTracker | None = None,
     wt_manager: WorktreeManager | None = None,
+    ab_launcher: ABLauncher | None = None,
 ) -> None:
     """
     Launch the TUI application.
@@ -187,6 +212,7 @@ def launch_tui(
     Args:
         status_tracker: Optional StatusTracker instance
         wt_manager: Optional WorktreeManager instance
+        ab_launcher: Optional ABLauncher instance
     """
     if not is_interactive_terminal():
         from rich.console import Console
@@ -200,6 +226,7 @@ def launch_tui(
     app = OrchestratorApp(
         status_tracker=status_tracker,
         wt_manager=wt_manager,
+        ab_launcher=ab_launcher,
     )
     app.run()
 

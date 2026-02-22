@@ -13,9 +13,12 @@ from unittest.mock import Mock, patch
 import pytest
 from textual.widgets import DataTable, Footer, Header
 
+from open_orchestrator.config import AITool
+from open_orchestrator.models.ab_workspace import ABWorkspace
 from open_orchestrator.models.status import AIActivityStatus, TokenUsage, WorktreeAIStatus
 from open_orchestrator.models.worktree_info import WorktreeInfo
 from open_orchestrator.tui.app import OrchestratorApp, is_interactive_terminal, launch_tui
+from open_orchestrator.tui.screens import ABCompareScreen
 from open_orchestrator.tui.widgets import WorktreeTableWidget
 
 
@@ -35,6 +38,31 @@ def mock_wt_manager():
     manager = Mock()
     manager.list_all = Mock(return_value=[])
     return manager
+
+
+@pytest.fixture
+def mock_ab_launcher():
+    """Create a mock ABLauncher."""
+    launcher = Mock()
+    launcher.store = Mock()
+    launcher.store.find_by_worktree = Mock(return_value=None)
+    return launcher
+
+
+@pytest.fixture
+def sample_ab_workspace():
+    """Create a sample ABWorkspace."""
+    return ABWorkspace(
+        id="test-ab-workspace",
+        branch="feature/test",
+        worktree_a="feature-test-claude",
+        worktree_b="feature-test-opencode",
+        tool_a=AITool.CLAUDE,
+        tool_b=AITool.OPENCODE,
+        tmux_session="owt-ab-test",
+        initial_prompt="Test prompt",
+        created_at=datetime.now(),
+    )
 
 
 @pytest.fixture
@@ -354,17 +382,95 @@ class TestOrchestratorAppActions:
             assert True
 
     @pytest.mark.textual
-    async def test_action_ab_launch(self, mock_status_tracker, mock_wt_manager):
-        """Test 'a' key triggers A/B launch action."""
+    async def test_action_ab_launch_no_selection(self, mock_status_tracker, mock_wt_manager, mock_ab_launcher):
+        """Test 'a' key with no selection shows notification."""
+        mock_wt_manager.list_all.return_value = []
+
         app = OrchestratorApp(
             status_tracker=mock_status_tracker,
             wt_manager=mock_wt_manager,
+            ab_launcher=mock_ab_launcher,
         )
 
         async with app.run_test() as pilot:
             await pilot.press("a")
-            # Verify notification was shown (placeholder implementation)
+            # Verify notification was shown
             assert len(app._notifications) > 0
+
+    @pytest.mark.textual
+    async def test_action_ab_launch_non_ab_worktree(
+        self, mock_status_tracker, mock_wt_manager, mock_ab_launcher, sample_worktree, sample_status
+    ):
+        """Test 'a' key with non-A/B worktree shows notification."""
+        mock_wt_manager.list_all.return_value = [sample_worktree]
+        mock_status_tracker.get_status.return_value = sample_status
+        mock_ab_launcher.store.find_by_worktree.return_value = None
+
+        app = OrchestratorApp(
+            status_tracker=mock_status_tracker,
+            wt_manager=mock_wt_manager,
+            ab_launcher=mock_ab_launcher,
+        )
+
+        async with app.run_test() as pilot:
+            # Wait for table to populate
+            await pilot.pause()
+
+            # Move cursor to first row
+            widget = app.query_one(WorktreeTableWidget)
+            table = widget.query_one(DataTable)
+            if table.row_count > 0:
+                table.move_cursor(row=0)
+                await pilot.pause()
+
+            await pilot.press("a")
+            # Verify notification was shown about non-A/B worktree
+            assert len(app._notifications) > 0
+
+    @pytest.mark.textual
+    async def test_action_ab_launch_opens_screen(
+        self,
+        mock_status_tracker,
+        mock_wt_manager,
+        mock_ab_launcher,
+        sample_ab_workspace,
+    ):
+        """Test 'a' key with A/B worktree opens ABCompareScreen."""
+        # Create an A/B worktree
+        ab_worktree = WorktreeInfo(
+            path=Path("/path/to/worktree/feature-test-claude"),
+            branch="feature/test-claude",
+            head_commit="abc123",
+            is_main=False,
+        )
+
+        mock_wt_manager.list_all.return_value = [ab_worktree]
+        mock_status_tracker.get_status.return_value = None
+        mock_ab_launcher.store.find_by_worktree.return_value = sample_ab_workspace
+
+        app = OrchestratorApp(
+            status_tracker=mock_status_tracker,
+            wt_manager=mock_wt_manager,
+            ab_launcher=mock_ab_launcher,
+        )
+
+        async with app.run_test() as pilot:
+            # Wait for table to populate
+            await pilot.pause()
+
+            # Move cursor to first row
+            widget = app.query_one(WorktreeTableWidget)
+            table = widget.query_one(DataTable)
+            if table.row_count > 0:
+                table.move_cursor(row=0)
+                await pilot.pause()
+
+            # Press 'a' to open A/B comparison screen
+            await pilot.press("a")
+            await pilot.pause()
+
+            # Verify ABCompareScreen was pushed
+            assert isinstance(pilot.app.screen, ABCompareScreen)
 
     @pytest.mark.textual
     async def test_action_quit(self, mock_status_tracker, mock_wt_manager):
