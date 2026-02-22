@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from open_orchestrator.config import AITool, DroidAutoLevel, load_config
+from open_orchestrator.core.ab_launcher import ABLauncher, ABLauncherError, ToolNotInstalledError
 from open_orchestrator.core.environment import (
     EnvironmentSetup,
     EnvironmentSetupError,
@@ -721,6 +722,18 @@ def workspace_destroy(name: str, yes: bool) -> None:
     is_flag=True,
     help="Create separate tmux session instead of adding to workspace (opt-out of default unified mode).",
 )
+@click.option(
+    "--ab",
+    "ab_tools",
+    nargs=2,
+    type=click.Choice(["claude", "opencode", "droid"]),
+    help="A/B comparison mode: create two worktrees with different AI tools (e.g., --ab claude opencode).",
+)
+@click.option(
+    "--prompt",
+    "ab_prompt",
+    help="Initial prompt to send to both agents (only used with --ab).",
+)
 def create_worktree(
     branch: str,
     base_branch: str | None,
@@ -742,6 +755,8 @@ def create_worktree(
     auto_optimize: bool,
     sync_claude_md: bool,
     separate_session: bool,
+    ab_tools: tuple[str, str] | None,
+    ab_prompt: str | None,
 ) -> None:
     """Create a new worktree for BRANCH with unified workspace mode.
 
@@ -756,13 +771,59 @@ def create_worktree(
 
     Use --separate-session to create a standalone tmux session instead.
 
+    Use --ab to create A/B comparison with two AI tools side-by-side.
+
     Examples:
         owt create feature/new-feature
         owt create bugfix/fix-123 --template bugfix
         owt create feature/api --base main
         owt create feature/standalone --separate-session
         owt create feature/research --plan-mode
+        owt create feature/test --ab claude opencode
+        owt create feature/test --ab claude opencode --prompt "Implement auth"
     """
+    # Handle A/B comparison mode
+    if ab_tools:
+        try:
+            tool_a_enum = AITool(ab_tools[0])
+            tool_b_enum = AITool(ab_tools[1])
+
+            ab_launcher = ABLauncher()
+
+            with console.status(f"[bold blue]Launching A/B comparison for '{branch}'..."):
+                ab_workspace = ab_launcher.launch(
+                    branch=branch,
+                    tool_a=tool_a_enum,
+                    tool_b=tool_b_enum,
+                    base_branch=base_branch,
+                    initial_prompt=ab_prompt,
+                )
+
+            console.print()
+            console.print("[bold green]A/B workspace created successfully!")
+            console.print()
+            console.print(f"[bold]Branch:[/bold]       {ab_workspace.branch}")
+            console.print(f"[bold]Worktree A:[/bold]   {ab_workspace.worktree_a} ({ab_workspace.tool_a.value})")
+            console.print(f"[bold]Worktree B:[/bold]   {ab_workspace.worktree_b} ({ab_workspace.tool_b.value})")
+            console.print(f"[bold]Session:[/bold]      {ab_workspace.tmux_session}")
+
+            if ab_workspace.initial_prompt:
+                console.print(f"[bold]Prompt:[/bold]       {ab_workspace.initial_prompt}")
+
+            console.print()
+            console.print("[dim]Attach to the session:[/dim]")
+            console.print(f"  tmux attach -t {ab_workspace.tmux_session}")
+            console.print()
+            console.print("[dim]Both agents are running side-by-side. Compare their outputs and choose the best result![/dim]")
+
+            return
+
+        except ToolNotInstalledError as e:
+            raise click.ClickException(str(e)) from e
+        except ABLauncherError as e:
+            raise click.ClickException(f"Failed to launch A/B comparison: {e}") from e
+
+    # Normal worktree creation (non-A/B mode)
     config = load_config()
     wt_manager = get_worktree_manager()
     tmux_manager = TmuxManager() if tmux else None
