@@ -1,10 +1,8 @@
 """Tests for autonomous agent functionality."""
 
-import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pexpect
 import pytest
 
 from open_orchestrator.config import AITool
@@ -13,7 +11,6 @@ from open_orchestrator.core.auto_agent import (
     AutoAgentError,
     AutoAgentMonitor,
     AutoAgentPromptPatterns,
-    AutoAgentTimeoutError,
 )
 from open_orchestrator.models.status import AIActivityStatus
 

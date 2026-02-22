@@ -507,8 +507,8 @@ class StatusTracker:
         """
         from open_orchestrator.models.status import (
             HealthIssue,
-            HealthIssueType,
             HealthIssueSeverity,
+            HealthIssueType,
             HealthReport,
         )
 
@@ -716,7 +716,6 @@ class StatusTracker:
         Returns:
             Dictionary with recommended tool, reasoning, and alternatives
         """
-        from open_orchestrator.config import AITool
 
         task_lower = task_description.lower()
 

@@ -5,7 +5,6 @@ unified workspaces where multiple worktrees are visible as panes in a single
 tmux session.
 """
 
-import json
 from pathlib import Path
 
 from open_orchestrator.models.workspace import Workspace, WorkspaceLayout, WorkspacePane, WorkspaceStore

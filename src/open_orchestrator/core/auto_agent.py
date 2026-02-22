@@ -11,7 +11,6 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Pattern
 
 import pexpect
 
@@ -356,7 +355,7 @@ class AutoAgent:
             return ""
 
         try:
-            with open(self.log_file, "r") as f:
+            with open(self.log_file) as f:
                 all_lines = f.readlines()
                 recent = all_lines[-lines:] if len(all_lines) > lines else all_lines
                 return "".join(recent)

@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field
 
 from open_orchestrator.config import AITool
 from open_orchestrator.core.auto_agent import AutoAgent, AutoAgentMonitor
-from open_orchestrator.models.status import AIActivityStatus
 from open_orchestrator.utils.io import atomic_write_text, shared_file_lock
 
 logger = logging.getLogger(__name__)

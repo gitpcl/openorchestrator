@@ -26,7 +26,6 @@ from open_orchestrator.core.tmux_manager import (
     TmuxSessionExistsError,
 )
 from open_orchestrator.core.workspace import (
-    WorkspaceError,
     WorkspaceFullError,
     WorkspaceManager,
     WorkspaceNotFoundError,
@@ -38,8 +37,8 @@ from open_orchestrator.core.worktree import (
     WorktreeManager,
     WorktreeNotFoundError,
 )
-from open_orchestrator.models.workspace import WorkspaceLayout
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
+from open_orchestrator.models.workspace import WorkspaceLayout
 from open_orchestrator.models.worktree_info import WorktreeInfo
 
 if TYPE_CHECKING:
@@ -438,11 +437,11 @@ def template_show(name: str) -> None:
         console.print(f"  Install dependencies: {status}")
 
     if template.ai_instructions:
-        console.print(f"\n[bold]AI Instructions:[/bold]")
+        console.print("\n[bold]AI Instructions:[/bold]")
         console.print(f"[dim]{template.ai_instructions}[/dim]")
 
     if template.auto_commands:
-        console.print(f"\n[bold]Auto Commands:[/bold]")
+        console.print("\n[bold]Auto Commands:[/bold]")
         for cmd in template.auto_commands:
             console.print(f"  • {cmd}")
 
@@ -529,7 +528,7 @@ def workspace_show(name: str) -> None:
     console.print(f"Capacity: {len(workspace.panes)} / {workspace.max_panes} panes")
 
     if workspace.panes:
-        console.print(f"\n[bold]Panes:[/bold]")
+        console.print("\n[bold]Panes:[/bold]")
         for pane in workspace.panes:
             if pane.is_main:
                 console.print(f"  [{pane.pane_index}] [cyan]main[/cyan] (orchestration center)")
@@ -981,7 +980,7 @@ def create_worktree(
                         )
 
                     # Add worktree pane to workspace
-                    with console.status(f"[bold blue]Adding pane to workspace..."):
+                    with console.status("[bold blue]Adding pane to workspace..."):
                         pane_index = tmux_manager.add_worktree_pane(
                             session_name=workspace_name,
                             worktree_path=str(worktree.path),
@@ -1255,7 +1254,7 @@ def delete_worktree(identifier: str, force: bool, yes: bool, keep_tmux: bool) ->
             if process_manager.has_process(worktree.name):
                 console.print(f"[yellow]Stopping AI tool process for {worktree.name}...[/yellow]")
                 process_manager.stop_ai_tool(worktree.name, force=force)
-                console.print(f"[green]✓[/green] Stopped AI tool process")
+                console.print("[green]✓[/green] Stopped AI tool process")
         except Exception as e:
             console.print(f"[yellow]Warning: Could not stop AI process: {e}[/yellow]")
 
@@ -2308,7 +2307,6 @@ def health_check(
 
 def _display_health_report(report: "HealthReport", console: Console) -> None:
     """Display a health report in a formatted way."""
-    from open_orchestrator.models.status import HealthIssueSeverity
 
     # Header
     status_icon = "[green]✓[/green]" if report.healthy else "[red]✗[/red]"
@@ -2391,11 +2389,11 @@ def cost_comparison(worktree: str | None, output_json: bool) -> None:
     # Show savings
     if result["potential_savings"] > 0.01:
         console.print()
-        console.print(f"[bold green]💰 Potential Savings:[/bold green]")
+        console.print("[bold green]💰 Potential Savings:[/bold green]")
         console.print(f"  Cheapest: [green]{result['cheapest_tool']}[/green] (${result['cheapest_cost']:.4f})")
         console.print(f"  Savings: [green]${result['potential_savings']:.4f}[/green] ({result['savings_percentage']:.1f}%)")
         console.print()
-        console.print(f"[dim]  Tip: Use --auto-optimize when creating new worktrees to save costs[/dim]")
+        console.print("[dim]  Tip: Use --auto-optimize when creating new worktrees to save costs[/dim]")
     else:
         console.print()
         console.print("[green]✓ Already using the most cost-effective tool![/green]")
@@ -4060,7 +4058,7 @@ def agent_start(worktree_identifier: str, task: str, ai_tool: str, plan_mode: bo
         console.print(f"[green]✓[/green] Autonomous agent started for {worktree.name}")
         console.print()
         console.print("[dim]Monitor with:[/dim]")
-        console.print(f"  owt agent status")
+        console.print("  owt agent status")
         console.print(f"  owt agent logs {worktree.name}")
 
     except AutoAgentError as e:
