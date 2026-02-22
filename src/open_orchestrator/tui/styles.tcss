@@ -1,0 +1,45 @@
+/* OrchestratorApp TUI Styles */
+
+/* Main app background */
+Screen {
+    background: $background;
+}
+
+/* Header styling */
+Header {
+    background: $primary;
+    color: $text;
+}
+
+/* Footer styling */
+Footer {
+    background: $panel;
+}
+
+/* Worktree table styling */
+WorktreeTableWidget {
+    height: 1fr;
+    border: solid $primary;
+}
+
+WorktreeTableWidget DataTable {
+    height: 100%;
+}
+
+/* Table cursor styling */
+DataTable > .datatable--cursor {
+    background: $accent;
+    color: $text;
+}
+
+/* Table header styling */
+DataTable > .datatable--header {
+    background: $primary-darken-2;
+    color: $text;
+    text-style: bold;
+}
+
+/* Hover effects */
+DataTable > .datatable--hover {
+    background: $primary-lighten-1;
+}

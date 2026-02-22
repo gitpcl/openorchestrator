@@ -5,4 +5,10 @@ This module provides reusable Textual widgets for building
 interactive terminal interfaces.
 """
 
-__all__: list[str] = []
+from open_orchestrator.tui.app import OrchestratorApp, is_interactive_terminal, launch_tui
+
+__all__ = [
+    "OrchestratorApp",
+    "is_interactive_terminal",
+    "launch_tui",
+]

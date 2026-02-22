@@ -81,6 +81,7 @@ warn_unused_ignores = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+asyncio_mode = "auto"
 markers = [
     "gh_cli: Tests that require GitHub CLI (gh) to be installed or mocked",
     "tmux: Tests that require tmux to be installed or mocked",
