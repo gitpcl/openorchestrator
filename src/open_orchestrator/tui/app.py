@@ -5,7 +5,6 @@ Provides dmux-style interactive worktree management with keyboard navigation.
 """
 
 import sys
-from pathlib import Path
 from typing import Any
 
 from textual.app import App, ComposeResult
@@ -102,10 +101,10 @@ class OrchestratorApp(App[None]):
             return None
 
         # Get worktree name from the second column (index 1)
-        row_key = table.cursor_row
+        row_index = table.cursor_row
 
         try:
-            row_data = table.get_row(row_key)  # type: ignore[arg-type]
+            row_data = table.get_row_at(row_index)
         except Exception:
             # Row doesn't exist or table not ready
             return None

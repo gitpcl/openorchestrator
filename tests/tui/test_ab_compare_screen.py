@@ -12,7 +12,6 @@ from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
-from textual.pilot import Pilot
 
 from open_orchestrator.config import AITool
 from open_orchestrator.core.status import StatusTracker
@@ -117,9 +116,9 @@ class TestToolPanel:
         from textual.app import App
 
         app = App()
-        async with app.run_test():
-            await app.mount(panel)
-            await app.wait_for_scheduled()
+        async with app.run_test() as pilot:
+            await pilot.app.mount(panel)
+            await pilot.pause()
 
             # Verify get_status was called
             mock_status_tracker.get_status.assert_called_with("test-worktree")
@@ -141,9 +140,9 @@ class TestToolPanel:
         from textual.app import App
 
         app = App()
-        async with app.run_test():
-            await app.mount(panel)
-            await app.wait_for_scheduled()
+        async with app.run_test() as pilot:
+            await pilot.app.mount(panel)
+            await pilot.pause()
 
             # Verify status was fetched
             mock_status_tracker.get_status.assert_called_with("feature-test-claude")
@@ -165,9 +164,9 @@ class TestToolPanel:
         from textual.app import App
 
         app = App()
-        async with app.run_test():
-            await app.mount(panel)
-            await app.wait_for_scheduled()
+        async with app.run_test() as pilot:
+            await pilot.app.mount(panel)
+            await pilot.pause()
 
             # Initially not focused
             assert panel.focused is False
@@ -175,7 +174,7 @@ class TestToolPanel:
             # Set focused
             panel.focused = True
             panel.refresh_data()
-            await app.wait_for_scheduled()
+            await pilot.pause()
 
             # Verify focus state changed
             assert panel.focused is True
@@ -203,9 +202,9 @@ class TestCostComparisonPanel:
         from textual.app import App
 
         app = App()
-        async with app.run_test():
-            await app.mount(panel)
-            await app.wait_for_scheduled()
+        async with app.run_test() as pilot:
+            await pilot.app.mount(panel)
+            await pilot.pause()
 
             # Verify get_status was called for both worktrees
             assert mock_status_tracker.get_status.call_count == 2
@@ -236,9 +235,9 @@ class TestCostComparisonPanel:
         from textual.app import App
 
         app = App()
-        async with app.run_test():
-            await app.mount(panel)
-            await app.wait_for_scheduled()
+        async with app.run_test() as pilot:
+            await pilot.app.mount(panel)
+            await pilot.pause()
 
             # Verify both statuses were fetched
             assert mock_status_tracker.get_status.call_count >= 2
@@ -269,9 +268,9 @@ class TestCostComparisonPanel:
         from textual.app import App
 
         app = App()
-        async with app.run_test():
-            await app.mount(panel)
-            await app.wait_for_scheduled()
+        async with app.run_test() as pilot:
+            await pilot.app.mount(panel)
+            await pilot.pause()
 
             # OpenCode should be cheaper (free)
             # Cost calculation is done in the render method

@@ -94,7 +94,7 @@ class ToolPanel(Static):
         status_icon, status_style = self._get_status_icon(status.activity_status)
         status_line = Text()
         status_line.append(status_icon, style=status_style)
-        status_line.append(f" {status.activity_status.value.capitalize()}")
+        status_line.append(f" {status.activity_status.capitalize()}")
         lines.append(status_line)
 
         # Current task
@@ -132,12 +132,12 @@ class ToolPanel(Static):
             border_style=border_style,
         )
 
-    def _get_status_icon(self, status: AIActivityStatus) -> tuple[str, str]:
+    def _get_status_icon(self, status: str) -> tuple[str, str]:
         """
         Get icon and style for activity status.
 
         Args:
-            status: AIActivityStatus enum value
+            status: Activity status string value
 
         Returns:
             Tuple of (icon, style)
@@ -151,7 +151,11 @@ class ToolPanel(Static):
             AIActivityStatus.ERROR: ("✗", "red bold"),
             AIActivityStatus.UNKNOWN: ("?", "dim"),
         }
-        return icons.get(status, ("?", "dim"))
+        try:
+            activity_status = AIActivityStatus(status)
+            return icons.get(activity_status, ("?", "dim"))
+        except ValueError:
+            return ("?", "dim")
 
 
 class CostComparisonPanel(Static):
