@@ -1,7 +1,9 @@
 """CLI entry point for Open Orchestrator."""
 
 import json
+import os
 import subprocess
+import sys
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -67,13 +69,79 @@ def get_worktree_manager(repo_path: Path | None = None) -> WorktreeManager:
         raise click.ClickException(str(e)) from e
 
 
-@click.group()
+def is_interactive_terminal() -> bool:
+    """
+    Check if the current terminal is interactive.
+
+    Uses multiple checks for robust detection:
+    - sys.stdout.isatty() - Standard TTY check
+    - TERM environment variable - Must not be 'dumb' or empty
+    - CI environment variables - Detects CI/CD environments (CI, GITHUB_ACTIONS, etc.)
+
+    Returns:
+        True if running in an interactive terminal, False otherwise
+    """
+    # Check if stdout is a TTY
+    if not sys.stdout.isatty():
+        return False
+
+    # Check TERM environment variable
+    term = os.environ.get("TERM", "")
+    if not term or term == "dumb":
+        return False
+
+    # Check for CI/CD environments
+    ci_vars = ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS", "TRAVIS", "CIRCLECI"]
+    for var in ci_vars:
+        if os.environ.get(var):
+            return False
+
+    return True
+
+
+@click.group(invoke_without_command=True)
 @click.version_option(package_name="open-orchestrator")
-def main() -> None:
+@click.pass_context
+def main(ctx: click.Context) -> None:
     """Open Orchestrator - Git Worktree + Claude Code orchestration tool.
 
     Manage parallel development workflows with git worktrees and tmux sessions.
+
+    When run without arguments in an interactive terminal, launches the
+    interactive TUI mode. Otherwise, shows this help message.
     """
+    # Only handle no-subcommand case when invoked without a subcommand
+    if ctx.invoked_subcommand is None:
+        if is_interactive_terminal():
+            # Launch TUI mode
+            console.print("[cyan]Launching interactive TUI mode...[/cyan]")
+            try:
+                from open_orchestrator.tui import launch_tui
+
+                launch_tui()
+            except ImportError as e:
+                console.print(
+                    f"[yellow]Warning: Could not import TUI module: {e}[/yellow]"
+                )
+                console.print(
+                    "[yellow]Falling back to help output.[/yellow]"
+                )
+                click.echo(ctx.get_help())
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: TUI initialization failed: {e}[/yellow]"
+                )
+                console.print(
+                    "[yellow]Falling back to help output.[/yellow]"
+                )
+                click.echo(ctx.get_help())
+        else:
+            # Non-interactive terminal - show help
+            console.print(
+                "[yellow]Non-interactive terminal detected. "
+                "Showing help output.[/yellow]"
+            )
+            click.echo(ctx.get_help())
 
 
 # Register tmux command group

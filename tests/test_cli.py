@@ -2,13 +2,14 @@
 Tests for CLI entry point and commands.
 """
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from open_orchestrator.cli import main
+from open_orchestrator.cli import is_interactive_terminal, main
 from open_orchestrator.core.worktree import (
     NotAGitRepositoryError,
     WorktreeAlreadyExistsError,
@@ -720,3 +721,206 @@ class TestShellCompletion:
         assert result.exit_code == 0
         assert "zsh" in result.output
         assert "~/.zshrc" in result.output
+
+
+class TestTerminalDetection:
+    """Tests for terminal detection function in CLI."""
+
+    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
+    @patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False)
+    def test_is_interactive_terminal_true_for_tty(self, mock_isatty: MagicMock) -> None:
+        """Test is_interactive_terminal returns True for interactive TTY."""
+        # Clear CI env vars for this test
+        with patch.dict(
+            os.environ,
+            {"CI": "", "GITHUB_ACTIONS": "", "GITLAB_CI": "", "JENKINS": "", "TRAVIS": "", "CIRCLECI": ""},
+            clear=False,
+        ):
+            result = is_interactive_terminal()
+            assert result is True
+
+    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=False)
+    def test_is_interactive_terminal_false_for_non_tty(self, mock_isatty: MagicMock) -> None:
+        """Test is_interactive_terminal returns False for non-TTY (piped output)."""
+        result = is_interactive_terminal()
+        assert result is False
+
+    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
+    @patch.dict(os.environ, {"TERM": "dumb"}, clear=False)
+    def test_is_interactive_terminal_false_for_term_dumb(self, mock_isatty: MagicMock) -> None:
+        """Test is_interactive_terminal returns False when TERM=dumb."""
+        # Clear CI vars for this test
+        with patch.dict(
+            os.environ,
+            {"CI": "", "GITHUB_ACTIONS": "", "GITLAB_CI": "", "JENKINS": "", "TRAVIS": "", "CIRCLECI": ""},
+            clear=False,
+        ):
+            result = is_interactive_terminal()
+            assert result is False
+
+    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
+    @patch.dict(os.environ, {"TERM": ""}, clear=False)
+    def test_is_interactive_terminal_false_for_empty_term(self, mock_isatty: MagicMock) -> None:
+        """Test is_interactive_terminal returns False when TERM is empty."""
+        # Clear CI vars for this test
+        with patch.dict(
+            os.environ,
+            {"CI": "", "GITHUB_ACTIONS": "", "GITLAB_CI": "", "JENKINS": "", "TRAVIS": "", "CIRCLECI": ""},
+            clear=False,
+        ):
+            result = is_interactive_terminal()
+            assert result is False
+
+    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
+    @patch.dict(os.environ, {"TERM": "xterm-256color", "CI": "true"}, clear=False)
+    def test_is_interactive_terminal_false_for_ci_true(self, mock_isatty: MagicMock) -> None:
+        """Test is_interactive_terminal returns False when CI=true."""
+        result = is_interactive_terminal()
+        assert result is False
+
+    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
+    @patch.dict(os.environ, {"TERM": "xterm-256color", "GITHUB_ACTIONS": "true"}, clear=False)
+    def test_is_interactive_terminal_false_for_github_actions(self, mock_isatty: MagicMock) -> None:
+        """Test is_interactive_terminal returns False in GitHub Actions."""
+        result = is_interactive_terminal()
+        assert result is False
+
+    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
+    @patch.dict(os.environ, {"TERM": "xterm-256color", "GITLAB_CI": "true"}, clear=False)
+    def test_is_interactive_terminal_false_for_gitlab_ci(self, mock_isatty: MagicMock) -> None:
+        """Test is_interactive_terminal returns False in GitLab CI."""
+        result = is_interactive_terminal()
+        assert result is False
+
+
+class TestCLIDefaultTUIBehavior:
+    """Tests for TUI launch and fallback behavior when CLI is invoked without subcommand."""
+
+    @patch("open_orchestrator.cli.is_interactive_terminal", return_value=True)
+    def test_tui_launches_when_interactive(
+        self, mock_is_interactive: MagicMock, cli_runner: CliRunner
+    ) -> None:
+        """Test TUI launches when owt is run without arguments in interactive terminal."""
+        # Mock the tui module to prevent actual TUI launch
+        mock_launch_tui = MagicMock()
+        mock_tui_module = MagicMock()
+        mock_tui_module.launch_tui = mock_launch_tui
+
+        with patch.dict("sys.modules", {"open_orchestrator.tui": mock_tui_module}):
+            # Act
+            result = cli_runner.invoke(main)
+
+            # Assert
+            assert "Launching interactive TUI mode" in result.output
+            mock_launch_tui.assert_called_once()
+
+    @patch("open_orchestrator.cli.is_interactive_terminal", return_value=False)
+    def test_help_displayed_when_non_interactive(
+        self, mock_is_interactive: MagicMock, cli_runner: CliRunner
+    ) -> None:
+        """Test help output displayed when terminal is non-interactive."""
+        # Act
+        result = cli_runner.invoke(main)
+
+        # Assert
+        assert "Non-interactive terminal detected" in result.output
+        assert "Open Orchestrator" in result.output  # Help text
+        assert "create" in result.output  # Subcommands listed
+
+    @patch("open_orchestrator.cli.is_interactive_terminal", return_value=True)
+    def test_graceful_fallback_on_import_error(
+        self, mock_is_interactive: MagicMock, cli_runner: CliRunner
+    ) -> None:
+        """Test graceful fallback when OrchestratorApp import fails."""
+        import builtins
+        import sys
+
+        # Store original import
+        original_import = builtins.__import__
+
+        def failing_import(name, *args, **kwargs):
+            if name == "open_orchestrator.tui":
+                raise ImportError("Module not found")
+            return original_import(name, *args, **kwargs)
+
+        # Remove cached tui module and patch import
+        with patch.dict(sys.modules):
+            # Remove the tui module from cache
+            modules_to_remove = [k for k in list(sys.modules.keys()) if k.startswith("open_orchestrator.tui")]
+            for mod in modules_to_remove:
+                sys.modules.pop(mod, None)
+
+            with patch.object(builtins, "__import__", failing_import):
+                # Act
+                result = cli_runner.invoke(main)
+
+                # Assert
+                assert "Could not import TUI module" in result.output
+                assert "Falling back to help output" in result.output
+                assert "Open Orchestrator" in result.output
+
+    @patch("open_orchestrator.cli.is_interactive_terminal", return_value=True)
+    def test_graceful_fallback_on_tui_exception(
+        self, mock_is_interactive: MagicMock, cli_runner: CliRunner
+    ) -> None:
+        """Test graceful fallback when TUI initialization raises exception."""
+        # Create a mock TUI module that raises an exception on launch
+        mock_launch_tui = MagicMock(side_effect=Exception("TUI crash"))
+        mock_tui_module = MagicMock()
+        mock_tui_module.launch_tui = mock_launch_tui
+
+        with patch.dict("sys.modules", {"open_orchestrator.tui": mock_tui_module}):
+            # Act
+            result = cli_runner.invoke(main)
+
+            # Assert
+            assert "TUI initialization failed" in result.output
+            assert "Falling back to help output" in result.output
+            assert "Open Orchestrator" in result.output
+
+    def test_existing_subcommands_continue_working_create(self, cli_runner: CliRunner) -> None:
+        """Test 'owt create' command still works."""
+        with patch("open_orchestrator.cli.WorktreeManager") as mock_wt_manager:
+            mock_wt_instance = mock_wt_manager.return_value
+            mock_wt_instance.create.return_value = MagicMock(
+                path=Path("/tmp/test"),
+                branch="feature/test",
+                head_commit="abc123",
+            )
+            mock_wt_instance.repo.working_dir = "/fake/repo"
+
+            result = cli_runner.invoke(main, ["create", "feature/test", "--no-tmux", "--no-deps", "--no-env"])
+
+            assert result.exit_code == 0
+
+    def test_existing_subcommands_continue_working_list(self, cli_runner: CliRunner) -> None:
+        """Test 'owt list' command still works."""
+        with patch("open_orchestrator.cli.WorktreeManager") as mock_wt_manager:
+            mock_wt_instance = mock_wt_manager.return_value
+            mock_wt_instance.list_all.return_value = []
+
+            result = cli_runner.invoke(main, ["list"])
+
+            assert result.exit_code == 0
+
+    def test_existing_subcommands_continue_working_help(self, cli_runner: CliRunner) -> None:
+        """Test 'owt --help' command still works."""
+        result = cli_runner.invoke(main, ["--help"])
+
+        assert result.exit_code == 0
+        assert "Open Orchestrator" in result.output
+        assert "create" in result.output
+        assert "list" in result.output
+
+    def test_main_group_accepts_no_arguments_with_invoke_without_command(
+        self, cli_runner: CliRunner
+    ) -> None:
+        """Test main group with invoke_without_command=True accepts no arguments."""
+        # When invoke_without_command=True, invoking without subcommand should not fail
+        with patch("open_orchestrator.cli.is_interactive_terminal", return_value=False):
+            result = cli_runner.invoke(main, [])
+
+            # Should not fail with "Missing command" error
+            assert "Missing command" not in result.output
+            # Should show help instead
+            assert "Open Orchestrator" in result.output
