@@ -574,7 +574,7 @@ class TmuxManager:
             pane_count=1,
             auto_start_ai=False,
             window_name="owt",
-            mouse_mode=False,  # Let Textual handle mouse
+            mouse_mode=True,  # Enable mouse so users can click between panes
         )
 
         session_info = self.create_session(config)

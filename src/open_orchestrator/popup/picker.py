@@ -65,8 +65,6 @@ def run_picker(stdscr: curses.window) -> dict | None:
 
     cursor = 0
     selected: set[int] = set()
-    # Pre-select first installed agent
-    selected.add(0)
 
     while True:
         stdscr.clear()
@@ -140,7 +138,7 @@ def run_picker(stdscr: curses.window) -> dict | None:
                 selected.add(cursor)
         elif key in (curses.KEY_ENTER, 10, 13):  # Enter
             if not selected:
-                # If nothing selected, use cursor position
+                # Nothing toggled — launch what cursor is pointing at
                 selected.add(cursor)
             chosen = [installed_agents[i] for i in sorted(selected)]
             return {
