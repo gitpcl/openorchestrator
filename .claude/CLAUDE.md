@@ -2,15 +2,25 @@
 
 Git Worktree + Claude Code orchestration tool for parallel development workflows with on-demand workspace mode (dmux-like).
 
-## Quick Commands
+## Quick Commands (Common)
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `owt new "task description"` | `owt n` | Create worktree from task description (prompt-first) |
+| `owt list` | `owt ls` | List all worktrees with status |
+| `owt status` | `owt st` | Show AI activity across all worktrees |
+| `owt merge <worktree>` | `owt m` | Merge worktree branch and clean up |
+| `owt close <worktree>` | `owt x` | Remove pane + delete worktree atomically |
+| `owt delete <name>` | `owt rm` | Delete worktree and its tmux session |
+| `owt create <branch>` | | Create worktree from branch name (power-user) |
+| `owt create <branch> --plan-mode` | | Create worktree with Claude in plan mode |
+
+## Advanced Commands
 
 | Command | Description |
 |---------|-------------|
-| `owt create <branch>` | Create worktree with tmux session and Claude Code |
-| `owt create <branch> --plan-mode` | Create worktree with Claude in plan mode |
 | `owt pane add --branch <name>` | Add worktree pane on demand (also via `prefix+n`) |
 | `owt pane remove --worktree <name>` | Remove pane + delete worktree (also via `prefix+X`) |
-| `owt list` | List all worktrees with status |
 | `owt switch <name> --tmux` | Switch to worktree's tmux session |
 | `owt send <name> "cmd"` | Send command to another worktree's Claude |
 | `owt status` | Show Claude activity across all worktrees |
@@ -90,6 +100,9 @@ src/open_orchestrator/
 │   ├── session.py      # Claude session copying & resume
 │   ├── pr_linker.py    # GitHub PR linking integration
 │   ├── process_manager.py  # Non-tmux process management
+│   ├── branch_namer.py    # Branch name generation from task descriptions
+│   ├── merge.py           # Two-phase merge logic
+│   ├── agent_detector.py  # Detect installed AI coding tools
 │   ├── dashboard.py    # Live TUI dashboard
 │   └── skill_installer.py  # Claude Code skill installation
 ├── models/

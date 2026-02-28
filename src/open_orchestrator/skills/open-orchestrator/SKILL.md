@@ -1,40 +1,75 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI coding tool orchestration for parallel development with on-demand workspace mode (dmux-like). Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments, (3) Adding worktree panes on demand with prefix+n popup picker, (4) Using workflow templates for common patterns, (5) Managing multiple AI coding sessions, (6) Delegating tasks to parallel worktrees, (7) Orchestrating Claude Code/OpenCode/Droid across branches, (8) Monitoring worktree health and detecting issues, (9) Optimizing AI tool costs and comparing pricing, (10) Cleaning up stale worktrees, (11) Syncing worktrees with upstream, (12) Monitoring with live dashboard, (13) Tracking token usage and costs, (14) Linking worktrees to GitHub PRs, (15) Managing status change hooks/notifications, (16) Copying/resuming Claude sessions, (17) Updating to latest version or checking for updates. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, on-demand panes, dmux, popup picker, unified view, owt commands, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management, update, version."
+description: "Git worktree + AI coding tool orchestration for parallel development with on-demand workspace mode (dmux-like). Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments from task descriptions (owt new), (3) Adding worktree panes on demand with prefix+n popup picker, (4) Merging worktree branches with two-phase merge (owt merge), (5) Closing worktrees atomically (owt close), (6) Managing multiple AI coding sessions, (7) Delegating tasks to parallel worktrees, (8) Orchestrating AI tools across branches (auto-detects claude, codex, gemini-cli, aider, amp, kilo-code, opencode, droid), (9) Monitoring worktree health and detecting issues, (10) Optimizing AI tool costs and comparing pricing, (11) Cleaning up stale worktrees, (12) Syncing worktrees with upstream, (13) Monitoring with live dashboard and tmux status bar, (14) Tracking token usage and costs, (15) Linking worktrees to GitHub PRs, (16) Managing status change hooks/notifications, (17) Copying/resuming Claude sessions, (18) Using workflow templates for common patterns, (19) Updating to latest version. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, on-demand panes, dmux, popup picker, unified view, owt commands, owt new, owt merge, owt close, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management, update, version, auto-detect agents."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
-Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees in an **on-demand workspace mode** (dmux-like). Start with a single pane, press `prefix+n` to open a popup picker, select an AI tool and branch, and a new pane appears to the right with the worktree and AI tool running. Use `--separate-session` for standalone tmux sessions.
+Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees in an **on-demand workspace mode** (dmux-like). The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, detects installed AI tools, and starts working. Press `prefix+n` to add more panes on demand. When done, `owt merge <worktree>` handles two-phase merge and cleanup, or `owt close <worktree>` removes everything atomically.
 
 ## Quick Reference
 
+### Common Commands (with aliases)
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `owt new "task description"` | `owt n` | Create worktree from task description (prompt-first, auto-names branch) |
+| `owt list` | `owt ls` | List worktrees with status |
+| `owt status` | `owt st` | Track AI activity across worktrees |
+| `owt merge <worktree>` | `owt m` | Two-phase merge worktree branch into base + cleanup |
+| `owt close <worktree>` | `owt x` | Atomic close: remove pane + delete worktree |
+| `owt delete <name>` | `owt rm` | Delete worktree and cleanup |
+
+### Worktree Creation
+
 | Command | Description |
 |---------|-------------|
-| `owt create <branch>` | Create worktree + add pane to workspace (default) |
-| `owt create <branch> --separate-session` | Create separate tmux session (opt-out) |
+| `owt new "add user auth"` | Prompt-first: auto-generates branch name, starts AI with task |
+| `owt new` | Interactive: prompts for description, picks AI tool if multiple installed |
+| `owt create <branch>` | Power-user: create worktree from explicit branch name |
+| `owt create <branch> --separate-session` | Create separate tmux session (opt-out of workspace) |
 | `owt create <branch> --plan-mode` | Create with Claude in plan mode |
 | `owt create <branch> --template <name>` | Create with workflow template |
 | `owt create <branch> --auto-optimize` | Auto-select cost-effective AI tool |
+
+### Lifecycle Management
+
+| Command | Description |
+|---------|-------------|
+| `owt merge <worktree>` | Two-phase merge: base→feature then feature→base, auto-cleanup |
+| `owt merge <worktree> --keep` | Merge without deleting worktree afterward |
+| `owt merge <worktree> --json` | JSON output for scripting |
+| `owt close <worktree>` | Atomic: remove pane + stop processes + delete worktree |
+| `owt close <worktree> -y` | Skip confirmation |
+
+### Workspace & Pane Management
+
+| Command | Description |
+|---------|-------------|
 | `owt pane add --branch <name>` | Add worktree pane on demand (also via `prefix+n`) |
 | `owt pane remove --worktree <name>` | Remove pane + delete worktree (also via `prefix+X`) |
 | `owt workspace list` | List all unified workspaces |
 | `owt workspace show <name>` | Show workspace details and panes |
 | `owt workspace attach <name>` | Attach to workspace tmux session |
 | `owt workspace destroy <name>` | Destroy workspace (keeps worktrees) |
-| `owt template list` | List available workflow templates |
-| `owt template show <name>` | Show template details |
-| `owt list [--all]` | List worktrees with status |
+
+### Monitoring & Maintenance
+
+| Command | Description |
+|---------|-------------|
 | `owt switch <name>` | Switch to worktree (use `--tmux` for session) |
-| `owt delete <name>` | Delete worktree and cleanup |
 | `owt send <name> "task"` | Send command to AI in another worktree |
-| `owt status [name]` | Track AI activity across worktrees |
 | `owt health [name]` | Check worktree health and detect issues |
 | `owt cost [name]` | Compare AI tool costs and show savings |
 | `owt cleanup [--dry-run]` | Remove stale worktrees |
 | `owt sync [--all]` | Sync worktrees with upstream |
 | `owt dashboard` | Live TUI monitoring of all worktrees |
 | `owt tokens show` | View token usage and costs |
+
+### Integrations
+
+| Command | Description |
+|---------|-------------|
 | `owt pr link <name> --pr <num>` | Link worktree to GitHub PR |
 | `owt pr status` | Show PR status for all worktrees |
 | `owt hooks list` | List status change hooks |
@@ -42,6 +77,8 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt resume <name>` | Resume Claude session in worktree |
 | `owt process start <name>` | Start AI tool without tmux |
 | `owt process list` | List running AI processes |
+| `owt template list` | List available workflow templates |
+| `owt template show <name>` | Show template details |
 | `owt completion install` | Install shell auto-completion |
 | `owt version [--full]` | Show version and installation info |
 | `owt update [--check]` | Update to latest version |
@@ -443,20 +480,22 @@ Configure notifications and webhooks when AI status changes.
 # List configured hooks
 owt hooks list
 
-# Add a new hook (interactive)
-owt hooks add
-
-# Add hook with parameters
-owt hooks add --event status_change --action notify --target slack
+# Add a hook
+owt hooks add notify-blocked --type on_blocked --action notification --title "Claude Blocked"
+owt hooks add log-changes --type on_status_changed --action shell --command "echo $OWT_WORKTREE"
 
 # Test hook execution
-owt hooks test <hook-id>
+owt hooks test <hook-name>
 
 # View hook execution history
 owt hooks history
 
+# Enable/disable hooks
+owt hooks enable <hook-name>
+owt hooks disable <hook-name>
+
 # Remove a hook
-owt hooks remove <hook-id>
+owt hooks remove <hook-name>
 ```
 
 Hook configuration is stored in `~/.open-orchestrator/hooks.json`.
@@ -631,26 +670,27 @@ Automatically detects project type and package manager:
 
 ## AI Tool Support
 
-### Claude Code (Default)
+Open Orchestrator **auto-detects installed AI tools** and offers a picker when multiple are found. Supported tools:
+
+| Tool | Detection | Notes |
+|------|-----------|-------|
+| Claude Code | `claude` binary | Default, supports plan mode |
+| OpenCode | `opencode` binary | Go-based |
+| Droid | `droid` binary | Supports autonomy levels |
+| Codex | `codex` binary | OpenAI CLI |
+| Gemini CLI | `gemini` binary | Google CLI |
+| Aider | `aider` binary | Terminal-based pair programming |
+| Amp | `amp` binary | Sourcegraph CLI |
+| Kilo Code | `kilo-code` binary | VS Code extension CLI |
+
 ```bash
-owt create feature/x --tool claude
+# Auto-detect and use default tool
+owt new "add user auth"
 
-# With plan mode for safe exploration
-owt create feature/x --tool claude --plan-mode
-```
-
-### OpenCode (Go-based)
-```bash
-owt create feature/x --tool opencode
-```
-
-### Droid (Factory AI with Autonomy Levels)
-```bash
-# Default autonomy (medium)
-owt create feature/x --tool droid
-
-# High autonomy
-owt create feature/x --tool droid --auto-level high
+# Specify tool explicitly
+owt create feature/x --ai-tool claude --plan-mode
+owt create feature/x --ai-tool opencode
+owt create feature/x --ai-tool droid --auto-level high
 ```
 
 ## Common Patterns

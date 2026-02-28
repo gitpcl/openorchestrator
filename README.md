@@ -6,18 +6,22 @@ A Git Worktree + AI coding tool orchestration system for managing parallel devel
 
 ## Overview
 
-Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own AI coding session and tmux pane. Features on-demand workspace mode (dmux-like) — start with 1 pane, press `prefix+n` to add worktree panes dynamically via popup picker. Perfect for parallel development workflows where you need to context-switch between features without losing your place.
+Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own AI coding session and tmux pane. Start with `owt new "task description"` for prompt-first workflow (auto-generates branch names, detects installed AI tools), or use `owt create <branch>` for explicit control. Features on-demand workspace mode (dmux-like), two-phase merge (`owt merge`), atomic cleanup (`owt close`), and a live tmux status bar showing worktree activity.
 
 > **Agent Teams vs Open Orchestrator:** While [Claude Code's Agent Teams](https://code.claude.com/docs/en/agent-teams) coordinate multiple AI agents within the *same codebase*, Open Orchestrator manages multiple *isolated worktrees* (different branches, different directories, independent environments). They're complementary tools that can work together - use Agent Teams for intra-branch collaboration, Open Orchestrator for cross-branch orchestration. [Learn more](#open-orchestrator-vs-agent-teams)
 
 ## Features
 
+- **Prompt-First Workflow**: `owt new "task description"` — auto-generates branch name, detects AI tools, starts working
+- **Two-Phase Merge**: `owt merge` handles merge conflicts early by merging base→feature first, then feature→base
+- **Atomic Close**: `owt close` removes pane + stops processes + deletes worktree in one step
+- **Command Aliases**: `owt n`, `owt ls`, `owt st`, `owt m`, `owt x`, `owt rm` for quick access
 - **On-Demand Workspace Mode**: Start with 1 pane, press `prefix+n` to add worktree panes dynamically via popup picker (dmux-like)
 - **Mouse-Enabled tmux**: Click to switch panes, drag to resize - mouse support enabled by default
 - **Git Worktree Management**: Create, list, switch, and delete worktrees with automatic branch management
 - **Template-Based Workflows**: Pre-configured templates for common tasks (bugfix, feature, research, security-audit, etc.)
-- **tmux Integration**: Auto-create tmux sessions with customizable layouts for each worktree
-- **Multi-AI Tool Support**: Auto-launch Claude Code, OpenCode, or Droid in new sessions
+- **tmux Integration**: Auto-create tmux sessions with customizable layouts and live status bar
+- **AI Tool Auto-Detection**: Detects 12+ installed AI tools (Claude, Codex, Gemini CLI, Aider, Amp, Kilo Code, OpenCode, Droid) with picker when multiple found
 - **Health Monitoring**: Detect stuck tasks, high costs, stale worktrees with actionable recommendations
 - **Cost Optimization**: Track token usage, compare AI tool costs, get cheapest tool recommendations
 - **Project Detection**: Automatically detect project type (Python, Node.js, Rust, Go, PHP) and package manager
@@ -77,60 +81,72 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-### Create a new worktree
+### Create from task description (recommended)
 
 ```bash
-# Create a worktree for a new feature branch
+# Describe what you want to do — branch name is auto-generated
+owt new "Add user authentication with JWT"
+# → Creates branch feat/add-user-authentication-jwt
+# → Auto-detects installed AI tools
+# → Starts AI with your task as the initial prompt
+
+# Interactive mode (prompts for description)
+owt new
+```
+
+### Create from branch name (power-user)
+
+```bash
+# Explicit branch name
 owt create feature/add-login
 
-# Create a worktree from a template
+# Create from a template
 owt create bugfix/auth-error --template bugfix
 
-# Create with auto-optimized AI tool (cheapest for task complexity)
-owt create feature/refactor --auto-optimize --task "Refactor auth module"
-
-# Create a worktree from an existing branch
-owt create feature/existing-branch --no-create-branch
-
-# Create a worktree with Claude in plan mode (safe exploration)
+# Create with Claude in plan mode (safe exploration)
 owt create feature/research --plan-mode
 
-# Create a worktree with OpenCode instead of Claude
+# Create with specific AI tool
 owt create feature/new-api --ai-tool opencode
-
-# Create a worktree with Droid in high autonomy mode
-owt create feature/refactor --ai-tool droid --droid-auto high
-
-# Create a worktree with OpenCode and custom config
-owt create feature/test --ai-tool opencode --opencode-config ~/.config/opencode.json
 ```
 
-### List worktrees
+### Common aliases
 
 ```bash
-owt list
+owt n     # → owt new
+owt ls    # → owt list
+owt st    # → owt status
+owt m     # → owt merge
+owt x     # → owt close
+owt rm    # → owt delete
 ```
 
-### Switch to a worktree
+### Merge and cleanup
 
 ```bash
-owt switch feature/add-login
+# Two-phase merge: base→feature then feature→base, auto-cleanup
+owt merge feature/add-login
+
+# Merge but keep worktree
+owt merge feature/add-login --keep
+
+# Atomic close: remove pane + stop processes + delete worktree
+owt close feature/add-login
 ```
 
-### Delete a worktree
+### List and monitor
 
 ```bash
-owt delete feature/add-login
+owt list                    # List worktrees
+owt status                  # AI activity across worktrees
+owt dashboard               # Live TUI dashboard
 ```
 
 ### Clean up stale worktrees
 
 ```bash
-# Dry run (show what would be cleaned)
-owt cleanup --dry-run
-
-# Actually clean up
-owt cleanup
+owt cleanup --dry-run       # Preview what would be cleaned
+owt cleanup                 # Actually clean up
 ```
 
 ### Update to latest version
@@ -168,21 +184,24 @@ owt health --all
 
 ### Worktree Commands
 
-| Command | Description |
-|---------|-------------|
-| `owt create <branch>` | Create a new worktree with tmux session and Claude Code |
-| `owt list` | List all worktrees with status |
-| `owt switch <name>` | Switch to worktree (prints path or attaches tmux) |
-| `owt delete <name>` | Delete worktree and its tmux session |
-| `owt cleanup` | Remove stale worktrees (dry-run by default) |
-| `owt sync <name>` | Sync a worktree with its upstream branch |
-| `owt send <name> "cmd"` | Send a command to another worktree's Claude session |
-| `owt status [name]` | Show Claude activity status across all worktrees |
-| `owt dashboard` | Launch live TUI dashboard to monitor all worktrees |
-| `owt agent start <wt> "<task>"` | Start autonomous agent that works independently |
-| `owt agent status` | Show status of all autonomous agents |
-| `owt agent logs <wt>` | View logs for autonomous agent |
-| `owt agent health` | Check health of autonomous agents |
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `owt new "task description"` | `owt n` | Create worktree from task description (prompt-first, auto-names branch) |
+| `owt create <branch>` | | Create worktree from explicit branch name (power-user) |
+| `owt list` | `owt ls` | List all worktrees with status |
+| `owt status [name]` | `owt st` | Show AI activity status across all worktrees |
+| `owt merge <worktree>` | `owt m` | Two-phase merge worktree branch into base + auto-cleanup |
+| `owt close <worktree>` | `owt x` | Atomic close: remove pane + stop processes + delete worktree |
+| `owt delete <name>` | `owt rm` | Delete worktree and its tmux session |
+| `owt switch <name>` | | Switch to worktree (prints path or attaches tmux) |
+| `owt sync <name>` | | Sync a worktree with its upstream branch |
+| `owt send <name> "cmd"` | | Send a command to another worktree's AI session |
+| `owt cleanup` | | Remove stale worktrees (dry-run by default) |
+| `owt dashboard` | | Launch live TUI dashboard to monitor all worktrees |
+| `owt agent start <wt> "<task>"` | | Start autonomous agent that works independently |
+| `owt agent status` | | Show status of all autonomous agents |
+| `owt agent logs <wt>` | | View logs for autonomous agent |
+| `owt agent health` | | Check health of autonomous agents |
 
 ### Pane Commands (On-Demand Mode)
 
@@ -300,7 +319,7 @@ owt health --all
 | `-f, --force` | Force creation even if branch exists elsewhere |
 | `--tmux / --no-tmux` | Create tmux session (default: enabled) |
 | `--claude / --no-claude` | Auto-start AI tool (default: enabled) |
-| `--ai-tool <tool>` | AI tool to start: `claude`, `opencode`, `droid` (default: claude) |
+| `--ai-tool <tool>` | AI tool: `claude`, `opencode`, `droid`, `codex`, `gemini`, `aider`, `amp`, `kilo-code` (default: auto-detect) |
 | `--droid-auto <level>` | Droid autonomy level: `low`, `medium`, `high` |
 | `--droid-skip-permissions` | Skip Droid permissions check (use with caution) |
 | `--opencode-config <path>` | Path to OpenCode configuration file |
@@ -390,7 +409,7 @@ owt health --all
 | `-l, --layout <layout>` | Pane layout |
 | `-p, --panes <n>` | Number of panes |
 | `--claude / --no-claude` | Auto-start AI tool (default: enabled) |
-| `--ai-tool <tool>` | AI tool to start: `claude`, `opencode`, `droid` (default: claude) |
+| `--ai-tool <tool>` | AI tool: `claude`, `opencode`, `droid`, `codex`, `gemini`, `aider`, `amp`, `kilo-code` (default: auto-detect) |
 | `--droid-auto <level>` | Droid autonomy level: `low`, `medium`, `high` |
 | `--droid-skip-permissions` | Skip Droid permissions check (use with caution) |
 | `--opencode-config <path>` | Path to OpenCode configuration file |

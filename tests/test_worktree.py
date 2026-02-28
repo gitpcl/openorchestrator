@@ -135,7 +135,7 @@ class TestBranchNameValidation:
         # Act & Assert
         assert manager._sanitize_branch_name("feature/test") == "feature-test"
         assert manager._sanitize_branch_name("bugfix_fix-123") == "bugfix_fix-123"
-        assert manager._sanitize_branch_name("release/v1.0.0") == "releasev100"
+        assert manager._sanitize_branch_name("release/v1.0.0") == "release-v100"
 
 
 class TestWorktreePathGeneration:
@@ -189,7 +189,8 @@ class TestWorktreeListAll:
         """Test listing worktrees returns empty list on git error."""
         # Arrange
         manager = WorktreeManager(git_repo)
-        with patch.object(manager.repo.git, "worktree", side_effect=GitCommandError("worktree", "")):
+        with patch.object(manager.repo, "git") as mock_git:
+            mock_git.worktree.side_effect = GitCommandError("worktree", "")
             # Act
             worktrees = manager.list_all()
 
@@ -204,7 +205,7 @@ class TestFindWorktree:
         """Test finding a worktree by its name."""
         # Arrange
         manager = WorktreeManager(git_repo)
-        expected_name = f"{git_repo.name}-test-branch"
+        expected_name = git_worktree.name
 
         # Act
         wt = manager._find_worktree(expected_name)
@@ -308,13 +309,15 @@ class TestCreateWorktree:
         """Test creating a worktree with an existing branch."""
         # Arrange
         manager = WorktreeManager(git_repo)
+        # Create a branch first so it exists
+        manager.repo.git.branch("existing-test-branch")
         wt_path = temp_directory / "existing-branch-worktree"
 
         # Act
-        worktree = manager.create(branch="main", path=wt_path)
+        worktree = manager.create(branch="existing-test-branch", path=wt_path)
 
         # Assert
-        assert worktree.branch == "main"
+        assert worktree.branch == "existing-test-branch"
         assert worktree.path == wt_path
         assert wt_path.exists()
 

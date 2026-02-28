@@ -240,7 +240,8 @@ class WorktreeManager:
         try:
             if branch_exists:
                 # Use -- to separate options from arguments
-                self.repo.git.worktree("add", str(worktree_path), "--", branch)
+                force_args = ["--force"] if force else []
+                self.repo.git.worktree("add", *force_args, str(worktree_path), "--", branch)
             else:
                 if not base_branch and getattr(self.repo, "head", None) and self.repo.head.is_detached:
                     raise WorktreeError("Detached HEAD detected. Specify a base branch with --base to create the new branch.")

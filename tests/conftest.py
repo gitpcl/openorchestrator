@@ -24,7 +24,7 @@ def cli_runner() -> CliRunner:
 def temp_directory() -> Generator[Path, None, None]:
     """Create a temporary directory for tests."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        yield Path(temp_dir)
+        yield Path(temp_dir).resolve()
 
 
 @pytest.fixture

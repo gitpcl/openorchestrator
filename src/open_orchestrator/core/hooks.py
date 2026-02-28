@@ -117,8 +117,8 @@ class HookService:
         """Enable a hook. Returns True if found and enabled."""
         hook = self._store.get_hook(name)
         if hook:
-            hook.enabled = True
-            self._store.set_hook(hook)
+            updated = hook.model_copy(update={"enabled": True})
+            self._store.set_hook(updated)
             self._save_store()
             return True
         return False
@@ -127,8 +127,8 @@ class HookService:
         """Disable a hook. Returns True if found and disabled."""
         hook = self._store.get_hook(name)
         if hook:
-            hook.enabled = False
-            self._store.set_hook(hook)
+            updated = hook.model_copy(update={"enabled": False})
+            self._store.set_hook(updated)
             self._save_store()
             return True
         return False
@@ -277,12 +277,13 @@ class HookService:
         message = hook.notification_message or f"Status changed to {context.get('status', 'unknown')}"
 
         # Expand variables in message
-        message = message.format(
-            worktree=worktree_name,
-            status=context.get("status", "unknown"),
-            task=context.get("task", ""),
-            **context,
-        )
+        format_vars = {
+            "worktree": worktree_name,
+            "status": context.get("status", "unknown"),
+            "task": context.get("task", ""),
+        }
+        format_vars.update(context)
+        message = message.format(**format_vars)
 
         # Use osascript on macOS for notifications
         import platform

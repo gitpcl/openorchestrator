@@ -61,7 +61,7 @@ class TestPRLinkerInit:
         # Arrange
         storage_path = temp_directory / "pr_links.json"
         pr_data = {
-            "prs": {
+            "links": {
                 "test-worktree": {
                     "worktree_name": "test-worktree",
                     "repo_owner": "owner",

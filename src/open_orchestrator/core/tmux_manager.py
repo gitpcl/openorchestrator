@@ -837,3 +837,58 @@ class TmuxManager:
             ["tmux", "set-environment", "-t", session_name, "OWT_REPO", repo_path],
             check=False,
         )
+
+        # Install status bar showing worktree status
+        self.install_status_bar(session_name)
+
+    def install_status_bar(self, session_name: str) -> None:
+        """Configure tmux status bar to show worktree activity summary.
+
+        Reads from ~/.open-orchestrator/ai_status.json and displays a compact
+        summary like: [owt] feat/auth:working | feat/api:idle  (2 active)
+
+        Args:
+            session_name: tmux session to configure.
+        """
+        from pathlib import Path
+
+        status_file = Path.home() / ".open-orchestrator" / "ai_status.json"
+
+        # Shell script that reads status JSON and formats it for the status bar.
+        # Uses python for reliable JSON parsing (available since we're a python tool).
+        status_script = (
+            f"python3 -c \""
+            f"import json, sys; "
+            f"f='{status_file}'; "
+            f"d=json.load(open(f)) if __import__('os').path.exists(f) else {{}}; "
+            f"ss=d.get('statuses',{{}}); "
+            f"parts=[]; "
+            f"[parts.append(v.get('branch','?').split('/')[-1]+':'+v.get('activity_status','?')) for v in ss.values() if v.get('activity_status','idle')!='idle']; "
+            f"active=len(parts); "
+            f"out=' | '.join(parts[:3]); "
+            f"print(f'[owt] {{out}}  ({{active}} active)' if active else '[owt] idle')"
+            f"\""
+        )
+
+        try:
+            # Set status-right to show owt info (keep default clock too)
+            subprocess.run(
+                [
+                    "tmux", "set-option", "-t", session_name,
+                    "status-right",
+                    f"#(sh -c {shlex.quote(status_script)}) | %H:%M",
+                ],
+                check=False,
+            )
+            # Refresh interval: every 5 seconds
+            subprocess.run(
+                ["tmux", "set-option", "-t", session_name, "status-interval", "5"],
+                check=False,
+            )
+            # Style the status bar
+            subprocess.run(
+                ["tmux", "set-option", "-t", session_name, "status-right-length", "80"],
+                check=False,
+            )
+        except Exception:
+            pass  # Status bar is best-effort

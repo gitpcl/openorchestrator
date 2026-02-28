@@ -67,6 +67,20 @@ from open_orchestrator.core.sync import (
     SyncStatus,
     WorktreeSyncResult,
 )
+from open_orchestrator.core.agent_detector import (
+    detect_all_agents,
+    detect_installed_agents,
+)
+from open_orchestrator.core.branch_namer import (
+    generate_branch_name,
+)
+from open_orchestrator.core.merge import (
+    MergeConflictError,
+    MergeError,
+    MergeManager,
+    MergeResult,
+    MergeStatus,
+)
 
 __all__ = [
     "CleanupConfig",
@@ -107,4 +121,12 @@ __all__ = [
     "SkillNotFoundError",
     "StatusConfig",
     "StatusTracker",
+    "detect_all_agents",
+    "detect_installed_agents",
+    "generate_branch_name",
+    "MergeConflictError",
+    "MergeError",
+    "MergeManager",
+    "MergeResult",
+    "MergeStatus",
 ]

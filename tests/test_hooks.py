@@ -67,7 +67,7 @@ class TestHookServiceInit:
                 "test-hook": {
                     "name": "test-hook",
                     "hook_type": "on_status_changed",
-                    "action": "shell_command",
+                    "action": "shell",
                     "command": "echo test",
                     "enabled": True,
                 }
@@ -728,12 +728,11 @@ class TestHooksCLI:
                 [
                     "hooks",
                     "add",
-                    "--name",
                     "test-hook",
                     "--type",
                     "on_status_changed",
                     "--action",
-                    "shell_command",
+                    "shell",
                     "--command",
                     "echo test",
                 ],
@@ -756,7 +755,6 @@ class TestHooksCLI:
                 [
                     "hooks",
                     "add",
-                    "--name",
                     "remove-test",
                     "--type",
                     "on_blocked",

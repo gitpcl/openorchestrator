@@ -103,12 +103,33 @@ def is_interactive_terminal() -> bool:
 @click.version_option(package_name="open-orchestrator")
 @click.pass_context
 def main(ctx: click.Context) -> None:
-    """Open Orchestrator - Git Worktree + Claude Code orchestration tool.
+    """Open Orchestrator - Git Worktree + AI agent orchestration tool.
 
-    Manage parallel development workflows with git worktrees and tmux sessions.
+    \b
+    Common Commands:
+      new (n)      Create worktree from task description
+      list (ls)    List all worktrees
+      status (st)  Show AI activity across worktrees
+      merge (m)    Merge worktree branch and clean up
+      close (x)    Remove pane + delete worktree atomically
+      create       Create worktree from branch name (power-user)
+      delete (rm)  Delete a worktree
 
-    When run without arguments in an interactive terminal, launches the
-    interactive TUI mode. Otherwise, shows this help message.
+    \b
+    Advanced:
+      send         Send command to a worktree's AI agent
+      sync         Sync worktrees with upstream
+      dashboard    Launch live TUI dashboard
+      agent        Manage autonomous agents
+      pane         On-demand pane management
+      workspace    Workspace management
+      hooks        Status change hooks
+      pr           GitHub PR linking
+      process      Non-tmux process management
+      tokens       Token usage tracking
+      tmux         Direct tmux session management
+
+    Run without arguments for interactive TUI mode.
     """
     # Only handle no-subcommand case when invoked without a subcommand
     if ctx.invoked_subcommand is None:
@@ -951,7 +972,7 @@ def pane_remove(
 )
 @click.option(
     "--ai-tool",
-    type=click.Choice(["claude", "opencode", "droid"]),
+    type=click.Choice(["claude", "opencode", "droid", "codex", "gemini-cli", "aider", "amp", "kilo-code"]),
     default="claude",
     help="AI coding tool to start (default: claude).",
 )
@@ -1496,6 +1517,464 @@ def create_worktree(
         raise click.ClickException(str(e)) from e
 
 
+@main.command("new")
+@click.argument("description", nargs=-1)
+@click.option(
+    "-b",
+    "--base",
+    "base_branch",
+    help="Base branch for the new worktree.",
+)
+@click.option(
+    "--ai-tool",
+    type=click.Choice(["claude", "opencode", "droid", "codex", "gemini-cli", "aider", "amp", "kilo-code"]),
+    default=None,
+    help="AI tool to start (auto-detected if not specified).",
+)
+@click.option(
+    "--plan-mode",
+    is_flag=True,
+    help="Start Claude in plan mode.",
+)
+@click.option(
+    "-t",
+    "--template",
+    "template_name",
+    help="Apply a worktree template.",
+)
+@click.option(
+    "-a",
+    "--attach",
+    is_flag=True,
+    help="Attach to tmux session after creation.",
+)
+@click.option(
+    "--prefix",
+    help="Override auto-detected branch prefix (e.g., feat, fix, refactor).",
+)
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Skip branch name confirmation.",
+)
+def new_worktree(
+    description: tuple[str, ...],
+    base_branch: str | None,
+    ai_tool: str | None,
+    plan_mode: bool,
+    template_name: str | None,
+    attach: bool,
+    prefix: str | None,
+    yes: bool,
+) -> None:
+    """Create a worktree from a task description (prompt-first workflow).
+
+    Automatically generates a branch name from your task description and
+    creates a worktree with the AI agent ready to work.
+
+    The task description is also sent as the initial prompt to the AI agent.
+
+    Examples:
+        owt new Add user authentication with JWT
+        owt new Fix login redirect bug
+        owt new "Refactor database queries for performance"
+        owt new Add dark mode --ai-tool claude --plan-mode
+    """
+    from open_orchestrator.core.agent_detector import detect_installed_agents
+    from open_orchestrator.core.branch_namer import generate_branch_name
+
+    # Get description from args or prompt interactively
+    if description:
+        task_description = " ".join(description)
+    else:
+        task_description = click.prompt("What are you working on?")
+
+    if not task_description.strip():
+        raise click.ClickException("Task description cannot be empty")
+
+    # Generate branch name
+    try:
+        branch = generate_branch_name(task_description, prefix=prefix)
+    except ValueError as e:
+        raise click.ClickException(f"Could not generate branch name: {e}") from e
+
+    # Confirm branch name (unless -y)
+    if not yes:
+        console.print(f"\n[bold]Task:[/bold]   {task_description}")
+        console.print(f"[bold]Branch:[/bold] {branch}")
+        if not click.confirm("\nProceed?", default=True):
+            # Let user override
+            branch = click.prompt("Enter branch name", default=branch)
+
+    # Auto-detect AI tool if not specified
+    if ai_tool is None:
+        installed = detect_installed_agents()
+        if len(installed) == 0:
+            raise click.ClickException(
+                "No AI coding tools found. Install one of: claude, opencode, droid, codex, gemini-cli, aider"
+            )
+        elif len(installed) == 1:
+            ai_tool = installed[0].value
+        else:
+            # Show picker for multiple tools
+            console.print("\n[bold]Detected AI tools:[/bold]")
+            tool_names = [t.value for t in installed]
+            for i, tool in enumerate(installed, 1):
+                console.print(f"  {i}. {tool.value}")
+
+            choice = click.prompt(
+                "Select AI tool",
+                type=click.IntRange(1, len(installed)),
+                default=1,
+            )
+            ai_tool = tool_names[choice - 1]
+    else:
+        # Validate the chosen tool is installed
+        tool_enum = AITool(ai_tool)
+        if not AITool.is_installed(tool_enum):
+            console.print(f"[yellow]Warning: {ai_tool} may not be installed[/yellow]")
+            console.print(f"[dim]{AITool.get_install_hint(tool_enum)}[/dim]")
+
+    # Delegate to create_worktree via click context
+    # We invoke the create command programmatically with the right options
+    ctx = click.get_current_context()
+    ctx.invoke(
+        create_worktree,
+        branch=branch,
+        base_branch=base_branch,
+        template_name=template_name,
+        path=None,
+        force=False,
+        tmux=True,
+        claude=True,
+        ai_tool=ai_tool,
+        droid_auto=None,
+        droid_skip_permissions=False,
+        opencode_config=None,
+        layout="single",
+        panes=2,
+        attach=attach,
+        deps=True,
+        env=True,
+        plan_mode=plan_mode,
+        auto_optimize=False,
+        sync_claude_md=True,
+        separate_session=False,
+        ab_tools=None,
+        ab_prompt=None,
+    )
+
+    # Send the task description as initial prompt to the AI agent
+    # The workspace session should exist now
+    try:
+        wt_manager = get_worktree_manager()
+        worktree = wt_manager.get(branch)
+        workspace_name = f"owt-{wt_manager.project_name}"
+
+        tmux_manager = TmuxManager()
+
+        # Find the pane for this worktree
+        workspace_manager = WorkspaceManager()
+        try:
+            workspace = workspace_manager.get_workspace(workspace_name)
+            target_pane = workspace.get_pane_by_worktree(worktree.name)
+            pane_index = target_pane.pane_index if target_pane else 0
+        except WorkspaceNotFoundError:
+            pane_index = 0
+
+        # Wait a moment for the AI tool to initialize, then send the prompt
+        import time
+        time.sleep(2)
+
+        tmux_manager.send_keys_to_pane(
+            session_name=workspace_name,
+            keys=task_description,
+            pane_index=pane_index,
+        )
+        console.print(f"\n[cyan]Sent task to AI agent:[/cyan] {task_description[:80]}{'...' if len(task_description) > 80 else ''}")
+
+        # Update status tracker with the task
+        status_tracker = StatusTracker()
+        status_tracker.update_task(worktree.name, task_description[:100])
+
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not send initial prompt: {e}[/yellow]")
+        console.print(f"[dim]You can manually send it: owt send {branch} \"{task_description}\"[/dim]")
+
+
+@main.command("merge")
+@click.argument("worktree_name")
+@click.option(
+    "--base",
+    "base_branch",
+    help="Target branch to merge into (auto-detected if not specified).",
+)
+@click.option(
+    "--keep",
+    is_flag=True,
+    help="Keep the worktree after merging (by default it's deleted).",
+)
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Skip confirmation prompt.",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Output result as JSON.",
+)
+def merge_worktree(
+    worktree_name: str,
+    base_branch: str | None,
+    keep: bool,
+    yes: bool,
+    json_output: bool,
+) -> None:
+    """Merge a worktree branch into its base branch and clean up.
+
+    Two-phase merge:
+    1. Merges base into worktree branch (catches conflicts early)
+    2. Merges worktree branch into base (fast-forward if possible)
+
+    After successful merge, automatically deletes the worktree and pane
+    unless --keep is specified.
+
+    Examples:
+        owt merge feature/auth
+        owt merge my-feature --base develop
+        owt merge feature/api --keep
+        owt merge feature/api --json
+    """
+    from open_orchestrator.core.merge import MergeConflictError, MergeError, MergeManager, MergeStatus
+
+    try:
+        merge_manager = MergeManager()
+    except Exception as e:
+        raise click.ClickException(str(e)) from e
+
+    # Resolve worktree info for confirmation
+    wt_manager = get_worktree_manager()
+    try:
+        worktree = wt_manager.get(worktree_name)
+    except WorktreeNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    # Determine base branch
+    target = base_branch
+    if not target:
+        try:
+            target = merge_manager.get_base_branch(worktree.branch)
+        except MergeError as e:
+            raise click.ClickException(str(e)) from e
+
+    # Count commits
+    commits_ahead = merge_manager.count_commits_ahead(worktree.branch, target)
+
+    if not json_output and not yes:
+        console.print()
+        console.print("[bold]Merge plan:[/bold]")
+        console.print(f"  Source: {worktree.branch} ({commits_ahead} commit(s) ahead)")
+        console.print(f"  Target: {target}")
+        console.print(f"  Cleanup: {'keep worktree' if keep else 'delete worktree + pane'}")
+        console.print()
+
+        if not click.confirm("Proceed with merge?"):
+            console.print("[yellow]Aborted.[/yellow]")
+            return
+
+    # Execute merge
+    try:
+        with console.status("[bold blue]Merging...") if not json_output else nullcontext():
+            result = merge_manager.merge(
+                worktree_name=worktree_name,
+                base_branch=base_branch,
+                delete_worktree=not keep,
+            )
+    except MergeConflictError as e:
+        if json_output:
+            import json as json_mod
+            console.print(json_mod.dumps({
+                "status": "conflicts",
+                "source_branch": worktree.branch,
+                "target_branch": target,
+                "conflicts": e.conflicts,
+                "message": str(e),
+            }, indent=2))
+        else:
+            console.print(f"\n[red]Merge conflicts detected:[/red] {e}")
+            console.print()
+            for conflict in e.conflicts:
+                console.print(f"  [yellow]C[/yellow] {conflict}")
+            console.print()
+            console.print("[dim]Resolve conflicts in the worktree, then try again.[/dim]")
+            console.print(f"[dim]  cd {worktree.path}[/dim]")
+        raise SystemExit(1)
+    except MergeError as e:
+        raise click.ClickException(str(e)) from e
+
+    if json_output:
+        import json as json_mod
+        console.print(json_mod.dumps(result.to_dict(), indent=2))
+        return
+
+    # Display result
+    if result.status == MergeStatus.ALREADY_MERGED:
+        console.print(f"\n[yellow]{result.message}[/yellow]")
+    elif result.status == MergeStatus.SUCCESS:
+        console.print(f"\n[bold green]Merged successfully!")
+        console.print(f"  {result.source_branch} → {result.target_branch} ({result.commits_merged} commit(s))")
+        if result.worktree_cleaned:
+            # Also clean up pane and status tracking
+            try:
+                status_tracker = StatusTracker()
+                status_tracker.remove_status(worktree.name)
+            except Exception:
+                pass
+
+            try:
+                workspace_name = f"owt-{wt_manager.project_name}"
+                workspace_manager = WorkspaceManager()
+                workspace = workspace_manager.get_workspace(workspace_name)
+                target_pane = workspace.get_pane_by_worktree(worktree.name)
+                if target_pane:
+                    tmux_manager = TmuxManager()
+                    try:
+                        tmux_manager.remove_pane(workspace_name, target_pane.pane_index)
+                    except TmuxError:
+                        pass
+                    workspace_manager.remove_worktree_pane(workspace_name, worktree.name)
+            except (WorkspaceNotFoundError, Exception):
+                pass
+
+            console.print("  [green]Worktree cleaned up[/green]")
+    else:
+        console.print(f"\n[red]{result.message}[/red]")
+
+
+@main.command("close")
+@click.argument("worktree_name")
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Skip confirmation prompt.",
+)
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    help="Force close even with uncommitted changes.",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Output result as JSON.",
+)
+def close_worktree(
+    worktree_name: str,
+    yes: bool,
+    force: bool,
+    json_output: bool,
+) -> None:
+    """Close a worktree: remove its pane and delete the worktree atomically.
+
+    Combines pane removal + worktree deletion + status cleanup into a single
+    command. This is the complement to 'owt new'.
+
+    Examples:
+        owt close feature/auth
+        owt close my-feature -y
+        owt close feature/api --force
+    """
+    wt_manager = get_worktree_manager()
+
+    try:
+        worktree = wt_manager.get(worktree_name)
+    except WorktreeNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    if not yes and not json_output:
+        console.print()
+        console.print("[bold]About to close:[/bold]")
+        console.print(f"  Branch:    {worktree.branch}")
+        console.print(f"  Path:      {worktree.short_path}")
+        console.print(f"  Actions:   Remove pane + delete worktree + cleanup status")
+        console.print()
+
+        if not click.confirm("Proceed?"):
+            console.print("[yellow]Aborted.[/yellow]")
+            return
+
+    errors: list[str] = []
+
+    # 1. Remove pane from workspace
+    workspace_name = f"owt-{wt_manager.project_name}"
+    try:
+        workspace_manager = WorkspaceManager()
+        workspace = workspace_manager.get_workspace(workspace_name)
+        target_pane = workspace.get_pane_by_worktree(worktree.name)
+        if target_pane:
+            tmux_manager = TmuxManager()
+            try:
+                tmux_manager.remove_pane(workspace_name, target_pane.pane_index)
+            except TmuxError as e:
+                errors.append(f"Pane removal: {e}")
+            workspace_manager.remove_worktree_pane(workspace_name, worktree.name)
+    except WorkspaceNotFoundError:
+        # Not in workspace mode — try standalone session
+        tmux_manager = TmuxManager()
+        session = tmux_manager.get_session_for_worktree(worktree.name)
+        if session:
+            try:
+                tmux_manager.kill_session(session.session_name)
+            except TmuxError as e:
+                errors.append(f"Session kill: {e}")
+
+    # 2. Stop any AI tool processes
+    try:
+        from open_orchestrator.core.process_manager import ProcessManager
+        process_manager = ProcessManager()
+        if process_manager.get_process(worktree.name):
+            process_manager.stop_ai_tool(worktree.name, force=force)
+    except Exception:
+        pass  # Best-effort
+
+    # 3. Delete worktree
+    try:
+        wt_manager.delete(worktree.name, force=force)
+    except WorktreeError as e:
+        errors.append(f"Worktree deletion: {e}")
+
+    # 4. Clean up status tracking
+    try:
+        status_tracker = StatusTracker()
+        status_tracker.remove_status(worktree.name)
+    except Exception:
+        pass  # Best-effort
+
+    if json_output:
+        import json as json_mod
+        console.print(json_mod.dumps({
+            "status": "error" if errors else "success",
+            "worktree": worktree.name,
+            "branch": worktree.branch,
+            "errors": errors,
+        }, indent=2))
+        return
+
+    if errors:
+        console.print(f"\n[yellow]Closed with warnings:[/yellow]")
+        for err in errors:
+            console.print(f"  [yellow]![/yellow] {err}")
+    else:
+        console.print(f"\n[bold green]Closed:[/bold green] {worktree.name} ({worktree.branch})")
+
+
 @main.command("list")
 @click.option(
     "-a",
@@ -1796,7 +2275,7 @@ def cleanup_worktrees(
 
     if not worktree_paths:
         if as_json:
-            console.print(json_module.dumps({"stale_worktrees": [], "message": "No worktrees to clean up"}))
+            click.echo(json_module.dumps({"stale_worktrees": [], "message": "No worktrees to clean up"}))
         else:
             console.print("[yellow]No worktrees to clean up.[/yellow]")
         return
@@ -1805,7 +2284,7 @@ def cleanup_worktrees(
 
     if not stale_worktrees:
         if as_json:
-            console.print(json_module.dumps({"stale_worktrees": [], "threshold_days": threshold_days}))
+            click.echo(json_module.dumps({"stale_worktrees": [], "threshold_days": threshold_days}))
         else:
             console.print(f"[green]No stale worktrees found (threshold: {threshold_days} days).[/green]")
         return
@@ -1839,7 +2318,7 @@ def cleanup_worktrees(
                 "errors": report.errors,
             }
 
-        console.print(json_module.dumps(data, indent=2))
+        click.echo(json_module.dumps(data, indent=2))
         return
 
     console.print()
@@ -3792,7 +4271,7 @@ def process_group() -> None:
 @click.argument("worktree_name")
 @click.option(
     "--ai-tool",
-    type=click.Choice(["claude", "opencode", "droid"]),
+    type=click.Choice(["claude", "opencode", "droid", "codex", "gemini-cli", "aider", "amp", "kilo-code"]),
     default="claude",
     help="AI coding tool to start (default: claude).",
 )
@@ -4646,6 +5125,17 @@ def agent_health(worktree_identifier: str | None, json_output: bool) -> None:
                     console.print(f"  [red]✗[/red] {report.worktree_name}")
                     for issue in report.critical_issues:
                         console.print(f"      {issue.message}")
+
+
+# --- Command Aliases (Short Forms) ---
+# These provide dmux-like shorthand for common operations.
+
+main.add_command(new_worktree, "n")           # owt n  → owt new
+main.add_command(list_worktrees, "ls")        # owt ls → owt list
+main.add_command(delete_worktree, "rm")       # owt rm → owt delete
+main.add_command(show_status, "st")            # owt st → owt status
+main.add_command(merge_worktree, "m")         # owt m  → owt merge
+main.add_command(close_worktree, "x")         # owt x  → owt close
 
 
 if __name__ == "__main__":
