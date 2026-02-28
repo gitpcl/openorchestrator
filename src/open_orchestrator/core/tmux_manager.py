@@ -936,33 +936,27 @@ class TmuxManager:
 
         accent_hex = get_active_theme().accent
 
-        try:
-            # Set status-right to show owt info (keep default clock too)
-            subprocess.run(
-                [
-                    "tmux", "set-option", "-t", session_name,
-                    "status-right",
-                    f"#(sh -c {shlex.quote(status_script)}) | %H:%M",
-                ],
-                check=False,
-            )
-            # Refresh interval: every 5 seconds
-            subprocess.run(
-                ["tmux", "set-option", "-t", session_name, "status-interval", "5"],
-                check=False,
-            )
-            # Style the status bar with theme accent
-            subprocess.run(
-                ["tmux", "set-option", "-t", session_name, "status-right-length", "80"],
-                check=False,
-            )
-            subprocess.run(
-                [
-                    "tmux", "set-option", "-t", session_name,
-                    "status-style",
-                    f"bg=#262626,fg={accent_hex}",
-                ],
-                check=False,
-            )
-        except Exception:
-            pass  # Status bar is best-effort
+        # All status bar options are best-effort
+        self._run_tmux_cmd(
+            "set-option", "-t", session_name,
+            "status-right",
+            f"#(sh -c {shlex.quote(status_script)}) | %H:%M",
+        )
+        self._run_tmux_cmd(
+            "set-option", "-t", session_name, "status-interval", "5",
+        )
+        self._run_tmux_cmd(
+            "set-option", "-t", session_name, "status-right-length", "80",
+        )
+        self._run_tmux_cmd(
+            "set-option", "-t", session_name,
+            "status-style", f"bg=#262626,fg={accent_hex}",
+        )
+        self._run_tmux_cmd(
+            "set-option", "-t", session_name,
+            "pane-border-style", "fg=#262626",
+        )
+        self._run_tmux_cmd(
+            "set-option", "-t", session_name,
+            "pane-active-border-style", f"fg={accent_hex}",
+        )

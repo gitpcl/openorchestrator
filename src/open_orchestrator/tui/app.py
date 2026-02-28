@@ -15,6 +15,7 @@ from typing import Any
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
+from textual.theme import Theme
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Static
 from textual import work
@@ -50,6 +51,16 @@ from open_orchestrator.tui.screens import (
 
 logger = logging.getLogger(__name__)
 
+# Theme prefix for Textual theme registration
+_THEME_PREFIX = "owt-"
+
+# Shared base colors used in TCSS_TEMPLATE and Textual themes
+_BG_PRIMARY = "#1c1c1c"
+_BG_SECONDARY = "#262626"
+_BG_HOVER = "#2a2a2a"
+_FG_PRIMARY = "#e0e0e0"
+_FG_DIM = "#6c6c6c"
+
 # dmux-style status icons and colors
 STATUS_ICONS: dict[str, tuple[str, str]] = {
     AIActivityStatus.WORKING: ("\u273b", "#00d7ff"),       # ✻ cyan (working)
@@ -74,164 +85,164 @@ AGENT_TAGS: dict[str, str] = {
 }
 
 
-TCSS_TEMPLATE = """\
+TCSS_TEMPLATE = f"""\
 /* OrchestratorApp TUI Styles — themed */
 
-Screen {{
-    background: #1c1c1c;
-}}
+Screen {{{{
+    background: {_BG_PRIMARY};
+}}}}
 
-#sidebar {{
+#sidebar {{{{
     width: 100%;
     height: 1fr;
-    background: #1c1c1c;
-}}
+    background: {_BG_PRIMARY};
+}}}}
 
-#sidebar-title {{
+#sidebar-title {{{{
     width: 100%;
     height: 1;
-    background: {accent};
-    color: #1c1c1c;
+    background: {{accent}};
+    color: {_BG_PRIMARY};
     text-align: center;
     text-style: bold;
     padding: 0 1;
-}}
+}}}}
 
-PaneListWidget {{
+PaneListWidget {{{{
     height: 1fr;
     border: none;
-}}
+}}}}
 
-PaneListWidget DataTable {{
+PaneListWidget DataTable {{{{
     height: 100%;
-    background: #1c1c1c;
-}}
+    background: {_BG_PRIMARY};
+}}}}
 
-DataTable > .datatable--cursor {{
-    background: {cursor_bg};
-    color: {accent};
-}}
+DataTable > .datatable--cursor {{{{
+    background: {{cursor_bg}};
+    color: {{accent}};
+}}}}
 
-DataTable > .datatable--header {{
+DataTable > .datatable--header {{{{
     height: 0;
-}}
+}}}}
 
-DataTable > .datatable--hover {{
-    background: #2a2a2a;
-}}
+DataTable > .datatable--hover {{{{
+    background: {_BG_HOVER};
+}}}}
 
-#status-bar {{
+#status-bar {{{{
     width: 100%;
     height: 1;
-    background: #262626;
-    color: #6c6c6c;
+    background: {_BG_SECONDARY};
+    color: {_FG_DIM};
     padding: 0 1;
-}}
+}}}}
 
-Footer {{
-    background: #262626;
-}}
+Footer {{{{
+    background: {_BG_SECONDARY};
+}}}}
 
-FooterKey {{
-    background: #262626;
-}}
+FooterKey {{{{
+    background: {_BG_SECONDARY};
+}}}}
 
-ConfirmScreen {{
+ConfirmScreen {{{{
     align: center middle;
     background: rgba(0, 0, 0, 0.7);
-}}
+}}}}
 
-#confirm-dialog {{
+#confirm-dialog {{{{
     width: 100%;
     max-width: 50;
     height: auto;
-    border: thick {accent};
-    background: #1c1c1c;
+    border: thick {{accent}};
+    background: {_BG_PRIMARY};
     padding: 1 1;
-}}
+}}}}
 
-#confirm-message {{
+#confirm-message {{{{
     width: 100%;
     text-align: center;
     color: #ffffff;
     margin-bottom: 1;
-}}
+}}}}
 
-HelpOverlayScreen {{
+HelpOverlayScreen {{{{
     align: center middle;
     background: rgba(0, 0, 0, 0.7);
-}}
+}}}}
 
-#help-dialog {{
+#help-dialog {{{{
     width: 100%;
     max-width: 48;
     height: auto;
-    border: thick {accent};
-    background: #1c1c1c;
+    border: thick {{accent}};
+    background: {_BG_PRIMARY};
     padding: 1 1;
-}}
+}}}}
 
-#help-title {{
+#help-title {{{{
     width: 100%;
     text-align: center;
     text-style: bold;
-    color: {accent};
+    color: {{accent}};
     margin-bottom: 1;
-}}
+}}}}
 
-#help-content {{
+#help-content {{{{
     width: 100%;
     color: #d0d0d0;
-}}
+}}}}
 
-#help-footer {{
+#help-footer {{{{
     width: 100%;
     text-align: center;
     margin-top: 1;
-    color: #6c6c6c;
-}}
+    color: {_FG_DIM};
+}}}}
 
-ThemePickerScreen {{
+ThemePickerScreen {{{{
     align: center middle;
     background: rgba(0, 0, 0, 0.7);
-}}
+}}}}
 
-#theme-dialog {{
+#theme-dialog {{{{
     width: 100%;
     max-width: 40;
     height: auto;
-    border: thick {accent};
-    background: #1c1c1c;
+    border: thick {{accent}};
+    background: {_BG_PRIMARY};
     padding: 1 1;
-}}
+}}}}
 
-#theme-title {{
+#theme-title {{{{
     width: 100%;
     text-align: center;
     text-style: bold;
-    color: {accent};
+    color: {{accent}};
     margin-bottom: 1;
-}}
+}}}}
 
-#theme-footer {{
+#theme-footer {{{{
     width: 100%;
     text-align: center;
     margin-top: 1;
-    color: #6c6c6c;
-}}
+    color: {_FG_DIM};
+}}}}
 
-ToastRack {{
+ToastRack {{{{
     align: center bottom;
     width: 100%;
     margin-bottom: 3;
-}}
+}}}}
 
-Toast {{
+Toast {{{{
     width: 1fr;
     max-width: 100%;
     margin: 0 1 0 2;
-    border-left: wide {accent};
-}}
+    border-left: wide {{accent}};
+}}}}
 """
 
 
@@ -239,6 +250,32 @@ def build_css(theme_name: str) -> str:
     """Build CSS string from template using the given theme."""
     theme = THEMES.get(theme_name, THEMES["cyan"])
     return TCSS_TEMPLATE.format(accent=theme.accent, cursor_bg=theme.cursor_bg)
+
+
+def _build_textual_themes() -> dict[str, Theme]:
+    """Build Textual Theme objects from our THEMES dict.
+
+    These control Textual's built-in widgets: command palette, key bindings
+    overlay, scrollbars, focus rings, etc.
+    """
+    result: dict[str, Theme] = {}
+    for name, colors in THEMES.items():
+        theme_name = f"{_THEME_PREFIX}{name}"
+        result[theme_name] = Theme(
+            name=theme_name,
+            primary=colors.accent,
+            secondary=colors.cursor_bg,
+            accent=colors.accent,
+            foreground=_FG_PRIMARY,
+            background=_BG_PRIMARY,
+            surface=_BG_SECONDARY,
+            panel=_BG_SECONDARY,
+            dark=True,
+        )
+    return result
+
+
+TEXTUAL_THEMES = _build_textual_themes()
 
 
 class PaneListWidget(Widget):
@@ -380,6 +417,18 @@ class OrchestratorApp(App[None]):
 
     TITLE = "owt"
 
+    @property
+    def available_themes(self) -> dict[str, Theme]:
+        """Only expose owt themes, hiding Textual's built-in themes."""
+        owt = {k: v for k, v in self._registered_themes.items() if k.startswith(_THEME_PREFIX)}
+        # Before on_mount registers our themes, fall back to all registered
+        # so Textual's __init__ can resolve its default theme.
+        return owt if owt else self._registered_themes
+
+    def search_themes(self) -> None:
+        """Override to use our theme picker instead of Textual's."""
+        self.action_settings()
+
     def __init__(
         self,
         status_tracker: StatusTracker | None = None,
@@ -387,6 +436,7 @@ class OrchestratorApp(App[None]):
         ab_launcher: ABLauncher | None = None,
         workspace_name: str | None = None,
         repo_path: str | None = None,
+        theme_name: str = "cyan",
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -396,6 +446,7 @@ class OrchestratorApp(App[None]):
         self.workspace_name = workspace_name or os.environ.get("OWT_WORKSPACE", "")
         self.repo_path = repo_path or os.environ.get("OWT_REPO", "")
         self._refresh_interval: float = 2.0
+        self._owt_theme_name = theme_name
 
     def compose(self) -> ComposeResult:
         with Vertical(id="sidebar"):
@@ -412,6 +463,11 @@ class OrchestratorApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        # Register owt themes and apply the configured one
+        for textual_theme in TEXTUAL_THEMES.values():
+            self.register_theme(textual_theme)
+        self.theme = f"{_THEME_PREFIX}{self._owt_theme_name}"
+
         self.set_interval(self._refresh_interval, self._refresh_ui)
 
     def _refresh_ui(self) -> None:
@@ -645,10 +701,13 @@ class OrchestratorApp(App[None]):
         if theme is None:
             return
 
-        # Live-update widget styles
+        # Switch Textual's theme (controls palette, keys overlay, scrollbars)
+        self.theme = f"{_THEME_PREFIX}{theme_name}"
+
+        # Live-update our custom widget styles
         try:
             self.query_one("#sidebar-title").styles.background = theme.accent
-            self.query_one("#sidebar-title").styles.color = "#1c1c1c"
+            self.query_one("#sidebar-title").styles.color = _BG_PRIMARY
         except Exception:
             pass
 
@@ -667,6 +726,10 @@ class OrchestratorApp(App[None]):
     def action_show_help(self) -> None:
         """Show keybinding help overlay."""
         self.push_screen(HelpOverlayScreen())
+
+    def action_quit(self) -> None:
+        """Override Textual's built-in quit to go through our cleanup."""
+        self.action_quit_tui()
 
     def action_quit_tui(self) -> None:
         """Quit with confirmation."""
@@ -721,7 +784,8 @@ def launch_tui(
         return
 
     config = load_config()
-    OrchestratorApp.CSS = build_css(config.ui.theme)
+    theme_name = config.ui.theme
+    OrchestratorApp.CSS = build_css(theme_name)
 
     app = OrchestratorApp(
         status_tracker=status_tracker,
@@ -729,6 +793,7 @@ def launch_tui(
         ab_launcher=ab_launcher,
         workspace_name=workspace_name,
         repo_path=repo_path,
+        theme_name=theme_name,
     )
     app.run()
 
