@@ -42,7 +42,8 @@ class Workspace(BaseModel):
     layout: WorkspaceLayout = Field(default=WorkspaceLayout.MAIN_FOCUS, description="Current pane layout")
     panes: list[WorkspacePane] = Field(default_factory=list, description="Panes in this workspace")
     main_pane_index: int = Field(default=0, description="Index of the main repository pane")
-    max_panes: int = Field(default=4, description="Maximum panes allowed (1 main + 3 worktrees)")
+    max_panes: int = Field(default=10, description="Maximum panes allowed")
+    on_demand: bool = Field(default=True, description="On-demand pane creation mode (dmux-like)")
     auto_balance: bool = Field(default=True, description="Auto-resize panes when adding/removing")
     created_at: datetime = Field(default_factory=datetime.now, description="When workspace was created")
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update time")
@@ -77,9 +78,12 @@ class Workspace(BaseModel):
         return None
 
     def add_pane(self, pane: WorkspacePane) -> None:
-        """Add a pane to the workspace."""
+        """Add a pane to the workspace. In on_demand mode, auto-expands max_panes."""
         if self.is_full:
-            raise ValueError(f"Workspace {self.name} is full ({self.max_panes} panes)")
+            if self.on_demand:
+                self.max_panes = len(self.panes) + 1
+            else:
+                raise ValueError(f"Workspace {self.name} is full ({self.max_panes} panes)")
         self.panes.append(pane)
         self.updated_at = datetime.now()
 

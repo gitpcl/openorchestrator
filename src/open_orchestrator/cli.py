@@ -683,6 +683,236 @@ def workspace_destroy(name: str, yes: bool) -> None:
     console.print(f"[green]✓[/green] Workspace destroyed: {name}")
 
 
+# ── Pane commands (on-demand workspace mode) ─────────────────────────────
+
+
+@main.group("pane")
+def pane_group() -> None:
+    """On-demand pane management for workspace mode.
+
+    Add or remove worktree panes dynamically. These commands are used by the
+    tmux keybindings (prefix+n, prefix+X) and can also be called directly.
+    """
+
+
+@pane_group.command("add")
+@click.option("--from-popup", "popup_file", type=click.Path(exists=True), help="JSON file from owt-popup picker.")
+@click.option("--branch", "-b", help="Branch name for the new worktree.")
+@click.option(
+    "--ai-tool",
+    type=click.Choice(["claude", "opencode", "droid"]),
+    default="claude",
+    help="AI tool to start in the pane.",
+)
+@click.option("--template", "template_name", help="Worktree template to apply.")
+@click.option("--workspace", "workspace_name", help="Workspace name (auto-detected from tmux env if omitted).")
+@click.option("--repo", "repo_path", type=click.Path(exists=True), help="Repository path (auto-detected if omitted).")
+@click.option("--plan-mode", is_flag=True, help="Start Claude in plan mode.")
+def pane_add(
+    popup_file: str | None,
+    branch: str | None,
+    ai_tool: str,
+    template_name: str | None,
+    workspace_name: str | None,
+    repo_path: str | None,
+    plan_mode: bool,
+) -> None:
+    """Add a new worktree pane to the current workspace.
+
+    Can be invoked via the tmux popup (prefix+n) or directly:
+
+        owt pane add --branch feature/x --ai-tool claude --workspace owt-proj --repo /path
+    """
+    # Read popup result if provided
+    if popup_file:
+        import json as json_mod
+
+        with open(popup_file) as f:
+            popup_data = json_mod.load(f)
+        branch = popup_data.get("branch", branch)
+        ai_tool = popup_data.get("ai_tool", ai_tool)
+        template_name = popup_data.get("template", template_name)
+
+    if not branch:
+        console.print("[red]Error: --branch is required (or use --from-popup).[/red]")
+        raise SystemExit(1)
+
+    # Auto-detect workspace and repo from tmux environment
+    if not workspace_name:
+        workspace_name = os.environ.get("OWT_WORKSPACE")
+    if not repo_path:
+        repo_path = os.environ.get("OWT_REPO")
+
+    if not workspace_name or not repo_path:
+        console.print("[red]Error: --workspace and --repo required (or set OWT_WORKSPACE/OWT_REPO).[/red]")
+        raise SystemExit(1)
+
+    ai_tool_enum = AITool(ai_tool)
+    config = load_config()
+
+    # 1. Create the worktree (reuse WorktreeManager)
+    wt_manager = WorktreeManager(repo_path=repo_path)
+
+    # Apply template if specified
+    ai_instructions = None
+    if template_name:
+        from open_orchestrator.config import get_builtin_templates
+
+        templates = get_builtin_templates()
+        tmpl = templates.get(template_name)
+        if tmpl:
+            ai_instructions = tmpl.ai_instructions
+            if tmpl.ai_tool:
+                ai_tool_enum = tmpl.ai_tool
+        else:
+            console.print(f"[yellow]Warning: Unknown template '{template_name}', ignoring.[/yellow]")
+
+    try:
+        worktree = wt_manager.create(branch=branch)
+    except WorktreeAlreadyExistsError:
+        console.print(f"[yellow]Worktree for '{branch}' already exists, reusing.[/yellow]")
+        worktree = wt_manager.get(branch)
+    except WorktreeError as e:
+        console.print(f"[red]Error creating worktree: {e}[/red]")
+        raise SystemExit(1)
+
+    # 2. Set up environment (deps, .env, CLAUDE.md)
+    try:
+        env_setup = EnvironmentSetup()
+        env_setup.setup_worktree_environment(
+            worktree_path=str(worktree.path),
+            main_repo_path=repo_path,
+            install_deps=config.worktree.auto_install_deps,
+            copy_env=config.worktree.auto_copy_env,
+        )
+    except EnvironmentSetupError as e:
+        console.print(f"[yellow]Warning: Environment setup issue: {e}[/yellow]")
+
+    # 3. Add pane to tmux session (reuse TmuxManager)
+    tmux_manager = TmuxManager()
+    try:
+        pane_index = tmux_manager.add_worktree_pane(
+            session_name=workspace_name,
+            worktree_path=str(worktree.path),
+            worktree_name=worktree.name,
+            ai_tool=ai_tool_enum,
+            plan_mode=plan_mode,
+        )
+    except TmuxError as e:
+        console.print(f"[red]Error adding pane: {e}[/red]")
+        raise SystemExit(1)
+
+    # 4. Track in workspace store (reuse WorkspaceManager)
+    try:
+        workspace_manager = WorkspaceManager()
+        workspace_manager.add_worktree_pane(
+            workspace_name=workspace_name,
+            pane_index=pane_index,
+            worktree_name=worktree.name,
+            worktree_path=worktree.path,
+        )
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not track pane in workspace store: {e}[/yellow]")
+
+    # 5. Send template instructions if available
+    if ai_instructions:
+        try:
+            tmux_manager.send_keys_to_pane(
+                session_name=workspace_name,
+                keys=ai_instructions,
+                pane_index=pane_index,
+            )
+        except TmuxError:
+            pass
+
+    # 6. Initialize status tracking
+    try:
+        status_tracker = StatusTracker()
+        status_tracker.initialize_status(
+            worktree_name=worktree.name,
+            worktree_path=str(worktree.path),
+            branch=worktree.branch,
+            tmux_session=workspace_name,
+            ai_tool=ai_tool_enum,
+        )
+    except Exception as e:
+        console.print(f"[dim]Status tracking init skipped: {e}[/dim]")
+
+    console.print(f"[green]✓[/green] Pane added: {worktree.name} (pane {pane_index})")
+
+
+@pane_group.command("remove")
+@click.option("--pane-id", type=int, help="tmux pane index to remove.")
+@click.option("--worktree", "worktree_name", help="Worktree name to remove.")
+@click.option("--workspace", "workspace_name", help="Workspace name.")
+@click.option("--keep-worktree", is_flag=True, help="Keep the git worktree (only close the pane).")
+def pane_remove(
+    pane_id: int | None,
+    worktree_name: str | None,
+    workspace_name: str | None,
+    keep_worktree: bool,
+) -> None:
+    """Remove a pane from the workspace and optionally delete its worktree.
+
+    Can be invoked via the tmux keybinding (prefix+X) or directly:
+
+        owt pane remove --worktree feature/x --workspace owt-proj
+    """
+    if not workspace_name:
+        workspace_name = os.environ.get("OWT_WORKSPACE")
+
+    if not workspace_name:
+        console.print("[red]Error: --workspace required (or set OWT_WORKSPACE).[/red]")
+        raise SystemExit(1)
+
+    workspace_manager = WorkspaceManager()
+    try:
+        workspace = workspace_manager.get_workspace(workspace_name)
+    except WorkspaceNotFoundError:
+        console.print(f"[red]Error: Workspace '{workspace_name}' not found.[/red]")
+        raise SystemExit(1)
+
+    # Resolve worktree name from pane_id if needed
+    if pane_id is not None and not worktree_name:
+        for pane in workspace.panes:
+            if pane.pane_index == pane_id:
+                worktree_name = pane.worktree_name
+                break
+
+    if not worktree_name:
+        console.print("[red]Error: --worktree or --pane-id required.[/red]")
+        raise SystemExit(1)
+
+    # Find pane index from worktree name
+    target_pane = workspace.get_pane_by_worktree(worktree_name)
+    if not target_pane:
+        console.print(f"[yellow]Worktree '{worktree_name}' not found in workspace.[/yellow]")
+        raise SystemExit(1)
+
+    # 1. Remove pane from tmux
+    tmux_manager = TmuxManager()
+    try:
+        tmux_manager.remove_pane(workspace_name, target_pane.pane_index)
+    except TmuxError as e:
+        console.print(f"[yellow]Warning: Could not remove tmux pane: {e}[/yellow]")
+
+    # 2. Remove from workspace store
+    workspace_manager.remove_worktree_pane(workspace_name, worktree_name)
+
+    # 3. Delete git worktree if requested
+    if not keep_worktree:
+        repo_path = os.environ.get("OWT_REPO")
+        if repo_path:
+            try:
+                wt_manager = WorktreeManager(repo_path=repo_path)
+                wt_manager.delete(worktree_name)
+                console.print(f"[green]✓[/green] Deleted worktree: {worktree_name}")
+            except WorktreeError as e:
+                console.print(f"[yellow]Warning: Could not delete worktree: {e}[/yellow]")
+
+    console.print(f"[green]✓[/green] Pane removed: {worktree_name}")
+
+
 @main.command("create")
 @click.argument("branch")
 @click.option(
@@ -744,9 +974,9 @@ def workspace_destroy(name: str, yes: bool) -> None:
 @click.option(
     "-l",
     "--layout",
-    type=click.Choice(["main-focus", "main-vertical", "three-pane", "quad", "even-horizontal", "even-vertical"]),
-    default="main-focus",
-    help="tmux pane layout for the session (default: main-focus for workspace mode).",
+    type=click.Choice(["single", "main-focus", "main-vertical", "three-pane", "quad", "even-horizontal", "even-vertical"]),
+    default="single",
+    help="tmux pane layout for the session (default: single for on-demand workspace mode).",
 )
 @click.option(
     "--panes",
@@ -1044,6 +1274,7 @@ def create_worktree(
         if tmux and tmux_manager:
             try:
                 layout_map = {
+                    "single": TmuxLayout.SINGLE,
                     "main-vertical": TmuxLayout.MAIN_VERTICAL,
                     "main-focus": TmuxLayout.MAIN_FOCUS,
                     "three-pane": TmuxLayout.THREE_PANE,
@@ -1067,9 +1298,8 @@ def create_worktree(
                     # Check if workspace exists
                     try:
                         workspace = workspace_manager.get_workspace(workspace_name)
-                        existing_workspace = True
                     except WorkspaceNotFoundError:
-                        # Create new workspace with main-focus layout
+                        # Create new workspace with single-pane on-demand layout
                         with console.status(f"[bold blue]Creating workspace '{workspace_name}'..."):
                             # First create the tmux session for the workspace
                             from open_orchestrator.core.tmux_manager import TmuxSessionConfig
@@ -1077,7 +1307,7 @@ def create_worktree(
                             session_config = TmuxSessionConfig(
                                 session_name=workspace_name,
                                 working_directory=main_repo_path,
-                                layout=TmuxLayout.MAIN_FOCUS,
+                                layout=TmuxLayout.SINGLE,
                                 pane_count=1,  # Start with just main pane
                                 auto_start_ai=claude,
                                 ai_tool=ai_tool_enum,
@@ -1095,14 +1325,25 @@ def create_worktree(
                                 name=workspace_name,
                                 session_id=session_info.session_id,
                                 layout=WorkspaceLayout.MAIN_FOCUS,
-                                max_panes=4,
+                                max_panes=10,
                             )
 
-                        existing_workspace = False
-                        console.print(f"[green]✓[/green] Created workspace: {workspace_name}")
+                            # Install keybindings for on-demand pane creation
+                            try:
+                                tmux_manager.install_keybindings(
+                                    session_name=workspace_name,
+                                    workspace_name=workspace_name,
+                                    repo_path=main_repo_path,
+                                )
+                            except TmuxError as e:
+                                console.print(f"[yellow]Warning: Could not install keybindings: {e}[/yellow]")
+                                console.print("[dim]Use 'owt pane add' directly instead of prefix+n.[/dim]")
 
-                    # Check if workspace has space
-                    if workspace.is_full:
+                        console.print(f"[green]✓[/green] Created workspace: {workspace_name}")
+                        console.print("[dim]Press prefix+n to add worktree panes on demand.[/dim]")
+
+                    # Check if workspace has space (on_demand mode auto-expands)
+                    if workspace.is_full and not workspace.on_demand:
                         raise WorkspaceFullError(
                             f"Workspace '{workspace_name}' is full ({workspace.max_panes} panes). "
                             f"Use --separate-session to create a new tmux session instead."
@@ -1222,8 +1463,8 @@ def create_worktree(
 
                     if pr_result and pr_result.success:
                         console.print(f"[cyan]Linked to PR #{pr_result.pr_number}[/cyan]")
-                except Exception:
-                    pass
+                except Exception:  # noqa: S110
+                    pass  # PR auto-linking is best-effort, failures are silent
 
             except TmuxSessionExistsError:
                 console.print("[yellow]tmux session already exists[/yellow]")
@@ -4288,8 +4529,6 @@ def agent_status(json_output: bool) -> None:
     table.add_column("Last Updated")
 
     for wt_status in summary.statuses:
-        status_display = wt_status.activity_status.value if hasattr(wt_status.activity_status, "value") else str(wt_status.activity_status)
-
         if wt_status.activity_status == AIActivityStatus.WORKING:
             status_style = "[green]working[/green]"
         elif wt_status.activity_status == AIActivityStatus.BLOCKED:

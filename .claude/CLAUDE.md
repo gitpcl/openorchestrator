@@ -1,6 +1,6 @@
 # Open Orchestrator
 
-Git Worktree + Claude Code orchestration tool for parallel development workflows.
+Git Worktree + Claude Code orchestration tool for parallel development workflows with on-demand workspace mode (dmux-like).
 
 ## Quick Commands
 
@@ -8,6 +8,8 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 |---------|-------------|
 | `owt create <branch>` | Create worktree with tmux session and Claude Code |
 | `owt create <branch> --plan-mode` | Create worktree with Claude in plan mode |
+| `owt pane add --branch <name>` | Add worktree pane on demand (also via `prefix+n`) |
+| `owt pane remove --worktree <name>` | Remove pane + delete worktree (also via `prefix+X`) |
 | `owt list` | List all worktrees with status |
 | `owt switch <name> --tmux` | Switch to worktree's tmux session |
 | `owt send <name> "cmd"` | Send command to another worktree's Claude |
@@ -98,6 +100,8 @@ src/open_orchestrator/
 │   ├── hooks.py            # Hook configuration models
 │   ├── session.py          # Session data models
 │   └── pr_info.py          # PR info models
+├── popup/
+│   └── picker.py           # Popup picker for on-demand pane creation (tmux display-popup)
 ├── skills/
 │   └── open-orchestrator/
 │       └── SKILL.md        # Claude Code skill definition

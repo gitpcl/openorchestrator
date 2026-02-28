@@ -19,6 +19,7 @@ from open_orchestrator.config import AITool, DroidAutoLevel
 class TmuxLayout(Enum):
     """Available tmux pane layouts."""
 
+    SINGLE = "single"  # Single pane, on-demand workspace mode (dmux-like)
     MAIN_VERTICAL = "main-vertical"
     MAIN_FOCUS = "main-focus"  # 1/3 left + 3 horizontal right (workspace default)
     THREE_PANE = "three-pane"
@@ -207,7 +208,9 @@ class TmuxManager:
         pane_count = config.pane_count
         working_dir = config.working_directory
 
-        if layout == TmuxLayout.MAIN_VERTICAL:
+        if layout == TmuxLayout.SINGLE:
+            pass  # Session starts with 1 pane by default — no setup needed
+        elif layout == TmuxLayout.MAIN_VERTICAL:
             self._setup_main_vertical(window, pane_count, working_dir)
         elif layout == TmuxLayout.MAIN_FOCUS:
             self._setup_main_focus(window, working_dir)
@@ -638,14 +641,18 @@ class TmuxManager:
             # Get current pane count
             pane_count_before = len(window.panes)
 
-            # Find the rightmost pane (last pane in the right column)
-            # In main-focus layout: pane 0 is main (left), panes 1-3 are right column
-            if pane_count_before > 1:
-                # Select last pane in right column
+            if pane_count_before == 1:
+                # First worktree addition: split RIGHT to create two-column layout
+                # Main pane stays on the left, new worktree pane on the right
+                new_pane = window.split(start_directory=worktree_path, direction=PaneDirection.Right)
+                # Resize so main is 33% and worktree column is 67%
+                if new_pane:
+                    new_pane.resize(width="67%")
+            else:
+                # 2+ panes already exist: split BELOW last pane in right column
+                # This stacks worktree panes vertically on the right side
                 window.panes[-1].select()
-
-            # Split below to add new pane in right column
-            new_pane = window.split(start_directory=worktree_path, direction=PaneDirection.Below)
+                new_pane = window.split(start_directory=worktree_path, direction=PaneDirection.Below)
 
             # Start AI tool in the new pane
             if new_pane:
@@ -724,3 +731,86 @@ class TmuxManager:
             return len(window.panes)
         except libtmux.exc.LibTmuxException as e:
             raise TmuxError(f"Failed to get pane count: {e}") from e
+
+    @staticmethod
+    def get_tmux_version() -> tuple[int, int]:
+        """Get the installed tmux version as (major, minor) tuple."""
+        try:
+            result = subprocess.run(
+                ["tmux", "-V"], capture_output=True, text=True, check=True
+            )
+            # Output like "tmux 3.4" or "tmux next-3.5"
+            version_str = result.stdout.strip().split()[-1].lstrip("next-")
+            parts = version_str.split(".")
+            return (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+        except (subprocess.CalledProcessError, ValueError, IndexError):
+            return (0, 0)
+
+    def install_keybindings(
+        self,
+        session_name: str,
+        workspace_name: str,
+        repo_path: str,
+    ) -> None:
+        """
+        Install tmux keybindings for on-demand pane creation in a workspace session.
+
+        Binds:
+        - prefix+n → tmux display-popup running owt-popup picker
+        - prefix+X → confirm-before close pane + cleanup worktree
+
+        Requires tmux >= 3.2 for display-popup support.
+
+        Args:
+            session_name: tmux session to bind keys in
+            workspace_name: workspace name for the owt pane add command
+            repo_path: repository path for worktree creation
+        """
+        major, minor = self.get_tmux_version()
+        if (major, minor) < (3, 2):
+            raise TmuxError(
+                f"tmux >= 3.2 required for display-popup (found {major}.{minor}). "
+                f"Upgrade tmux or use 'owt pane add' directly."
+            )
+
+        # Temp file path unique to this session
+        result_file = f"/tmp/owt-popup-{session_name}.json"
+
+        # prefix+n: open popup picker, then run owt pane add with the result
+        popup_cmd = (
+            f"owt-popup {result_file} && "
+            f"owt pane add --from-popup {result_file} "
+            f"--workspace {workspace_name} --repo {repo_path}"
+        )
+        subprocess.run(
+            [
+                "tmux", "bind-key", "-T", "prefix", "n",
+                "display-popup", "-E", "-w", "60", "-h", "20",
+                popup_cmd,
+            ],
+            check=True,
+        )
+
+        # prefix+X: close current pane and remove its worktree (with confirmation)
+        # Uses confirm-before to prompt, then run-shell to call owt cleanup, then kill-pane
+        close_shell_cmd = (
+            f"owt pane remove --pane-id \\#{{pane_id}} --workspace {workspace_name}"
+        )
+        subprocess.run(
+            [
+                "tmux", "bind-key", "-T", "prefix", "X",
+                "confirm-before", "-p", "Close pane and delete worktree? (y/n)",
+                f"run-shell '{close_shell_cmd}' \\; kill-pane",
+            ],
+            check=False,  # Non-critical — don't fail workspace creation
+        )
+
+        # Set environment variables on the session for discovery
+        subprocess.run(
+            ["tmux", "set-environment", "-t", session_name, "OWT_WORKSPACE", workspace_name],
+            check=False,
+        )
+        subprocess.run(
+            ["tmux", "set-environment", "-t", session_name, "OWT_REPO", repo_path],
+            check=False,
+        )

@@ -5,10 +5,13 @@ unified workspaces where multiple worktrees are visible as panes in a single
 tmux session.
 """
 
+import logging
 from pathlib import Path
 
 from open_orchestrator.models.workspace import Workspace, WorkspaceLayout, WorkspacePane, WorkspaceStore
 from open_orchestrator.utils.io import safe_read_json, safe_write_json
+
+logger = logging.getLogger(__name__)
 
 
 class WorkspaceError(Exception):
@@ -190,10 +193,18 @@ class WorkspaceManager:
         workspace = self.get_workspace(workspace_name)
 
         if workspace.is_full:
-            raise WorkspaceFullError(
-                f"Workspace '{workspace_name}' is full ({workspace.max_panes} panes). "
-                f"Create a new workspace or use --separate-session flag."
-            )
+            if workspace.on_demand:
+                logger.warning(
+                    "Workspace '%s' has %d/%d panes. Consider increasing max_panes.",
+                    workspace_name,
+                    len(workspace.panes),
+                    workspace.max_panes,
+                )
+            else:
+                raise WorkspaceFullError(
+                    f"Workspace '{workspace_name}' is full ({workspace.max_panes} panes). "
+                    f"Create a new workspace or use --separate-session flag."
+                )
 
         pane = WorkspacePane(
             pane_index=pane_index,

@@ -60,6 +60,7 @@ dev = [
 
 [project.scripts]
 owt = "open_orchestrator.cli:main"
+owt-popup = "open_orchestrator.popup.picker:main"
 
 [build-system]
 requires = ["hatchling"]

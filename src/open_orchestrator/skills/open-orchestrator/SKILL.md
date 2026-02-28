@@ -1,11 +1,11 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI coding tool orchestration for parallel development with unified workspace mode. Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments, (3) Using workflow templates for common patterns, (4) Managing multiple AI coding sessions, (5) Delegating tasks to parallel worktrees, (6) Orchestrating Claude Code/OpenCode/Droid across branches, (7) Monitoring worktree health and detecting issues, (8) Optimizing AI tool costs and comparing pricing, (9) Cleaning up stale worktrees, (10) Syncing worktrees with upstream, (11) Monitoring with live dashboard, (12) Tracking token usage and costs, (13) Linking worktrees to GitHub PRs, (14) Managing status change hooks/notifications, (15) Copying/resuming Claude sessions, (16) Updating to latest version or checking for updates. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, unified view, owt commands, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management, update, version."
+description: "Git worktree + AI coding tool orchestration for parallel development with on-demand workspace mode (dmux-like). Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments, (3) Adding worktree panes on demand with prefix+n popup picker, (4) Using workflow templates for common patterns, (5) Managing multiple AI coding sessions, (6) Delegating tasks to parallel worktrees, (7) Orchestrating Claude Code/OpenCode/Droid across branches, (8) Monitoring worktree health and detecting issues, (9) Optimizing AI tool costs and comparing pricing, (10) Cleaning up stale worktrees, (11) Syncing worktrees with upstream, (12) Monitoring with live dashboard, (13) Tracking token usage and costs, (14) Linking worktrees to GitHub PRs, (15) Managing status change hooks/notifications, (16) Copying/resuming Claude sessions, (17) Updating to latest version or checking for updates. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, on-demand panes, dmux, popup picker, unified view, owt commands, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management, update, version."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
-Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees in a **unified workspace mode** (similar to Claude Code Agent Teams). See multiple worktrees as panes in a single tmux session, or use separate sessions with the `--separate-session` flag.
+Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees in an **on-demand workspace mode** (dmux-like). Start with a single pane, press `prefix+n` to open a popup picker, select an AI tool and branch, and a new pane appears to the right with the worktree and AI tool running. Use `--separate-session` for standalone tmux sessions.
 
 ## Quick Reference
 
@@ -16,6 +16,8 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt create <branch> --plan-mode` | Create with Claude in plan mode |
 | `owt create <branch> --template <name>` | Create with workflow template |
 | `owt create <branch> --auto-optimize` | Auto-select cost-effective AI tool |
+| `owt pane add --branch <name>` | Add worktree pane on demand (also via `prefix+n`) |
+| `owt pane remove --worktree <name>` | Remove pane + delete worktree (also via `prefix+X`) |
 | `owt workspace list` | List all unified workspaces |
 | `owt workspace show <name>` | Show workspace details and panes |
 | `owt workspace attach <name>` | Attach to workspace tmux session |
@@ -44,47 +46,56 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt version [--full]` | Show version and installation info |
 | `owt update [--check]` | Update to latest version |
 
-## 🆕 Unified Workspace Mode (Default)
+## On-Demand Workspace Mode (Default)
 
-**NEW:** Open Orchestrator now uses **workspace mode by default**, inspired by Claude Code Agent Teams. Instead of separate tmux sessions, all worktrees are visible as panes in a single session.
+Open Orchestrator uses **on-demand workspace mode** by default (dmux-like). Start with 1 pane, add worktree panes dynamically via popup picker or CLI.
 
-### Default Behavior
+### How It Works
 
 ```bash
-# Create first worktree (auto-creates workspace)
+# Create first worktree (auto-creates workspace with single pane)
 owt create feature/api
 # ✅ Created workspace: owt-myproject
 # ✅ Added pane for feature/api
+# Press prefix+n to add worktree panes on demand.
 
-# Create second worktree (adds pane to workspace)
-owt create bugfix/login
-# ✅ Added pane to workspace!
-# Total: 3 / 4 panes
+# Inside tmux, press prefix+n → popup picker appears:
+#   Select AI tool → Enter branch name → Optional template
+#   → New pane appears to the right
 
-# All visible in one tmux session:
-┌──────────┬─────────────────────┐
-│          │   feature/api       │
-│   main   ├─────────────────────┤
-│  (1/3)   │   bugfix/login      │
-└──────────┴─────────────────────┘
+# Or add panes from CLI:
+owt pane add --branch bugfix/login --ai-tool claude --workspace owt-myproject --repo /path
 
-# Navigate with: Ctrl+b → arrow keys
+# Layout grows on demand:
+# Start:          After 1st add:         After 2nd add:
+# ┌──────────┐    ┌─────┬──────────┐    ┌─────┬──────────┐
+# │          │    │     │ Worktree │    │     │ WT 1     │
+# │  Main    │ →  │Main │ 1        │ →  │Main ├──────────┤
+# │          │    │     │          │    │     │ WT 2     │
+# └──────────┘    └─────┴──────────┘    └─────┴──────────┘
 ```
 
-### Workspace Layout: main-focus
+### Keybindings (tmux >= 3.2)
 
-- **Left 1/3**: Main repository (orchestration center, always visible)
-- **Right 2/3**: Up to 3 worktree panes stacked horizontally
-- **Max panes**: 4 total (1 main + 3 worktrees)
+| Key | Action |
+|-----|--------|
+| `prefix + n` | Open popup picker → create worktree + pane |
+| `prefix + X` | Close current pane + delete its worktree (with confirmation) |
 
-### Opt-Out: Separate Sessions
-
-Use `--separate-session` for old behavior (standalone tmux session):
+### Pane Commands
 
 ```bash
-owt create feature/standalone --separate-session
-# ✅ tmux session created: owt-feature-standalone
-# (Not added to workspace)
+# Add pane from popup result (used by keybinding internally)
+owt pane add --from-popup /tmp/owt-popup-session.json --workspace owt-proj --repo /path
+
+# Add pane directly
+owt pane add --branch feature/x --ai-tool claude --workspace owt-proj --repo /path
+
+# Remove pane and delete worktree
+owt pane remove --worktree feature/x --workspace owt-proj
+
+# Remove pane but keep worktree
+owt pane remove --worktree feature/x --workspace owt-proj --keep-worktree
 ```
 
 ### Workspace Commands
@@ -101,6 +112,16 @@ owt workspace attach owt-myproject
 
 # Destroy workspace (keeps worktrees)
 owt workspace destroy owt-myproject
+```
+
+### Opt-Out: Separate Sessions
+
+Use `--separate-session` for standalone tmux sessions:
+
+```bash
+owt create feature/standalone --separate-session
+# ✅ tmux session created: owt-feature-standalone
+# (Not added to workspace)
 ```
 
 ## Core Workflow
@@ -537,7 +558,7 @@ auto_cleanup_days = 14                    # Stale threshold
 sync_claude_md = true                     # Copy CLAUDE.md to new worktrees
 
 [tmux]
-default_layout = "main-vertical"          # main-vertical, three-pane, quad
+default_layout = "single"                 # single (on-demand), main-vertical, three-pane, quad
 auto_start_ai = true
 ai_tool = "claude"                        # claude, opencode, droid
 pane_count = 2
@@ -588,7 +609,9 @@ Hooks are stored in `~/.open-orchestrator/hooks.json`:
 
 | Layout | Description |
 |--------|-------------|
+| `single` | Single pane, on-demand mode (default for workspaces) |
 | `main-vertical` | Large left pane (editor), smaller right panes |
+| `main-focus` | 1/3 left main + right column of worktree panes |
 | `three-pane` | Main top pane, two bottom panes |
 | `quad` | Four equal panes |
 | `even-horizontal` | Equal horizontal split |
@@ -632,33 +655,29 @@ owt create feature/x --tool droid --auto-level high
 
 ## Common Patterns
 
-### Pattern 1: Unified Workspace Development (Default)
+### Pattern 1: On-Demand Workspace Development (Default)
 ```bash
-# Create worktrees - all visible in one tmux session
+# Create first worktree (creates workspace with single pane)
 owt create feature/api
-owt create bugfix/auth
-owt create research/perf
 
-# Your workspace now looks like:
-┌──────────┬─────────────────────┐
-│          │   feature/api       │
-│          │   (working...)      │
-│          ├─────────────────────┤
-│   main   │   bugfix/auth       │
-│  (ready) │   (testing...)      │
-│          ├─────────────────────┤
-│          │   research/perf     │
-│          │   (analyzing...)    │
-└──────────┴─────────────────────┘
+# Add more panes on demand from inside tmux:
+# Press prefix+n → select AI tool → enter branch → pane appears
 
-# Navigate between panes: Ctrl+b → arrow keys
-# All AI agents visible and working in parallel
+# Or add from CLI:
+owt pane add --branch bugfix/auth --workspace owt-myproject --repo .
+owt pane add --branch research/perf --workspace owt-myproject --repo .
 
-# List workspaces
-owt workspace list
+# Your workspace grows naturally:
+# ┌─────┬──────────┐
+# │     │ feature/api       │
+# │Main ├──────────┤
+# │     │ bugfix/auth       │
+# │     ├──────────┤
+# │     │ research/perf     │
+# └─────┴──────────┘
 
-# Attach to workspace
-owt workspace attach owt-myproject
+# Remove a pane: prefix+X (with confirmation)
+# Navigate: Ctrl+b → arrow keys or click (mouse enabled)
 ```
 
 ### Pattern 2: Template-Based Development
