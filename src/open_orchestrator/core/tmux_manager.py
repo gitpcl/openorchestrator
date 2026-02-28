@@ -96,6 +96,7 @@ class TmuxManager:
     """
 
     SESSION_PREFIX = "owt"
+    SIDEBAR_WIDTH = 40
 
     def __init__(self) -> None:
         """Initialize TmuxManager with libtmux server connection."""
@@ -702,28 +703,25 @@ class TmuxManager:
             session = self.server.sessions.filter(session_name=session_name)[0]
             window = session.active_window
 
-            # Get current pane count
-            pane_count_before = len(window.panes)
+            # Always split below the last pane to create the new pane.
+            # For the first agent, split right of sidebar instead.
+            agent_count = len(window.panes) - 1
 
-            if pane_count_before == 1:
-                # First worktree addition: split RIGHT to create two-column layout
-                # TUI sidebar stays on the left (narrow), agent pane takes the rest
-                new_pane = window.split(start_directory=worktree_path, direction=PaneDirection.Right)
-                # Resize pane 0 (TUI sidebar) to fixed 40 columns (like dmux)
-                if new_pane:
-                    try:
-                        window.panes[0].resize(width=40)
-                    except libtmux.exc.LibTmuxException:
-                        logger.debug("Could not resize sidebar to 40 cols, falling back to 80%%")
-                        try:
-                            new_pane.resize(width="80%")
-                        except libtmux.exc.LibTmuxException:
-                            pass
+            if agent_count == 0:
+                new_pane = window.split(
+                    start_directory=worktree_path,
+                    direction=PaneDirection.Right,
+                )
             else:
-                # 2+ panes already exist: split BELOW last pane in right column
-                # This stacks worktree panes vertically on the right side
                 window.panes[-1].select()
-                new_pane = window.split(start_directory=worktree_path, direction=PaneDirection.Below)
+                new_pane = window.split(
+                    start_directory=worktree_path,
+                    direction=PaneDirection.Below,
+                )
+
+            # Apply a balanced grid layout (sidebar + agent columns)
+            if new_pane:
+                self._apply_grid_layout(window)
 
             # Start AI tool in the new pane
             if new_pane:
@@ -773,6 +771,8 @@ class TmuxManager:
             for pane in window.panes:
                 if int(pane.pane_index) == pane_index:
                     pane.kill()
+                    # Rebalance remaining panes
+                    self._apply_grid_layout(window)
                     return
 
             raise TmuxError(f"Pane {pane_index} not found in session '{session_name}'")
@@ -802,6 +802,96 @@ class TmuxManager:
             return len(window.panes)
         except libtmux.exc.LibTmuxException as e:
             raise TmuxError(f"Failed to get pane count: {e}") from e
+
+    @staticmethod
+    def _apply_grid_layout(window: libtmux.Window) -> None:
+        """Apply a balanced grid layout: fixed sidebar + even agent columns.
+
+        Generates a tmux custom layout string that distributes agent panes
+        across columns, similar to dmux's LayoutCalculator approach:
+        - 1-3 agents: 1 column, stacked vertically
+        - 4-6 agents: 2 columns, distributed evenly
+        - 7+ agents: 3 columns, distributed evenly
+
+        The sidebar (pane 0) stays at a fixed width on the left.
+        """
+        session_name = window.session.name or ""
+
+        try:
+            win_w = int(window.window_width)
+            win_h = int(window.window_height)
+            agent_count = len(window.panes) - 1  # exclude sidebar
+        except (TypeError, ValueError, libtmux.exc.LibTmuxException):
+            return
+
+        if agent_count <= 0:
+            return
+
+        # Determine optimal column count for agent panes
+        if agent_count <= 3:
+            num_cols = 1
+        elif agent_count <= 6:
+            num_cols = 2
+        else:
+            num_cols = 3
+
+        # Distribute agents across columns as evenly as possible
+        # e.g. 5 agents, 2 cols → [3, 2]
+        per_col = [agent_count // num_cols] * num_cols
+        for i in range(agent_count % num_cols):
+            per_col[i] += 1
+
+        # Build tmux custom layout string.
+        # Format: {WxH,x,y,<pane_idx>} for leaf panes
+        # Nested with [ ] for vertical splits, { } for horizontal
+        sidebar_w = min(TmuxManager.SIDEBAR_WIDTH, win_w // 4)
+        agent_w = win_w - sidebar_w - 1  # -1 for border
+
+        col_w = agent_w // num_cols
+        pane_idx = 1  # first agent pane
+        col_layouts: list[str] = []
+
+        for ci, rows in enumerate(per_col):
+            # Width: last column gets remainder
+            cw = col_w if ci < num_cols - 1 else (agent_w - col_w * (num_cols - 1))
+            cw = max(cw, 1)
+            row_h = win_h // rows if rows > 0 else win_h
+            row_layouts: list[str] = []
+
+            for ri in range(rows):
+                # Height: last row gets remainder
+                rh = row_h if ri < rows - 1 else (win_h - row_h * (rows - 1))
+                rh = max(rh, 1)
+                row_layouts.append(f"{cw}x{rh},{sidebar_w + 1 + col_w * ci},{row_h * ri},{pane_idx}")
+                pane_idx += 1
+
+            if len(row_layouts) == 1:
+                col_layouts.append(row_layouts[0])
+            else:
+                inner = ",".join(row_layouts)
+                col_layouts.append(f"{cw}x{win_h},{sidebar_w + 1 + col_w * ci},0[{inner}]")
+
+        sidebar_layout = f"{sidebar_w}x{win_h},0,0,0"
+
+        if len(col_layouts) == 1:
+            agent_area = col_layouts[0]
+        else:
+            inner = ",".join(col_layouts)
+            agent_area = f"{agent_w}x{win_h},{sidebar_w + 1},0{{{inner}}}"
+
+        # Compute tmux checksum (16-bit CRC from layout-custom.c)
+        body = f"{win_w}x{win_h},0,0{{{sidebar_layout},{agent_area}}}"
+        csum = 0
+        for ch in body:
+            csum = ((csum >> 1) + ((csum & 1) << 15) + ord(ch)) & 0xFFFF
+        layout = f"{csum:04x},{body}"
+
+        if not TmuxManager._run_tmux_cmd("select-layout", "-t", session_name, layout):
+            # Layout application is best-effort — fall back to sidebar resize
+            TmuxManager._run_tmux_cmd(
+                "resize-pane", "-t", f"{session_name}:.0", "-x",
+                str(TmuxManager.SIDEBAR_WIDTH),
+            )
 
     @staticmethod
     def get_tmux_version() -> tuple[int, int]:

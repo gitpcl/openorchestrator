@@ -161,6 +161,12 @@ source = [
     "/app/src/open_orchestrator"  # Docker container path
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+]
+
 # Coverage targets for Feb 1 feature modules
 # Target: 90% coverage for these new modules:
 # - src/open_orchestrator/core/skill_installer.py
