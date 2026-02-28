@@ -797,17 +797,18 @@ class TmuxManager:
         q_repo = shlex.quote(repo_path)
 
         # prefix+n: open popup picker, then run owt pane add with the result
-        # Uses shell=True so tmux receives the full command as a single string
         popup_shell_cmd = (
             f"owt-popup {q_result} && "
             f"owt pane add --from-popup {q_result} "
             f"--workspace {q_workspace} --repo {q_repo}"
         )
         try:
-            subprocess.run(  # noqa: S602 — inputs are shlex.quoted, not user-controlled
-                f"tmux bind-key -T prefix n "
-                f"display-popup -E -w 60 -h 20 {shlex.quote(popup_shell_cmd)}",
-                shell=True,
+            subprocess.run(
+                [
+                    "tmux", "bind-key", "-T", "prefix", "n",
+                    "display-popup", "-E", "-w", "60", "-h", "20",
+                    popup_shell_cmd,
+                ],
                 check=True,
             )
         except subprocess.CalledProcessError as e:
@@ -818,11 +819,12 @@ class TmuxManager:
             f"owt pane remove --pane-id '#{{pane_id}}' --workspace {q_workspace}"
         )
         try:
-            subprocess.run(  # noqa: S602 — inputs are shlex.quoted, not user-controlled
-                f"tmux bind-key -T prefix X "
-                f"confirm-before -p 'Close pane and delete worktree? (y/n)' "
-                f"\"run-shell {shlex.quote(close_cmd)} \\; kill-pane\"",
-                shell=True,
+            subprocess.run(
+                [
+                    "tmux", "bind-key", "-T", "prefix", "X",
+                    "confirm-before", "-p", "Close pane and delete worktree? (y/n)",
+                    f"run-shell {shlex.quote(close_cmd)} ; kill-pane",
+                ],
                 check=True,
             )
         except subprocess.CalledProcessError:
