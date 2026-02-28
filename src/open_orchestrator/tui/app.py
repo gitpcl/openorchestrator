@@ -19,7 +19,14 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Static
 from textual import work
 
-from open_orchestrator.config import AITool
+from open_orchestrator.config import (
+    THEMES,
+    AITool,
+    get_active_theme,
+    get_default_config_path,
+    load_config,
+    save_config,
+)
 from open_orchestrator.core.ab_launcher import ABLauncher
 from open_orchestrator.core.merge import MergeConflictError, MergeError, MergeManager
 from open_orchestrator.core.pane_actions import (
@@ -34,7 +41,12 @@ from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.core.workspace import WorkspaceManager
 from open_orchestrator.core.worktree import WorktreeManager
 from open_orchestrator.models.status import AIActivityStatus
-from open_orchestrator.tui.screens import ABCompareScreen, ConfirmScreen, HelpOverlayScreen
+from open_orchestrator.tui.screens import (
+    ABCompareScreen,
+    ConfirmScreen,
+    HelpOverlayScreen,
+    ThemePickerScreen,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +72,160 @@ AGENT_TAGS: dict[str, str] = {
     "amp": "am",
     "kilo-code": "kc",
 }
+
+
+TCSS_TEMPLATE = """\
+/* OrchestratorApp TUI Styles — themed */
+
+Screen {{
+    background: #1c1c1c;
+}}
+
+#sidebar {{
+    width: 100%;
+    height: 1fr;
+    background: #1c1c1c;
+}}
+
+#sidebar-title {{
+    width: 100%;
+    height: 1;
+    background: {accent};
+    color: #1c1c1c;
+    text-align: center;
+    text-style: bold;
+    padding: 0 1;
+}}
+
+PaneListWidget {{
+    height: 1fr;
+    border: none;
+}}
+
+PaneListWidget DataTable {{
+    height: 100%;
+    background: #1c1c1c;
+}}
+
+DataTable > .datatable--cursor {{
+    background: {cursor_bg};
+    color: {accent};
+}}
+
+DataTable > .datatable--header {{
+    height: 0;
+}}
+
+DataTable > .datatable--hover {{
+    background: #2a2a2a;
+}}
+
+#status-bar {{
+    width: 100%;
+    height: 1;
+    background: #262626;
+    color: #6c6c6c;
+    padding: 0 1;
+}}
+
+Footer {{
+    background: #262626;
+}}
+
+FooterKey {{
+    background: #262626;
+}}
+
+ConfirmScreen {{
+    align: center middle;
+    background: rgba(0, 0, 0, 0.7);
+}}
+
+#confirm-dialog {{
+    width: 100%;
+    max-width: 50;
+    height: auto;
+    border: thick {accent};
+    background: #1c1c1c;
+    padding: 1 1;
+}}
+
+#confirm-message {{
+    width: 100%;
+    text-align: center;
+    color: #ffffff;
+    margin-bottom: 1;
+}}
+
+HelpOverlayScreen {{
+    align: center middle;
+    background: rgba(0, 0, 0, 0.7);
+}}
+
+#help-dialog {{
+    width: 100%;
+    max-width: 48;
+    height: auto;
+    border: thick {accent};
+    background: #1c1c1c;
+    padding: 1 1;
+}}
+
+#help-title {{
+    width: 100%;
+    text-align: center;
+    text-style: bold;
+    color: {accent};
+    margin-bottom: 1;
+}}
+
+#help-content {{
+    width: 100%;
+    color: #d0d0d0;
+}}
+
+#help-footer {{
+    width: 100%;
+    text-align: center;
+    margin-top: 1;
+    color: #6c6c6c;
+}}
+
+ThemePickerScreen {{
+    align: center middle;
+    background: rgba(0, 0, 0, 0.7);
+}}
+
+#theme-dialog {{
+    width: 100%;
+    max-width: 40;
+    height: auto;
+    border: thick {accent};
+    background: #1c1c1c;
+    padding: 1 1;
+}}
+
+#theme-title {{
+    width: 100%;
+    text-align: center;
+    text-style: bold;
+    color: {accent};
+    margin-bottom: 1;
+}}
+
+#theme-footer {{
+    width: 100%;
+    text-align: center;
+    margin-top: 1;
+    color: #6c6c6c;
+}}
+"""
+
+
+def build_css(theme_name: str) -> str:
+    """Build CSS string from template using the given theme."""
+    theme = THEMES.get(theme_name, THEMES["cyan"])
+    return TCSS_TEMPLATE.format(accent=theme.accent, cursor_bg=theme.cursor_bg)
 
 
 class PaneListWidget(Widget):
@@ -182,7 +348,7 @@ class OrchestratorApp(App[None]):
     Runs in tmux pane 0, captures keys directly. No prefix needed.
     """
 
-    CSS_PATH = "styles.tcss"
+    CSS = ""  # Set by launch_tui() before app.run()
 
     BINDINGS = [
         ("n", "new_pane", "[n]ew"),
@@ -194,6 +360,7 @@ class OrchestratorApp(App[None]):
         ("up", "cursor_up", ""),
         ("enter", "attach", "attach"),
         ("a", "ab_launch", "a/b"),
+        ("s", "settings", "[s]ettings"),
         ("question_mark", "show_help", "[?] help"),
         ("q", "quit_tui", "[q]uit"),
     ]
@@ -235,11 +402,14 @@ class OrchestratorApp(App[None]):
         self.set_interval(self._refresh_interval, self._refresh_ui)
 
     def _refresh_ui(self) -> None:
-        pane_list = self.query_one("#pane-list", PaneListWidget)
-        pane_list.refresh_data()
+        try:
+            pane_list = self.query_one("#pane-list", PaneListWidget)
+            pane_list.refresh_data()
 
-        status_bar = self.query_one("#status-bar", StatusBarWidget)
-        status_bar.refresh_data(pane_list.pane_names)
+            status_bar = self.query_one("#status-bar", StatusBarWidget)
+            status_bar.refresh_data(pane_list.pane_names)
+        except Exception:
+            logger.debug("Failed to refresh TUI", exc_info=True)
 
     def _get_selected_worktree(self) -> str | None:
         pane_list = self.query_one("#pane-list", PaneListWidget)
@@ -332,7 +502,7 @@ class OrchestratorApp(App[None]):
             return
 
         self.push_screen(
-            ConfirmScreen(f"Close pane '{selected}' and delete worktree?"),
+            ConfirmScreen(f"Close '{selected}' and delete worktree?"),
             callback=lambda confirmed: self._do_close_pane(selected) if confirmed else None,
         )
 
@@ -444,6 +614,41 @@ class OrchestratorApp(App[None]):
         )
         self.push_screen(screen)
 
+    # ── Settings / Theme ────────────────────────────────
+
+    def action_settings(self) -> None:
+        """Open theme picker."""
+        self.push_screen(
+            ThemePickerScreen(),
+            callback=self._apply_theme,
+        )
+
+    def _apply_theme(self, theme_name: str | None) -> None:
+        """Apply selected theme live and persist to config."""
+        if theme_name is None:
+            return
+
+        theme = THEMES.get(theme_name)
+        if theme is None:
+            return
+
+        # Live-update widget styles
+        try:
+            self.query_one("#sidebar-title").styles.background = theme.accent
+            self.query_one("#sidebar-title").styles.color = "#1c1c1c"
+        except Exception:
+            pass
+
+        # Persist to config file
+        try:
+            config = load_config()
+            config.ui.theme = theme_name
+            save_config(config, get_default_config_path())
+        except Exception:
+            logger.warning("Failed to save theme preference", exc_info=True)
+
+        self.notify(f"Theme: {theme_name}")
+
     # ── Help & Quit ─────────────────────────────────────────
 
     def action_show_help(self) -> None:
@@ -461,10 +666,20 @@ class OrchestratorApp(App[None]):
                     f"{count} agent pane(s) still running. Quit anyway?",
                     confirm_label="Quit",
                 ),
-                callback=lambda confirmed: self.exit() if confirmed else None,
+                callback=lambda confirmed: self._do_quit() if confirmed else None,
             )
         else:
-            self.exit()
+            self._do_quit()
+
+    def _do_quit(self) -> None:
+        """Kill the tmux session (all agent panes), then exit Textual."""
+        # Kill the whole tmux session first so agent panes don't linger.
+        # This kills all panes including pane 0 (where TUI runs), which
+        # causes Textual's terminal to close. We call exit() as well for
+        # cases where we're not inside tmux.
+        if self.workspace_name:
+            TmuxManager._run_tmux_cmd("kill-session", "-t", self.workspace_name)
+        self.exit()
 
 
 def is_interactive_terminal() -> bool:
@@ -491,6 +706,9 @@ def launch_tui(
             "[yellow]Non-interactive terminal detected. Use 'owt list' for CLI mode.[/yellow]"
         )
         return
+
+    config = load_config()
+    OrchestratorApp.CSS = build_css(config.ui.theme)
 
     app = OrchestratorApp(
         status_tracker=status_tracker,

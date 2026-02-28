@@ -36,10 +36,18 @@ def detect_installed() -> list[tuple[str, str, str, bool]]:
     return result
 
 
+def _get_theme_curses_color() -> int:
+    """Get the curses color constant from the user's configured theme."""
+    from open_orchestrator.config import get_active_theme
+
+    return get_active_theme().curses_color
+
+
 def _init_colors() -> None:
     """Initialize shared color pairs used by all picker screens."""
     curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_CYAN, -1)     # Title / active row
+    accent_color = _get_theme_curses_color()
+    curses.init_pair(1, accent_color, -1)          # Title / active row
     curses.init_pair(2, curses.COLOR_GREEN, -1)     # Selected marker
     curses.init_pair(3, curses.COLOR_WHITE, -1)     # Unselected marker
     curses.init_pair(4, curses.COLOR_BLACK, -1)     # Dim text (footer)

@@ -12,6 +12,7 @@ Loads configuration from .worktreerc files in the following priority:
 import logging
 import shlex
 import shutil
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
@@ -19,6 +20,24 @@ import toml
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ThemeColors:
+    """Color scheme for TUI theming."""
+
+    accent: str
+    cursor_bg: str
+    curses_color: int  # curses.COLOR_* constant
+
+
+THEMES: dict[str, ThemeColors] = {
+    "cyan": ThemeColors(accent="#00d7d7", cursor_bg="#1a3a3a", curses_color=6),    # COLOR_CYAN
+    "green": ThemeColors(accent="#5faf5f", cursor_bg="#1a3a1a", curses_color=2),   # COLOR_GREEN
+    "purple": ThemeColors(accent="#af5fff", cursor_bg="#2a1a3a", curses_color=5),  # COLOR_MAGENTA
+    "blue": ThemeColors(accent="#5f87ff", cursor_bg="#1a1a3a", curses_color=4),    # COLOR_BLUE
+    "rose": ThemeColors(accent="#ff5f87", cursor_bg="#3a1a2a", curses_color=1),    # COLOR_RED
+}
 
 
 class DroidAutoLevel(str, Enum):
@@ -364,6 +383,15 @@ class HooksConfig(BaseModel):
     )
 
 
+class UIConfig(BaseModel):
+    """UI configuration for TUI theming."""
+
+    theme: str = Field(
+        default="cyan",
+        description="TUI color theme (cyan, green, purple, blue, rose)",
+    )
+
+
 class GitHubConfig(BaseModel):
     """Configuration for GitHub integration."""
 
@@ -390,6 +418,7 @@ class Config(BaseModel):
 
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
+    ui: UIConfig = Field(default_factory=UIConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
@@ -591,3 +620,15 @@ def save_config(config: Config, path: Path) -> None:
 def get_default_config_path() -> Path:
     """Get the default configuration file path."""
     return Path.cwd() / ".worktreerc"
+
+
+def get_active_theme() -> ThemeColors:
+    """Load config and return the active ThemeColors, falling back to cyan."""
+    try:
+        config = load_config()
+        theme = THEMES.get(config.ui.theme)
+        if theme is not None:
+            return theme
+    except Exception:
+        logger.debug("Failed to load theme from config, using default", exc_info=True)
+    return THEMES["cyan"]

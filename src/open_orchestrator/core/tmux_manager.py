@@ -931,6 +931,11 @@ class TmuxManager:
             f"\""
         )
 
+        # Resolve theme accent for status bar styling
+        from open_orchestrator.config import get_active_theme
+
+        accent_hex = get_active_theme().accent
+
         try:
             # Set status-right to show owt info (keep default clock too)
             subprocess.run(
@@ -946,9 +951,17 @@ class TmuxManager:
                 ["tmux", "set-option", "-t", session_name, "status-interval", "5"],
                 check=False,
             )
-            # Style the status bar
+            # Style the status bar with theme accent
             subprocess.run(
                 ["tmux", "set-option", "-t", session_name, "status-right-length", "80"],
+                check=False,
+            )
+            subprocess.run(
+                [
+                    "tmux", "set-option", "-t", session_name,
+                    "status-style",
+                    f"bg=#262626,fg={accent_hex}",
+                ],
                 check=False,
             )
         except Exception:
