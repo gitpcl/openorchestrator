@@ -13,6 +13,7 @@ from pathlib import Path
 
 from open_orchestrator.config import AITool, load_config
 from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
+from open_orchestrator.core.project_detector import ProjectDetector
 from open_orchestrator.core.status import StatusTracker
 from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
 from open_orchestrator.core.workspace import WorkspaceManager, WorkspaceNotFoundError
@@ -139,13 +140,14 @@ def create_pane(
 
     # 2. Set up environment
     try:
-        env_setup = EnvironmentSetup()
-        env_setup.setup_worktree_environment(
-            worktree_path=str(worktree.path),
-            main_repo_path=repo_path,
-            install_deps=config.worktree.auto_install_deps,
-            copy_env=config.worktree.auto_copy_env,
-        )
+        project_config = ProjectDetector().detect(str(worktree.path))
+        if project_config:
+            EnvironmentSetup(project_config).setup_worktree(
+                worktree_path=str(worktree.path),
+                source_path=repo_path,
+                install_deps=config.environment.auto_install_deps,
+                copy_env=config.environment.copy_env_file,
+            )
     except EnvironmentSetupError as e:
         logger.warning("Environment setup issue: %s", e)
 

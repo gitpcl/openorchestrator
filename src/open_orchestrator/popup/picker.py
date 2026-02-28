@@ -36,17 +36,20 @@ def detect_installed() -> list[tuple[str, str, str, bool]]:
     return result
 
 
-def run_picker(stdscr: curses.window) -> dict | None:
-    """Run the interactive agent picker."""
-    curses.curs_set(0)  # Hide cursor
+def _init_colors() -> None:
+    """Initialize shared color pairs used by all picker screens."""
     curses.use_default_colors()
-
-    # Init color pairs
     curses.init_pair(1, curses.COLOR_CYAN, -1)     # Title / active row
     curses.init_pair(2, curses.COLOR_GREEN, -1)     # Selected marker
     curses.init_pair(3, curses.COLOR_WHITE, -1)     # Unselected marker
     curses.init_pair(4, curses.COLOR_BLACK, -1)     # Dim text (footer)
     curses.init_pair(5, curses.COLOR_RED, -1)       # Not installed
+
+
+def run_picker(stdscr: curses.window) -> dict | None:
+    """Run the interactive agent picker."""
+    curses.curs_set(0)  # Hide cursor
+    _init_colors()
 
     agents = detect_installed()
     installed_agents = [a for a in agents if a[3]]
@@ -148,6 +151,82 @@ def run_picker(stdscr: curses.window) -> dict | None:
             }
 
 
+def get_branch_name(stdscr: curses.window) -> str | None:
+    """Prompt user for a branch name after agent selection."""
+    curses.curs_set(1)  # Show cursor for text input
+    _init_colors()
+    stdscr.clear()
+    max_y, max_x = stdscr.getmaxyx()
+
+    stdscr.addstr(1, 2, "Branch Name", curses.color_pair(1) | curses.A_BOLD)
+    stdscr.addstr(3, 4, "Enter branch name for the new worktree:", curses.A_DIM)
+
+    # Input field
+    input_y = 5
+    input_x = 4
+    stdscr.addstr(input_y, input_x, "> ")
+
+    # Footer
+    footer_y = max_y - 2
+    footer = "Enter confirm · ESC cancel"
+    footer_x = max(2, (max_x - len(footer)) // 2)
+    if footer_x + len(footer) < max_x:
+        stdscr.addstr(footer_y, footer_x, footer, curses.A_DIM)
+
+    stdscr.refresh()
+
+    branch = ""
+    cursor_pos = 0
+    field_x = input_x + 2  # after "> "
+
+    while True:
+        # Redraw input line
+        stdscr.move(input_y, field_x)
+        stdscr.clrtoeol()
+        stdscr.addstr(input_y, field_x, branch)
+        stdscr.move(input_y, field_x + cursor_pos)
+        stdscr.refresh()
+
+        key = stdscr.getch()
+
+        if key == 27:  # ESC
+            return None
+        elif key in (curses.KEY_ENTER, 10, 13):
+            stripped = branch.strip()
+            return stripped if stripped else None
+        elif key in (curses.KEY_BACKSPACE, 127, 8):
+            if cursor_pos > 0:
+                branch = branch[:cursor_pos - 1] + branch[cursor_pos:]
+                cursor_pos -= 1
+        elif key == curses.KEY_LEFT:
+            cursor_pos = max(0, cursor_pos - 1)
+        elif key == curses.KEY_RIGHT:
+            cursor_pos = min(len(branch), cursor_pos + 1)
+        elif 32 <= key <= 126:  # Printable characters
+            max_len = max_x - field_x - 2
+            if len(branch) < max_len:
+                branch = branch[:cursor_pos] + chr(key) + branch[cursor_pos:]
+                cursor_pos += 1
+
+
+def _picker_flow(stdscr: curses.window) -> dict | None:
+    """Run the full picker flow: agent selection → branch name input."""
+    result = run_picker(stdscr)
+    if result is None:
+        return None
+
+    branch = get_branch_name(stdscr)
+    if branch is None:
+        return None
+
+    first_agent = result["agents"][0]
+    return {
+        "branch": branch,
+        "ai_tool": first_agent["binary"],
+        "agents": result["agents"],
+    }
+
+
 def main() -> None:
     """Run the popup picker and write result JSON to the output file."""
     if len(sys.argv) < 2:
@@ -156,17 +235,9 @@ def main() -> None:
 
     output_path = sys.argv[1]
 
-    result = curses.wrapper(run_picker)
-
-    if result is None:
+    output = curses.wrapper(_picker_flow)
+    if output is None:
         sys.exit(1)
-
-    # For backward compatibility, extract first agent as ai_tool
-    first_agent = result["agents"][0]
-    output = {
-        "ai_tool": first_agent["binary"],
-        "agents": result["agents"],
-    }
 
     with open(output_path, "w") as f:
         json.dump(output, f)

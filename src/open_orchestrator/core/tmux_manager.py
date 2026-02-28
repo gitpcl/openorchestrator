@@ -707,11 +707,18 @@ class TmuxManager:
 
             if pane_count_before == 1:
                 # First worktree addition: split RIGHT to create two-column layout
-                # Main pane stays on the left, new worktree pane on the right
+                # TUI sidebar stays on the left (narrow), agent pane takes the rest
                 new_pane = window.split(start_directory=worktree_path, direction=PaneDirection.Right)
-                # Resize so main is 33% and worktree column is 67%
+                # Resize pane 0 (TUI sidebar) to fixed 40 columns (like dmux)
                 if new_pane:
-                    new_pane.resize(width="67%")
+                    try:
+                        window.panes[0].resize(width=40)
+                    except libtmux.exc.LibTmuxException:
+                        logger.debug("Could not resize sidebar to 40 cols, falling back to 80%%")
+                        try:
+                            new_pane.resize(width="80%")
+                        except libtmux.exc.LibTmuxException:
+                            pass
             else:
                 # 2+ panes already exist: split BELOW last pane in right column
                 # This stacks worktree panes vertically on the right side

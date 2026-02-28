@@ -4578,8 +4578,9 @@ def tui_command(
 ) -> None:
     """Launch persistent TUI sidebar (dmux-style).
 
-    Runs a Textual app that captures keys directly — no tmux prefix needed.
-    Use inside a tmux session for full functionality.
+    When run outside tmux, bootstraps a tmux session with the TUI sidebar
+    in pane 0 and attaches — just like dmux. When run inside tmux, starts
+    the Textual app directly.
 
     Keys: n=new, x=close, m=merge, j/k=navigate, Enter=focus, ?=help, q=quit
 
@@ -4587,8 +4588,6 @@ def tui_command(
         owt tui                              # Auto-detect workspace
         owt tui --workspace owt-myproject    # Explicit workspace
     """
-    from open_orchestrator.tui.app import launch_tui
-
     if not workspace_name:
         workspace_name = os.environ.get("OWT_WORKSPACE", "")
     if not repo_path:
@@ -4596,7 +4595,6 @@ def tui_command(
 
     wt_manager = None
     if not repo_path:
-        # Try to detect from current directory
         try:
             wt_manager = WorktreeManager()
             repo_path = str(wt_manager.repo.working_dir)
@@ -4604,8 +4602,15 @@ def tui_command(
             console.print("[yellow]Warning: Not in a git repo. Some features will be limited.[/yellow]")
 
     if not workspace_name and repo_path:
-        # Derive workspace name from repo
         workspace_name = f"owt-{Path(repo_path).name}"
+
+    # If not inside tmux, bootstrap a tmux session and attach (like dmux)
+    if not os.environ.get("TMUX"):
+        _bootstrap_tui_session(workspace_name, repo_path or ".")
+        return
+
+    # Inside tmux — run the Textual app directly
+    from open_orchestrator.tui.app import launch_tui
 
     status_tracker = StatusTracker()
     if wt_manager is None and repo_path:
@@ -4617,6 +4622,32 @@ def tui_command(
         workspace_name=workspace_name,
         repo_path=repo_path,
     )
+
+
+def _bootstrap_tui_session(workspace_name: str, repo_path: str) -> None:
+    """Bootstrap a tmux session with TUI in pane 0 and attach.
+
+    Uses TmuxManager.create_tui_session for session setup, then replaces
+    the current process with tmux attach (like dmux).
+    """
+    session_name = workspace_name or f"owt-{Path(repo_path).name}"
+    tmux_mgr = TmuxManager()
+
+    if tmux_mgr.session_exists(session_name):
+        console.print(f"[green]Attaching to existing session: {session_name}[/green]")
+    else:
+        try:
+            tmux_mgr.create_tui_session(
+                workspace_name=session_name,
+                repo_path=repo_path,
+            )
+            console.print(f"[green]Created workspace: {session_name}[/green]")
+        except TmuxSessionExistsError:
+            # Race condition: session was created between check and create
+            console.print(f"[green]Attaching to existing session: {session_name}[/green]")
+
+    # Replace this process with tmux attach (like dmux's execvp pattern)
+    os.execvp("tmux", ["tmux", "attach-session", "-t", session_name])
 
 
 # =============================================================================
