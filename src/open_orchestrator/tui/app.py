@@ -219,6 +219,19 @@ ThemePickerScreen {{
     margin-top: 1;
     color: #6c6c6c;
 }}
+
+ToastRack {{
+    align: center bottom;
+    width: 100%;
+    margin-bottom: 3;
+}}
+
+Toast {{
+    width: 1fr;
+    max-width: 100%;
+    margin: 0 1 0 2;
+    border-left: wide {accent};
+}}
 """
 
 
