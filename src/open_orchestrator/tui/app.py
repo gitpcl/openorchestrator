@@ -46,7 +46,7 @@ from open_orchestrator.tui.screens import (
     ABCompareScreen,
     ConfirmScreen,
     HelpOverlayScreen,
-    ThemePickerScreen,
+    ThemePickerPanel,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,13 +99,12 @@ Screen {{{{
 }}}}
 
 #sidebar-title {{{{
-    width: 100%;
+    width: 1fr;
     height: 1;
     background: {{accent}};
     color: {_BG_PRIMARY};
     text-align: center;
     text-style: bold;
-    padding: 0 1;
 }}}}
 
 PaneListWidget {{{{
@@ -202,35 +201,6 @@ HelpOverlayScreen {{{{
     color: {_FG_DIM};
 }}}}
 
-ThemePickerScreen {{{{
-    align: center middle;
-    background: rgba(0, 0, 0, 0.7);
-}}}}
-
-#theme-dialog {{{{
-    width: 100%;
-    max-width: 40;
-    height: auto;
-    border: thick {{accent}};
-    background: {_BG_PRIMARY};
-    padding: 1 1;
-}}}}
-
-#theme-title {{{{
-    width: 100%;
-    text-align: center;
-    text-style: bold;
-    color: {{accent}};
-    margin-bottom: 1;
-}}}}
-
-#theme-footer {{{{
-    width: 100%;
-    text-align: center;
-    margin-top: 1;
-    color: {_FG_DIM};
-}}}}
-
 ToastRack {{{{
     align: center bottom;
     width: 100%;
@@ -242,6 +212,10 @@ Toast {{{{
     max-width: 100%;
     margin: 0 1 0 2;
     border-left: wide {{accent}};
+}}}}
+
+CommandPalette > Vertical {{{{
+    margin-top: 0;
 }}}}
 """
 
@@ -686,17 +660,24 @@ class OrchestratorApp(App[None]):
     # ── Settings / Theme ────────────────────────────────
 
     def action_settings(self) -> None:
-        """Open theme picker."""
-        self.push_screen(
-            ThemePickerScreen(),
-            callback=self._apply_theme,
-        )
+        """Toggle the theme picker side panel."""
+        existing = self.screen.query(ThemePickerPanel)
+        if existing:
+            existing.first().remove()
+        else:
+            self.screen.mount(ThemePickerPanel())
 
-    def _apply_theme(self, theme_name: str | None) -> None:
-        """Apply selected theme live and persist to config."""
-        if theme_name is None:
-            return
+    def _dismiss_theme_panel(self) -> None:
+        """Remove the theme picker panel if open."""
+        existing = self.screen.query(ThemePickerPanel)
+        if existing:
+            existing.first().remove()
 
+    def on_theme_picker_panel_theme_selected(
+        self, event: ThemePickerPanel.ThemeSelected
+    ) -> None:
+        """Handle theme selection from the side panel."""
+        theme_name = event.theme_name
         theme = THEMES.get(theme_name)
         if theme is None:
             return
@@ -704,14 +685,25 @@ class OrchestratorApp(App[None]):
         # Switch Textual's theme (controls palette, keys overlay, scrollbars)
         self.theme = f"{_THEME_PREFIX}{theme_name}"
 
-        # Live-update our custom widget styles
-        try:
-            self.query_one("#sidebar-title").styles.background = theme.accent
-            self.query_one("#sidebar-title").styles.color = _BG_PRIMARY
-        except Exception:
-            pass
+        # Regenerate and reload custom CSS with new accent/cursor colors
+        new_css = build_css(theme_name)
+        OrchestratorApp.CSS = new_css
+        # Update the cached source in the stylesheet so reparse picks it up
+        for key, (css, is_defaults, tie_breaker, scope) in list(
+            self.stylesheet.source.items()
+        ):
+            if isinstance(key, tuple) and "OrchestratorApp.CSS" in str(key):
+                self.stylesheet.source[key] = (
+                    new_css,
+                    is_defaults,
+                    tie_breaker,
+                    scope,
+                )
+                break
+        self.refresh_css(animate=False)
 
-        # Persist to config file
+        # Persist to config file (must happen before install_status_bar
+        # so get_active_theme() reads the new value)
         try:
             config = load_config()
             config.ui.theme = theme_name
@@ -719,7 +711,28 @@ class OrchestratorApp(App[None]):
         except Exception:
             logger.warning("Failed to save theme preference", exc_info=True)
 
+        # Update tmux status bar and pane borders to match new theme
+        if self.workspace_name:
+            TmuxManager().install_status_bar(self.workspace_name)
+            TmuxManager._run_tmux_cmd("refresh-client", "-S")
+
         self.notify(f"Theme: {theme_name}")
+        self._dismiss_theme_panel()
+
+    # ── Command Palette ─────────────────────────────────────
+
+    def action_command_palette(self) -> None:
+        """Override to dismiss the help panel before opening the palette."""
+        from textual.command import CommandPalette
+
+        if CommandPalette.is_open(self):
+            return
+
+        # Close the help/keys panel if it's open so it doesn't stack
+        if self.screen.query("HelpPanel"):
+            self.action_hide_help_panel()
+
+        self.push_screen(CommandPalette())
 
     # ── Help & Quit ─────────────────────────────────────────
 

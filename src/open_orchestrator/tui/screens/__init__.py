@@ -6,6 +6,6 @@ This module provides Textual Screen classes for various views in the TUI.
 from open_orchestrator.tui.screens.ab_compare import ABCompareScreen
 from open_orchestrator.tui.screens.confirm import ConfirmScreen
 from open_orchestrator.tui.screens.help_overlay import HelpOverlayScreen
-from open_orchestrator.tui.screens.theme_picker import ThemePickerScreen
+from open_orchestrator.tui.screens.theme_picker import ThemePickerPanel
 
-__all__ = ["ABCompareScreen", "ConfirmScreen", "HelpOverlayScreen", "ThemePickerScreen"]
+__all__ = ["ABCompareScreen", "ConfirmScreen", "HelpOverlayScreen", "ThemePickerPanel"]

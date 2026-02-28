@@ -832,6 +832,19 @@ class TmuxManager:
         )
         return result.returncode == 0
 
+    @staticmethod
+    def _run_tmux_batch(*commands: tuple[str, ...]) -> bool:
+        """Run multiple tmux commands in a single subprocess via \\; chaining."""
+        if not commands:
+            return True
+        cmd: list[str] = ["tmux"]
+        for i, args in enumerate(commands):
+            if i > 0:
+                cmd.append(";")
+            cmd.extend(args)
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        return result.returncode == 0
+
     def install_keybindings(
         self,
         session_name: str,
@@ -936,27 +949,27 @@ class TmuxManager:
 
         accent_hex = get_active_theme().accent
 
-        # All status bar options are best-effort
-        self._run_tmux_cmd(
-            "set-option", "-t", session_name,
-            "status-right",
-            f"#(sh -c {shlex.quote(status_script)}) | %H:%M",
+        # All status bar options are best-effort — batch into one subprocess
+        border_fmt = (
+            f"#{{?pane_active,#[fg={accent_hex} bold],#[fg=#444444]}}"
+            f" #{{pane_title}} "
         )
-        self._run_tmux_cmd(
-            "set-option", "-t", session_name, "status-interval", "5",
-        )
-        self._run_tmux_cmd(
-            "set-option", "-t", session_name, "status-right-length", "80",
-        )
-        self._run_tmux_cmd(
-            "set-option", "-t", session_name,
-            "status-style", f"bg=#262626,fg={accent_hex}",
-        )
-        self._run_tmux_cmd(
-            "set-option", "-t", session_name,
-            "pane-border-style", "fg=#262626",
-        )
-        self._run_tmux_cmd(
-            "set-option", "-t", session_name,
-            "pane-active-border-style", f"fg={accent_hex}",
+        self._run_tmux_batch(
+            ("set-option", "-t", session_name,
+             "status-right",
+             f"#(sh -c {shlex.quote(status_script)}) | %H:%M"),
+            ("set-option", "-t", session_name, "status-interval", "5"),
+            ("set-option", "-t", session_name, "status-right-length", "80"),
+            ("set-option", "-t", session_name,
+             "status-style", f"bg=#262626,fg={accent_hex}"),
+            ("set-option", "-t", session_name,
+             "pane-border-style", "fg=#444444"),
+            ("set-option", "-t", session_name,
+             "pane-active-border-style", f"fg={accent_hex}"),
+            ("set-option", "-t", session_name,
+             "pane-border-indicators", "arrows"),
+            ("set-option", "-t", session_name,
+             "pane-border-lines", "heavy"),
+            ("set-option", "-t", session_name,
+             "pane-border-format", border_fmt),
         )
