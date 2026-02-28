@@ -193,7 +193,7 @@ class TmuxManager:
                 # Set title for main pane
                 if window.panes:
                     main_pane = window.panes[0]
-                    main_pane.set_title("main")
+                    self._set_pane_title(main_pane, "main")
 
             return self._get_session_info(session)
 
@@ -379,6 +379,11 @@ class TmuxManager:
             plan_mode=plan_mode,
         )
         pane.send_keys(command, enter=True)
+
+    @staticmethod
+    def _set_pane_title(pane: libtmux.Pane, title: str) -> None:
+        """Set a pane's title via tmux command."""
+        pane.cmd("select-pane", "-T", title)
 
     def _get_session_info(self, session: libtmux.Session) -> TmuxSessionInfo:
         """Extract session information from libtmux session object."""
@@ -646,7 +651,7 @@ class TmuxManager:
             if new_pane:
                 # Set pane title to worktree name
                 if worktree_name:
-                    new_pane.set_title(worktree_name)
+                    self._set_pane_title(new_pane, worktree_name)
 
                 self._start_ai_tool_in_pane(
                     new_pane,

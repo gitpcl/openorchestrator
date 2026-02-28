@@ -1380,7 +1380,7 @@ def delete_worktree(identifier: str, force: bool, yes: bool, keep_tmux: bool) ->
 
         try:
             process_manager = ProcessManager()
-            if process_manager.has_process(worktree.name):
+            if process_manager.get_process(worktree.name):
                 console.print(f"[yellow]Stopping AI tool process for {worktree.name}...[/yellow]")
                 process_manager.stop_ai_tool(worktree.name, force=force)
                 console.print("[green]✓[/green] Stopped AI tool process")
