@@ -2,6 +2,8 @@
 
 A Git Worktree + AI coding tool orchestration system for managing parallel development workflows with AI agent swarms. Coordinate multiple Claude Code sessions, Agent Teams, or AI agents across isolated branches with single-terminal control. Supports Claude Code, OpenCode, and Droid.
 
+![Open Orchestrator Demo](./assets/demo.gif)
+
 ## Overview
 
 Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own Claude Code session and tmux pane. Perfect for parallel development workflows where you need to context-switch between features without losing your place.

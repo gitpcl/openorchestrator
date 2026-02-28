@@ -1,4 +1,4 @@
-.PHONY: test test-cov test-fast test-docker lint format clean help build build-clean publish publish-test dist-check
+.PHONY: test test-cov test-fast test-docker lint format clean help build build-clean publish publish-test dist-check demo-gif demo-gif-vhs
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -61,3 +61,10 @@ publish-test:  ## Publish to TestPyPI
 
 publish:  ## Publish to PyPI
 	twine upload dist/*
+
+demo-gif:  ## Generate demo GIF for README
+	python scripts/generate_demo.py
+
+demo-gif-vhs:  ## Generate demo GIF using VHS (requires VHS installed)
+	@command -v vhs >/dev/null 2>&1 || { echo "VHS not found. Install with: brew install charmbracelet/tap/vhs"; exit 1; }
+	vhs assets/demo.tape

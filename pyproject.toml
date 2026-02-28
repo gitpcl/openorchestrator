@@ -55,6 +55,7 @@ dev = [
     "types-pyyaml>=6.0.0",
     "build>=1.0.0",
     "twine>=5.0.0",
+    "pillow>=10.0.0",
 ]
 
 [project.scripts]
