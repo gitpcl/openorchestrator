@@ -1316,10 +1316,19 @@ def create_worktree(
                     # Get or create default workspace for this project
                     workspace_name = f"owt-{wt_manager.project_name}"
 
-                    # Check if workspace exists
+                    # Check if workspace exists and its tmux session is still alive
+                    workspace_needs_creation = False
                     try:
                         workspace = workspace_manager.get_workspace(workspace_name)
+                        # Verify the tmux session still exists (might be stale after reboot/kill)
+                        if tmux_manager and not tmux_manager.session_exists(workspace_name):
+                            console.print(f"[yellow]Workspace '{workspace_name}' metadata exists but tmux session is gone. Recreating...[/yellow]")
+                            workspace_manager.delete_workspace(workspace_name)
+                            workspace_needs_creation = True
                     except WorkspaceNotFoundError:
+                        workspace_needs_creation = True
+
+                    if workspace_needs_creation:
                         # Create new workspace with single-pane on-demand layout
                         with console.status(f"[bold blue]Creating workspace '{workspace_name}'..."):
                             # First create the tmux session for the workspace
@@ -1598,6 +1607,31 @@ def new_worktree(
         branch = generate_branch_name(task_description, prefix=prefix)
     except ValueError as e:
         raise click.ClickException(f"Could not generate branch name: {e}") from e
+
+    # Check for git ref conflicts (e.g., branch "test" blocks "test/task")
+    from git import Repo
+    try:
+        repo = Repo(search_parent_directories=True)
+        existing_refs = {ref.name for ref in repo.refs}
+        # Check if any existing ref is a prefix of our branch or vice versa
+        branch_parts = branch.split("/")
+        has_conflict = False
+        for i in range(1, len(branch_parts)):
+            partial = "/".join(branch_parts[:i])
+            if partial in existing_refs:
+                console.print(f"[yellow]Branch '{partial}' already exists — cannot create '{branch}' (git ref conflict).[/yellow]")
+                has_conflict = True
+                break
+        # Also check if our branch is a prefix of existing refs
+        for ref in existing_refs:
+            if ref.startswith(branch + "/"):
+                console.print(f"[yellow]Branch '{ref}' already exists — cannot create '{branch}' (git ref conflict).[/yellow]")
+                has_conflict = True
+                break
+        if has_conflict:
+            branch = click.prompt("Enter a different branch name")
+    except Exception:
+        pass  # If we can't check, let git handle it later
 
     # Confirm branch name (unless -y)
     if not yes:
