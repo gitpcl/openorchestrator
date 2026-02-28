@@ -1316,6 +1316,7 @@ def create_worktree(
                                 droid_skip_permissions=droid_skip_permissions,
                                 opencode_config=opencode_config,
                                 mouse_mode=config.tmux.mouse_mode,
+                                prefix_key=config.tmux.prefix_key,
                             )
 
                             session_info = tmux_manager.create_session(session_config)

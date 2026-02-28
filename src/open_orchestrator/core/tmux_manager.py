@@ -6,6 +6,8 @@ with git worktrees for parallel development workflows.
 """
 
 import os
+import re
+import shlex
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
@@ -45,6 +47,7 @@ class TmuxSessionConfig:
     plan_mode: bool = False
     window_name: str | None = None
     mouse_mode: bool = True
+    prefix_key: str | None = None  # e.g. "C-z" to override default Ctrl+b
 
 
 @dataclass
@@ -185,6 +188,11 @@ class TmuxManager:
             # Enable mouse mode if configured
             if config.mouse_mode:
                 session.set_option("mouse", "on")
+
+            # Override prefix key if configured (e.g. "C-z" for Ctrl+z)
+            # Uses session-scoped set_option so only this session is affected
+            if config.prefix_key:
+                session.set_option("prefix", config.prefix_key)
 
             # Enable pane border status to show worktree names
             if window:
@@ -739,10 +747,17 @@ class TmuxManager:
             result = subprocess.run(
                 ["tmux", "-V"], capture_output=True, text=True, check=True
             )
-            # Output like "tmux 3.4" or "tmux next-3.5"
+            # Output like "tmux 3.4", "tmux 3.6a", or "tmux next-3.5"
             version_str = result.stdout.strip().split()[-1].lstrip("next-")
-            parts = version_str.split(".")
-            return (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+            # Strip non-numeric suffixes (e.g. "3.6a" → "3.6")
+            match = re.match(r"(\d+)\.(\d+)", version_str)
+            if match:
+                return (int(match.group(1)), int(match.group(2)))
+            # Fallback: try just major version
+            match = re.match(r"(\d+)", version_str)
+            if match:
+                return (int(match.group(1)), 0)
+            return (0, 0)
         except (subprocess.CalledProcessError, ValueError, IndexError):
             return (0, 0)
 
@@ -776,34 +791,42 @@ class TmuxManager:
         # Temp file path unique to this session
         result_file = f"/tmp/owt-popup-{session_name}.json"
 
+        # Quote paths that may contain spaces
+        q_result = shlex.quote(result_file)
+        q_workspace = shlex.quote(workspace_name)
+        q_repo = shlex.quote(repo_path)
+
         # prefix+n: open popup picker, then run owt pane add with the result
-        popup_cmd = (
-            f"owt-popup {result_file} && "
-            f"owt pane add --from-popup {result_file} "
-            f"--workspace {workspace_name} --repo {repo_path}"
+        # Uses shell=True so tmux receives the full command as a single string
+        popup_shell_cmd = (
+            f"owt-popup {q_result} && "
+            f"owt pane add --from-popup {q_result} "
+            f"--workspace {q_workspace} --repo {q_repo}"
         )
-        subprocess.run(
-            [
-                "tmux", "bind-key", "-T", "prefix", "n",
-                "display-popup", "-E", "-w", "60", "-h", "20",
-                popup_cmd,
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(  # noqa: S602 — inputs are shlex.quoted, not user-controlled
+                f"tmux bind-key -T prefix n "
+                f"display-popup -E -w 60 -h 20 {shlex.quote(popup_shell_cmd)}",
+                shell=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise TmuxError(f"Failed to bind prefix+n: {e}") from e
 
         # prefix+X: close current pane and remove its worktree (with confirmation)
-        # Uses confirm-before to prompt, then run-shell to call owt cleanup, then kill-pane
-        close_shell_cmd = (
-            f"owt pane remove --pane-id \\#{{pane_id}} --workspace {workspace_name}"
+        close_cmd = (
+            f"owt pane remove --pane-id '#{{pane_id}}' --workspace {q_workspace}"
         )
-        subprocess.run(
-            [
-                "tmux", "bind-key", "-T", "prefix", "X",
-                "confirm-before", "-p", "Close pane and delete worktree? (y/n)",
-                f"run-shell '{close_shell_cmd}' \\; kill-pane",
-            ],
-            check=False,  # Non-critical — don't fail workspace creation
-        )
+        try:
+            subprocess.run(  # noqa: S602 — inputs are shlex.quoted, not user-controlled
+                f"tmux bind-key -T prefix X "
+                f"confirm-before -p 'Close pane and delete worktree? (y/n)' "
+                f"\"run-shell {shlex.quote(close_cmd)} \\; kill-pane\"",
+                shell=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            pass  # Non-critical — don't fail workspace creation
 
         # Set environment variables on the session for discovery
         subprocess.run(
