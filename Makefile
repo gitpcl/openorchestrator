@@ -1,4 +1,4 @@
-.PHONY: test test-cov test-fast test-docker lint format clean help
+.PHONY: test test-cov test-fast test-docker lint format clean help build build-clean publish publish-test dist-check
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -45,3 +45,19 @@ install:  ## Install package with dev dependencies
 
 install-uv:  ## Install package with dev dependencies using uv
 	uv pip install -e ".[dev]"
+
+build:  ## Build wheel and sdist distributions
+	python -m build
+
+build-clean:  ## Clean and rebuild distributions
+	rm -rf dist/ build/ *.egg-info src/*.egg-info
+	python -m build
+
+dist-check:  ## Check distribution files with twine
+	twine check dist/*
+
+publish-test:  ## Publish to TestPyPI
+	twine upload --repository testpypi dist/*
+
+publish:  ## Publish to PyPI
+	twine upload dist/*

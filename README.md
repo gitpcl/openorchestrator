@@ -38,26 +38,39 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - Python 3.10 or higher
 - Git
 - tmux
-- Claude Code CLI
+- Claude Code CLI (or OpenCode/Droid)
 
-### Install with uv (recommended)
+### Install from PyPI (recommended)
+
+```bash
+# Using pipx (recommended for CLI tools)
+pipx install open-orchestrator
+
+# Using uv
+uv pip install open-orchestrator
+
+# Using pip
+pip install open-orchestrator
+```
+
+After installation, the `owt` command will be available in your terminal:
+
+```bash
+owt --help
+```
+
+### Install from source (for development)
 
 ```bash
 # Clone the repository
 git clone https://github.com/gitpcl/openorchestrator.git
 cd open-orchestrator
 
-# Install with uv
-uv pip install -e .
-
-# Or install with dev dependencies
+# Install with uv (recommended)
 uv pip install -e ".[dev]"
-```
 
-### Install with pip
-
-```bash
-pip install -e .
+# Or install with pip
+pip install -e ".[dev]"
 ```
 
 ## Quick Start
