@@ -81,6 +81,13 @@ from open_orchestrator.core.merge import (
     MergeResult,
     MergeStatus,
 )
+from open_orchestrator.core.pane_actions import (
+    PaneActionError,
+    PaneResult,
+    create_pane,
+    popup_result_path,
+    remove_pane,
+)
 
 __all__ = [
     "CleanupConfig",
@@ -129,4 +136,9 @@ __all__ = [
     "MergeManager",
     "MergeResult",
     "MergeStatus",
+    "PaneActionError",
+    "PaneResult",
+    "create_pane",
+    "popup_result_path",
+    "remove_pane",
 ]

@@ -1,11 +1,11 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI coding tool orchestration for parallel development with on-demand workspace mode (dmux-like). Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments from task descriptions (owt new), (3) Adding worktree panes on demand with prefix+n popup picker, (4) Merging worktree branches with two-phase merge (owt merge), (5) Closing worktrees atomically (owt close), (6) Managing multiple AI coding sessions, (7) Delegating tasks to parallel worktrees, (8) Orchestrating AI tools across branches (auto-detects claude, codex, gemini-cli, aider, amp, kilo-code, opencode, droid), (9) Monitoring worktree health and detecting issues, (10) Optimizing AI tool costs and comparing pricing, (11) Cleaning up stale worktrees, (12) Syncing worktrees with upstream, (13) Monitoring with live dashboard and tmux status bar, (14) Tracking token usage and costs, (15) Linking worktrees to GitHub PRs, (16) Managing status change hooks/notifications, (17) Copying/resuming Claude sessions, (18) Using workflow templates for common patterns, (19) Updating to latest version. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, on-demand panes, dmux, popup picker, unified view, owt commands, owt new, owt merge, owt close, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management, update, version, auto-detect agents."
+description: "Git worktree + AI coding tool orchestration for parallel development with persistent TUI sidebar (dmux-style). Use when: (1) Viewing multiple worktrees in a single tmux session (like Agent Teams), (2) Creating isolated development environments from task descriptions (owt new), (3) Adding worktree panes on demand via TUI sidebar (n key) or popup picker, (4) Merging worktree branches with two-phase merge (owt merge), (5) Closing worktrees atomically (owt close), (6) Managing multiple AI coding sessions, (7) Delegating tasks to parallel worktrees, (8) Orchestrating AI tools across branches (auto-detects claude, codex, gemini-cli, aider, amp, kilo-code, opencode, droid), (9) Monitoring worktree health and detecting issues, (10) Optimizing AI tool costs and comparing pricing, (11) Cleaning up stale worktrees, (12) Syncing worktrees with upstream, (13) Monitoring with live dashboard and tmux status bar, (14) Tracking token usage and costs, (15) Linking worktrees to GitHub PRs, (16) Managing status change hooks/notifications, (17) Copying/resuming Claude sessions, (18) Using workflow templates for common patterns, (19) Launching persistent TUI sidebar (owt tui), (20) Updating to latest version. Triggers: worktree, parallel development, multi-branch, AI orchestration, workspace mode, on-demand panes, dmux, tui, sidebar, popup picker, unified view, owt commands, owt new, owt merge, owt close, owt tui, templates, health monitoring, cost optimization, dashboard, token tracking, PR integration, hooks, session management, update, version, auto-detect agents."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
-Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees in an **on-demand workspace mode** (dmux-like). The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, detects installed AI tools, and starts working. Press `prefix+n` to add more panes on demand. When done, `owt merge <worktree>` handles two-phase merge and cleanup, or `owt close <worktree>` removes everything atomically.
+Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **persistent TUI sidebar** (dmux-style). The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, detects installed AI tools, and starts working. The TUI sidebar captures keys directly (no tmux prefix needed) — press `n` to add panes, `x` to close, `m` to merge. When done, `owt merge <worktree>` handles two-phase merge and cleanup, or `owt close <worktree>` removes everything atomically.
 
 ## Quick Reference
 
@@ -46,8 +46,9 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 
 | Command | Description |
 |---------|-------------|
-| `owt pane add --branch <name>` | Add worktree pane on demand (also via `prefix+n`) |
-| `owt pane remove --worktree <name>` | Remove pane + delete worktree (also via `prefix+X`) |
+| `owt tui` | Launch persistent TUI sidebar (dmux-style) |
+| `owt pane add --branch <name>` | Add worktree pane on demand (also via `n` in TUI) |
+| `owt pane remove --worktree <name>` | Remove pane + delete worktree (also via `x` in TUI) |
 | `owt workspace list` | List all unified workspaces |
 | `owt workspace show <name>` | Show workspace details and panes |
 | `owt workspace attach <name>` | Attach to workspace tmux session |
@@ -83,48 +84,64 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt version [--full]` | Show version and installation info |
 | `owt update [--check]` | Update to latest version |
 
-## On-Demand Workspace Mode (Default)
+## Persistent TUI Sidebar (Default Workspace Mode)
 
-Open Orchestrator uses **on-demand workspace mode** by default (dmux-like). Start with 1 pane, add worktree panes dynamically via popup picker or CLI.
+Open Orchestrator uses a **persistent TUI sidebar** (dmux-style) as the default workspace mode. The TUI occupies pane 0 and captures keys directly — no tmux prefix needed.
+
+### Architecture
+
+```
+tmux session: owt-<project>
+┌─────────────┬────────────────────┐
+│             │   Agent Pane 1     │
+│  TUI        │   (Claude Code)    │
+│  Sidebar    ├────────────────────┤
+│  (pane 0)   │   Agent Pane 2     │
+│  ~25% width │   (OpenCode)       │
+│             ├────────────────────┤
+│  Captures   │   Agent Pane 3     │
+│  keys       │   (Codex)          │
+│  directly   │                    │
+└─────────────┴────────────────────┘
+```
+
+### TUI Keybindings (no prefix needed)
+
+| Key | Action |
+|-----|--------|
+| `n` | Open popup picker → create worktree pane |
+| `x` | Close selected pane (with confirmation) |
+| `m` | Merge selected worktree branch |
+| `j` / `↓` | Navigate down |
+| `k` / `↑` | Navigate up |
+| `Enter` | Focus selected agent pane |
+| `a` | A/B comparison |
+| `?` | Help overlay |
+| `q` | Quit (with confirmation) |
 
 ### How It Works
 
 ```bash
-# Create first worktree (auto-creates workspace with single pane)
+# Launch TUI sidebar directly
+owt tui
+
+# Or create first worktree (auto-creates workspace with TUI sidebar)
 owt create feature/api
 # ✅ Created workspace: owt-myproject
+# ✅ TUI sidebar running in pane 0
 # ✅ Added pane for feature/api
-# Press prefix+n to add worktree panes on demand.
 
-# Inside tmux, press prefix+n → popup picker appears:
+# Inside the TUI, press n → popup picker appears (tmux overlay):
 #   Select AI tool → Enter branch name → Optional template
 #   → New pane appears to the right
 
 # Or add panes from CLI:
 owt pane add --branch bugfix/login --ai-tool claude --workspace owt-myproject --repo /path
-
-# Layout grows on demand:
-# Start:          After 1st add:         After 2nd add:
-# ┌──────────┐    ┌─────┬──────────┐    ┌─────┬──────────┐
-# │          │    │     │ Worktree │    │     │ WT 1     │
-# │  Main    │ →  │Main │ 1        │ →  │Main ├──────────┤
-# │          │    │     │          │    │     │ WT 2     │
-# └──────────┘    └─────┴──────────┘    └─────┴──────────┘
 ```
-
-### Keybindings (tmux >= 3.2)
-
-| Key | Action |
-|-----|--------|
-| `prefix + n` | Open popup picker → create worktree + pane |
-| `prefix + X` | Close current pane + delete its worktree (with confirmation) |
 
 ### Pane Commands
 
 ```bash
-# Add pane from popup result (used by keybinding internally)
-owt pane add --from-popup /tmp/owt-popup-session.json --workspace owt-proj --repo /path
-
 # Add pane directly
 owt pane add --branch feature/x --ai-tool claude --workspace owt-proj --repo /path
 
@@ -695,29 +712,30 @@ owt create feature/x --ai-tool droid --auto-level high
 
 ## Common Patterns
 
-### Pattern 1: On-Demand Workspace Development (Default)
+### Pattern 1: TUI Workspace Development (Default)
 ```bash
-# Create first worktree (creates workspace with single pane)
+# Create first worktree (creates workspace with TUI sidebar)
 owt create feature/api
 
-# Add more panes on demand from inside tmux:
-# Press prefix+n → select AI tool → enter branch → pane appears
+# In the TUI sidebar, press n → popup picker → select AI tool → enter branch
+# New pane appears to the right
 
 # Or add from CLI:
 owt pane add --branch bugfix/auth --workspace owt-myproject --repo .
 owt pane add --branch research/perf --workspace owt-myproject --repo .
 
 # Your workspace grows naturally:
-# ┌─────┬──────────┐
-# │     │ feature/api       │
-# │Main ├──────────┤
-# │     │ bugfix/auth       │
-# │     ├──────────┤
-# │     │ research/perf     │
-# └─────┴──────────┘
+# ┌─────────────┬──────────────────┐
+# │  TUI        │ feature/api      │
+# │  Sidebar    ├──────────────────┤
+# │  (pane 0)   │ bugfix/auth      │
+# │             ├──────────────────┤
+# │  n/x/m/j/k  │ research/perf    │
+# └─────────────┴──────────────────┘
 
-# Remove a pane: prefix+X (with confirmation)
-# Navigate: Ctrl+b → arrow keys or click (mouse enabled)
+# Navigate: j/k in TUI, Enter to focus pane
+# Close pane: x (with confirmation)
+# Merge: m to merge selected branch
 ```
 
 ### Pattern 2: Template-Based Development

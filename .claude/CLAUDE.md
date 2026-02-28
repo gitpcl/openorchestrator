@@ -7,6 +7,7 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `owt new "task description"` | `owt n` | Create worktree from task description (prompt-first) |
+| `owt tui` | | Launch persistent TUI sidebar (dmux-style) |
 | `owt list` | `owt ls` | List all worktrees with status |
 | `owt status` | `owt st` | Show AI activity across all worktrees |
 | `owt merge <worktree>` | `owt m` | Merge worktree branch and clean up |
@@ -19,8 +20,9 @@ Git Worktree + Claude Code orchestration tool for parallel development workflows
 
 | Command | Description |
 |---------|-------------|
-| `owt pane add --branch <name>` | Add worktree pane on demand (also via `prefix+n`) |
-| `owt pane remove --worktree <name>` | Remove pane + delete worktree (also via `prefix+X`) |
+| `owt tui` | Launch persistent TUI sidebar in current terminal |
+| `owt pane add --branch <name>` | Add worktree pane on demand |
+| `owt pane remove --worktree <name>` | Remove pane + delete worktree |
 | `owt switch <name> --tmux` | Switch to worktree's tmux session |
 | `owt send <name> "cmd"` | Send command to another worktree's Claude |
 | `owt status` | Show Claude activity across all worktrees |
@@ -102,6 +104,7 @@ src/open_orchestrator/
 │   ├── process_manager.py  # Non-tmux process management
 │   ├── branch_namer.py    # Branch name generation from task descriptions
 │   ├── merge.py           # Two-phase merge logic
+│   ├── pane_actions.py    # Shared pane lifecycle (CLI + TUI)
 │   ├── agent_detector.py  # Detect installed AI coding tools
 │   ├── dashboard.py    # Live TUI dashboard
 │   └── skill_installer.py  # Claude Code skill installation
@@ -113,6 +116,14 @@ src/open_orchestrator/
 │   ├── hooks.py            # Hook configuration models
 │   ├── session.py          # Session data models
 │   └── pr_info.py          # PR info models
+├── tui/
+│   ├── app.py              # Persistent TUI sidebar (dmux-style, Textual)
+│   ├── styles.tcss         # TUI styles (orange accent theme)
+│   ├── screens/
+│   │   ├── confirm.py      # Confirmation modal screen
+│   │   ├── help_overlay.py # Keybinding help overlay
+│   │   └── ab_compare.py   # A/B comparison screen
+│   └── widgets/            # Reusable TUI widgets
 ├── popup/
 │   └── picker.py           # Popup picker for on-demand pane creation (tmux display-popup)
 ├── skills/

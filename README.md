@@ -6,7 +6,7 @@ A Git Worktree + AI coding tool orchestration system for managing parallel devel
 
 ## Overview
 
-Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own AI coding session and tmux pane. Start with `owt new "task description"` for prompt-first workflow (auto-generates branch names, detects installed AI tools), or use `owt create <branch>` for explicit control. Features on-demand workspace mode (dmux-like), two-phase merge (`owt merge`), atomic cleanup (`owt close`), and a live tmux status bar showing worktree activity.
+Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own AI coding session and tmux pane. Start with `owt new "task description"` for prompt-first workflow (auto-generates branch names, detects installed AI tools), or use `owt create <branch>` for explicit control. Features a persistent TUI sidebar (dmux-style) with direct key capture (`n`/`x`/`m` — no prefix needed), two-phase merge (`owt merge`), atomic cleanup (`owt close`), and a live tmux status bar showing worktree activity.
 
 > **Agent Teams vs Open Orchestrator:** While [Claude Code's Agent Teams](https://code.claude.com/docs/en/agent-teams) coordinate multiple AI agents within the *same codebase*, Open Orchestrator manages multiple *isolated worktrees* (different branches, different directories, independent environments). They're complementary tools that can work together - use Agent Teams for intra-branch collaboration, Open Orchestrator for cross-branch orchestration. [Learn more](#open-orchestrator-vs-agent-teams)
 
@@ -16,7 +16,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Two-Phase Merge**: `owt merge` handles merge conflicts early by merging base→feature first, then feature→base
 - **Atomic Close**: `owt close` removes pane + stops processes + deletes worktree in one step
 - **Command Aliases**: `owt n`, `owt ls`, `owt st`, `owt m`, `owt x`, `owt rm` for quick access
-- **On-Demand Workspace Mode**: Start with 1 pane, press `prefix+n` to add worktree panes dynamically via popup picker (dmux-like)
+- **Persistent TUI Sidebar**: dmux-style sidebar captures keys directly (`n`/`x`/`m`/`j`/`k`) — no tmux prefix needed
 - **Mouse-Enabled tmux**: Click to switch panes, drag to resize - mouse support enabled by default
 - **Git Worktree Management**: Create, list, switch, and delete worktrees with automatic branch management
 - **Template-Based Workflows**: Pre-configured templates for common tasks (bugfix, feature, research, security-audit, etc.)
@@ -203,13 +203,13 @@ owt health --all
 | `owt agent logs <wt>` | | View logs for autonomous agent |
 | `owt agent health` | | Check health of autonomous agents |
 
-### Pane Commands (On-Demand Mode)
+### TUI & Pane Commands
 
 | Command | Description |
 |---------|-------------|
-| `owt pane add --branch <name>` | Add a worktree pane on demand (also via `prefix+n` keybinding) |
-| `owt pane add --from-popup <file>` | Add pane from popup picker result (used by keybinding) |
-| `owt pane remove --worktree <name>` | Remove pane and delete worktree (also via `prefix+X`) |
+| `owt tui` | Launch persistent TUI sidebar (dmux-style, direct key capture) |
+| `owt pane add --branch <name>` | Add a worktree pane on demand (also via `n` in TUI) |
+| `owt pane remove --worktree <name>` | Remove pane and delete worktree (also via `x` in TUI) |
 | `owt pane remove --keep-worktree` | Remove pane but keep the git worktree |
 
 ### Template Commands
@@ -671,55 +671,62 @@ To automatically inject worktree context into Claude Code prompts, add the hook 
 
 This will show `[Worktree: name | Branch: branch]` in your prompts when working in a worktree.
 
-## On-Demand Workspace Mode
+## Persistent TUI Sidebar (Workspace Mode)
 
-Open Orchestrator uses **on-demand workspace mode** by default (dmux-like). Instead of pre-creating empty panes, you start with a single pane and add worktree panes dynamically — either via the tmux popup picker (`prefix+n`) or the `owt pane add` CLI command.
+Open Orchestrator uses a **persistent TUI sidebar** (dmux-style) as the default workspace mode. The TUI runs in pane 0 and captures keys directly — no tmux prefix needed. Press `n` to add panes, `x` to close, `m` to merge, `j`/`k` to navigate.
+
+### Architecture
+
+```
+tmux session: owt-<project>
+┌─────────────┬────────────────────┐
+│             │   Agent Pane 1     │
+│  TUI        │   (Claude Code)    │
+│  Sidebar    ├────────────────────┤
+│  (pane 0)   │   Agent Pane 2     │
+│  ~25% width │   (OpenCode)       │
+│             ├────────────────────┤
+│  Captures   │   Agent Pane 3     │
+│  keys       │   (Codex)          │
+│  directly   │                    │
+└─────────────┴────────────────────┘
+```
 
 ### How It Works
 
-1. `owt create feature/api` creates a workspace with **1 pane** (your main AI session)
-2. Inside tmux, press **`prefix+n`** to open the popup picker
+1. `owt create feature/api` creates a workspace with the **TUI sidebar** in pane 0
+2. Press **`n`** in the TUI — popup picker appears as a tmux overlay
 3. Select AI tool, enter branch name, optionally pick a template
 4. A new pane appears to the right with the worktree + AI tool running
-5. Press **`prefix+X`** to close a pane and delete its worktree
+5. Press **`x`** to close a pane, **`m`** to merge its branch
 
-```
-Layout grows on demand:
-
-Start:          After 1st add:         After 2nd add:
-┌──────────┐    ┌─────┬──────────┐    ┌─────┬──────────┐
-│          │    │     │ Worktree │    │     │ WT 1     │
-│  Main    │ →  │Main │ 1        │ →  │Main ├──────────┤
-│          │    │     │          │    │     │ WT 2     │
-└──────────┘    └─────┴──────────┘    └─────┴──────────┘
-```
-
-**Benefits:**
-- No empty panes cluttering your session
-- Add as many worktrees as you need (default max: 10, auto-expands)
-- Popup picker for fast branch + tool selection
-- **Click to switch panes** or use `Ctrl+b → arrow keys` (mouse mode enabled by default)
-- **Drag borders to resize** panes to your preference
-- Requires tmux >= 3.2 for popup support (falls back to `owt pane add` CLI)
-
-### Keybindings
+### TUI Keybindings (no prefix needed)
 
 | Key | Action |
 |-----|--------|
-| `prefix + n` | Open popup picker → create worktree + pane |
-| `prefix + X` | Close current pane + delete worktree (with confirmation) |
+| `n` | Open popup picker → create worktree pane |
+| `x` | Close selected pane (with confirmation) |
+| `m` | Merge selected worktree branch |
+| `j` / `↓` | Navigate down |
+| `k` / `↑` | Navigate up |
+| `Enter` | Focus selected agent pane |
+| `a` | A/B comparison |
+| `?` | Help overlay |
+| `q` | Quit (with confirmation) |
 
 ### Quick Start
 
 ```bash
-# Create first worktree (automatically creates workspace with 1 pane)
+# Launch TUI sidebar directly
+$ owt tui
+
+# Or create first worktree (auto-creates workspace with TUI sidebar)
 $ owt create feature/api
 ✅ Created workspace: owt-myproject
+✅ TUI sidebar running in pane 0
 ✅ Added pane for feature/api
-Press prefix+n to add worktree panes on demand.
 
-# Inside tmux: press prefix+n
-# Popup appears:
+# In the TUI sidebar, press n → popup picker appears:
 #   AI Tool: 1) claude  2) opencode  3) droid
 #   Select: 1
 #   Branch name: bugfix/login
@@ -729,48 +736,31 @@ Press prefix+n to add worktree panes on demand.
 # Or add from CLI:
 $ owt pane add --branch bugfix/login --workspace owt-myproject --repo /path
 
-# Remove a pane:
+# Remove a pane: press x in TUI (with confirmation)
+# Or from CLI:
 $ owt pane remove --worktree bugfix/login --workspace owt-myproject
-# Or press prefix+X inside the pane
 ```
 
-### Navigating Panes
+### TUI Status Icons
 
-**Mouse Navigation (Enabled by Default):**
-```bash
-# Click on any pane to switch to it
-# Drag pane borders to resize
-# Scroll with trackpad/mouse wheel
-```
+The sidebar shows real-time status for each pane:
 
-**Keyboard Navigation:**
-```bash
-Ctrl+b → ←↑↓→   # Navigate between panes with arrow keys
-Ctrl+b → n      # Add new worktree pane (popup picker)
-Ctrl+b → X      # Close pane + delete worktree
-Ctrl+b → o      # Cycle through panes
-Ctrl+b → q      # Show pane numbers, press number to jump
-Ctrl+b → d      # Detach from tmux session
-```
+| Icon | Status | Color |
+|------|--------|-------|
+| `✻` | Working | Cyan |
+| `◌` | Idle | Gray |
+| `△` | Blocked | Red |
+| `⧖` | Waiting | Yellow |
+| `✓` | Completed | Green |
+| `✗` | Error | Red |
 
-**Disable Mouse Mode (if needed):**
-```toml
-# In .worktreerc
-[tmux]
-mouse_mode = false
-```
+Agent panes are tagged: `[cc]` Claude, `[oc]` OpenCode, `[dr]` Droid, `[cx]` Codex, `[gc]` Gemini CLI, `[ai]` Aider, `[am]` Amp, `[kc]` Kilo Code.
 
 ### Workspace Commands
 
 ```bash
 # List all workspaces
 $ owt workspace list
-Workspaces
-┌─────────────────┬─────────────┬────────┬───────────┬──────────────────────────┐
-│ Name            │ Layout      │ Panes  │ Available │ Worktrees                │
-├─────────────────┼─────────────┼────────┼───────────┼──────────────────────────┤
-│ owt-myproject   │ main-focus  │ 4 / 10 │ 6         │ feature/api, bugfix/...  │
-└─────────────────┴─────────────┴────────┴───────────┴──────────────────────────┘
 
 # Show workspace details
 $ owt workspace show owt-myproject
@@ -785,13 +775,13 @@ $ owt workspace destroy owt-myproject
 ### Pane Commands
 
 ```bash
-# Add pane on demand (also available via prefix+n popup)
+# Add pane on demand (also available via n in TUI)
 $ owt pane add --branch feature/x --ai-tool claude --workspace owt-myproject --repo .
 
 # Add pane with template
 $ owt pane add --branch bugfix/y --template bugfix --workspace owt-myproject --repo .
 
-# Remove pane and delete worktree (also available via prefix+X)
+# Remove pane and delete worktree (also available via x in TUI)
 $ owt pane remove --worktree feature/x --workspace owt-myproject
 
 # Remove pane but keep worktree
@@ -825,9 +815,6 @@ default_layout = "single"
 
 # Maximum panes per workspace (auto-expands in on-demand mode)
 max_panes = 10
-
-# On-demand mode: add panes dynamically via prefix+n or owt pane add
-on_demand = true
 
 # Auto-balance pane sizes when adding/removing
 auto_balance = true

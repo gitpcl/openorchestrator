@@ -263,8 +263,8 @@ class TmuxConfig(BaseModel):
         description="Enable mouse support (click to switch panes, drag to resize)",
     )
     prefix_key: str = Field(
-        default="C-z",
-        description="tmux prefix key for owt sessions (e.g. C-z for Ctrl+z, C-b for Ctrl+b)",
+        default="C-a",
+        description="tmux prefix key for owt sessions (e.g. C-a for Ctrl+a, C-b for Ctrl+b)",
     )
 
 

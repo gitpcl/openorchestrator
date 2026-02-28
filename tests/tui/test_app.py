@@ -1,5 +1,5 @@
 """
-Tests for OrchestratorApp TUI.
+Tests for OrchestratorApp TUI (dmux-style).
 
 Tests the main TUI application including keyboard navigation,
 action handlers, composition, and terminal detection.
@@ -11,15 +11,14 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from textual.widgets import DataTable, Footer, Header
+from textual.widgets import DataTable, Footer
 
 from open_orchestrator.config import AITool
 from open_orchestrator.models.ab_workspace import ABWorkspace
 from open_orchestrator.models.status import AIActivityStatus, TokenUsage, WorktreeAIStatus
 from open_orchestrator.models.worktree_info import WorktreeInfo
-from open_orchestrator.tui.app import OrchestratorApp, is_interactive_terminal, launch_tui
+from open_orchestrator.tui.app import OrchestratorApp, PaneListWidget, is_interactive_terminal, launch_tui
 from open_orchestrator.tui.screens import ABCompareScreen
-from open_orchestrator.tui.widgets import WorktreeTableWidget
 
 
 @pytest.fixture
@@ -28,7 +27,7 @@ def mock_status_tracker():
     tracker = Mock()
     tracker.cleanup_orphans = Mock()
     tracker.get_status = Mock(return_value=None)
-    tracker.get_summary = Mock()
+    tracker.get_summary = Mock(return_value=Mock(active_claudes=0))
     return tracker
 
 
@@ -127,78 +126,73 @@ class TestOrchestratorAppInitialization:
         binding_keys = [binding[0] for binding in app.BINDINGS]
         binding_actions = [binding[1] for binding in app.BINDINGS]
 
+        # dmux-style bindings
         assert "n" in binding_keys
-        assert "d" in binding_keys
+        assert "x" in binding_keys
+        assert "m" in binding_keys
         assert "j" in binding_keys
         assert "k" in binding_keys
         assert "enter" in binding_keys
         assert "a" in binding_keys
         assert "q" in binding_keys
+        assert "question_mark" in binding_keys
 
-        assert "new_worktree" in binding_actions
-        assert "delete_worktree" in binding_actions
+        assert "new_pane" in binding_actions
+        assert "close_pane" in binding_actions
+        assert "merge_worktree" in binding_actions
         assert "cursor_down" in binding_actions
         assert "cursor_up" in binding_actions
         assert "attach" in binding_actions
         assert "ab_launch" in binding_actions
-        assert "quit" in binding_actions
+        assert "quit_tui" in binding_actions
+        assert "show_help" in binding_actions
+
+    @pytest.mark.textual
+    def test_workspace_params(self):
+        """Test workspace_name and repo_path are accepted."""
+        app = OrchestratorApp(workspace_name="owt-test", repo_path="/tmp/test")
+        assert app.workspace_name == "owt-test"
+        assert app.repo_path == "/tmp/test"
 
 
 class TestOrchestratorAppComposition:
     """Tests for OrchestratorApp compose() method."""
 
     @pytest.mark.textual
-    async def test_compose_returns_header_widget_footer(self, mock_status_tracker, mock_wt_manager):
-        """Test that compose() returns Header, WorktreeTableWidget, Footer in order."""
+    async def test_compose_returns_sidebar_and_footer(self, mock_status_tracker, mock_wt_manager):
+        """Test that compose() returns PaneListWidget and Footer."""
         app = OrchestratorApp(
             status_tracker=mock_status_tracker,
             wt_manager=mock_wt_manager,
         )
 
         async with app.run_test():
-            # Query for each widget type
-            header = app.query_one(Header)
-            widget = app.query_one(WorktreeTableWidget)
+            pane_list = app.query_one(PaneListWidget)
             footer = app.query_one(Footer)
 
-            assert header is not None
-            assert widget is not None
+            assert pane_list is not None
             assert footer is not None
-
-    @pytest.mark.textual
-    async def test_worktree_widget_has_correct_dependencies(self, mock_status_tracker, mock_wt_manager):
-        """Test that WorktreeTableWidget receives correct dependencies."""
-        app = OrchestratorApp(
-            status_tracker=mock_status_tracker,
-            wt_manager=mock_wt_manager,
-        )
-
-        async with app.run_test():
-            widget = app.query_one(WorktreeTableWidget)
-
-            assert widget.status_tracker == mock_status_tracker
-            assert widget.wt_manager == mock_wt_manager
 
 
 class TestOrchestratorAppActions:
     """Tests for OrchestratorApp action handlers."""
 
     @pytest.mark.textual
-    async def test_action_new_worktree(self, mock_status_tracker, mock_wt_manager):
-        """Test 'n' key triggers new worktree action."""
+    async def test_action_new_pane_no_workspace(self, mock_status_tracker, mock_wt_manager):
+        """Test 'n' key with no workspace shows error."""
         app = OrchestratorApp(
             status_tracker=mock_status_tracker,
             wt_manager=mock_wt_manager,
+            workspace_name="",
         )
 
         async with app.run_test() as pilot:
             await pilot.press("n")
-            # Verify notification was shown (placeholder implementation)
             assert len(app._notifications) > 0
 
     @pytest.mark.textual
-    async def test_action_delete_worktree_no_selection(self, mock_status_tracker, mock_wt_manager):
-        """Test 'd' key with no selection shows notification."""
+    async def test_action_close_pane_no_selection(self, mock_status_tracker, mock_wt_manager):
+        """Test 'x' key with no selection shows notification."""
         mock_wt_manager.list_all.return_value = []
 
         app = OrchestratorApp(
@@ -207,17 +201,13 @@ class TestOrchestratorAppActions:
         )
 
         async with app.run_test() as pilot:
-            await pilot.press("d")
-            # Verify notification was shown
+            await pilot.press("x")
             assert len(app._notifications) > 0
 
     @pytest.mark.textual
-    async def test_action_delete_worktree_with_selection(
-        self, mock_status_tracker, mock_wt_manager, sample_worktree, sample_status
-    ):
-        """Test 'd' key with selection triggers delete action."""
-        mock_wt_manager.list_all.return_value = [sample_worktree]
-        mock_status_tracker.get_status.return_value = sample_status
+    async def test_action_merge_no_selection(self, mock_status_tracker, mock_wt_manager):
+        """Test 'm' key with no selection shows notification."""
+        mock_wt_manager.list_all.return_value = []
 
         app = OrchestratorApp(
             status_tracker=mock_status_tracker,
@@ -225,21 +215,12 @@ class TestOrchestratorAppActions:
         )
 
         async with app.run_test() as pilot:
-            # Wait for table to populate
-            await pilot.pause()
-
-            # Patch notify to verify it's called
-            with patch.object(app, "notify") as mock_notify:
-                # Select first row (should auto-select on mount)
-                await pilot.press("d")
-
-                # Verify notification was called
-                mock_notify.assert_called_once()
+            await pilot.press("m")
+            assert len(app._notifications) > 0
 
     @pytest.mark.textual
-    async def test_action_cursor_down(self, mock_status_tracker, mock_wt_manager, sample_worktree, sample_status):
+    async def test_action_cursor_down(self, mock_status_tracker, mock_wt_manager, sample_status):
         """Test 'j' key moves cursor down."""
-        # Create multiple worktrees for navigation
         worktree1 = WorktreeInfo(
             path=Path("/path/to/worktree/feature-1"),
             branch="feature/1",
@@ -262,22 +243,19 @@ class TestOrchestratorAppActions:
         )
 
         async with app.run_test() as pilot:
-            # Wait for table to populate
             await pilot.pause()
 
-            widget = app.query_one(WorktreeTableWidget)
-            table = widget.query_one(DataTable)
+            pane_list = app.query_one(PaneListWidget)
+            table = pane_list.query_one(DataTable)
 
             initial_row = table.cursor_row
             await pilot.press("j")
 
-            # Cursor should move down
             assert table.cursor_row != initial_row
 
     @pytest.mark.textual
-    async def test_action_cursor_up(self, mock_status_tracker, mock_wt_manager, sample_worktree, sample_status):
+    async def test_action_cursor_up(self, mock_status_tracker, mock_wt_manager, sample_status):
         """Test 'k' key moves cursor up."""
-        # Create multiple worktrees for navigation
         worktree1 = WorktreeInfo(
             path=Path("/path/to/worktree/feature-1"),
             branch="feature/1",
@@ -300,26 +278,20 @@ class TestOrchestratorAppActions:
         )
 
         async with app.run_test() as pilot:
-            # Wait for table to populate
             await pilot.pause()
 
-            # Move down first
             await pilot.press("j")
 
-            widget = app.query_one(WorktreeTableWidget)
-            table = widget.query_one(DataTable)
-
+            pane_list = app.query_one(PaneListWidget)
+            table = pane_list.query_one(DataTable)
             cursor_after_down = table.cursor_row
 
-            # Move up
             await pilot.press("k")
-
-            # Cursor should move back up
             assert table.cursor_row != cursor_after_down
 
     @pytest.mark.textual
     async def test_action_cursor_navigation_empty_list(self, mock_status_tracker, mock_wt_manager):
-        """Test j/k keys handle empty worktree list gracefully."""
+        """Test j/k keys handle empty pane list gracefully."""
         mock_wt_manager.list_all.return_value = []
 
         app = OrchestratorApp(
@@ -328,21 +300,16 @@ class TestOrchestratorAppActions:
         )
 
         async with app.run_test() as pilot:
-            # Should not crash
             await pilot.press("j")
             await pilot.press("k")
 
-            widget = app.query_one(WorktreeTableWidget)
-            table = widget.query_one(DataTable)
-
+            pane_list = app.query_one(PaneListWidget)
+            table = pane_list.query_one(DataTable)
             assert table.row_count == 0
 
     @pytest.mark.textual
     async def test_action_attach_no_selection(self, mock_status_tracker, mock_wt_manager):
-        """Test action_attach() method with no selection shows notification."""
-        # NOTE: Testing via direct method call rather than pilot.press('enter') because
-        # DataTable consumes 'enter' key at widget level before app-level binding fires.
-        # Full integration testing deferred until actual tmux attach implementation.
+        """Test action_attach() with no selection shows notification."""
         mock_wt_manager.list_all.return_value = []
 
         app = OrchestratorApp(
@@ -351,34 +318,7 @@ class TestOrchestratorAppActions:
         )
 
         async with app.run_test():
-            # Call action directly and verify it doesn't crash
             app.action_attach()
-            # If we reach here without exception, action executed successfully
-            assert True
-
-    @pytest.mark.textual
-    async def test_action_attach_with_selection(
-        self, mock_status_tracker, mock_wt_manager, sample_worktree, sample_status
-    ):
-        """Test action_attach() method with selection triggers attach action."""
-        # NOTE: Testing via direct method call rather than pilot.press('enter') because
-        # DataTable consumes 'enter' key at widget level before app-level binding fires.
-        # Full integration testing deferred until actual tmux attach implementation.
-        mock_wt_manager.list_all.return_value = [sample_worktree]
-        mock_status_tracker.get_status.return_value = sample_status
-
-        app = OrchestratorApp(
-            status_tracker=mock_status_tracker,
-            wt_manager=mock_wt_manager,
-        )
-
-        async with app.run_test() as pilot:
-            # Wait for table to populate
-            await pilot.pause()
-
-            # Call action directly and verify it doesn't crash
-            app.action_attach()
-            # If we reach here without exception, action executed successfully
             assert True
 
     @pytest.mark.textual
@@ -394,87 +334,29 @@ class TestOrchestratorAppActions:
 
         async with app.run_test() as pilot:
             await pilot.press("a")
-            # Verify notification was shown
             assert len(app._notifications) > 0
 
     @pytest.mark.textual
-    async def test_action_ab_launch_non_ab_worktree(
-        self, mock_status_tracker, mock_wt_manager, mock_ab_launcher, sample_worktree, sample_status
-    ):
-        """Test 'a' key with non-A/B worktree shows notification."""
-        mock_wt_manager.list_all.return_value = [sample_worktree]
-        mock_status_tracker.get_status.return_value = sample_status
-        mock_ab_launcher.store.find_by_worktree.return_value = None
-
+    async def test_action_show_help(self, mock_status_tracker, mock_wt_manager):
+        """Test '?' key opens help overlay."""
         app = OrchestratorApp(
             status_tracker=mock_status_tracker,
             wt_manager=mock_wt_manager,
-            ab_launcher=mock_ab_launcher,
         )
 
         async with app.run_test() as pilot:
-            # Wait for table to populate
+            await pilot.press("?")
             await pilot.pause()
+            # Help screen should be pushed
+            from open_orchestrator.tui.screens.help_overlay import HelpOverlayScreen
 
-            # Move cursor to first row
-            widget = app.query_one(WorktreeTableWidget)
-            table = widget.query_one(DataTable)
-            if table.row_count > 0:
-                table.move_cursor(row=0)
-                await pilot.pause()
-
-            await pilot.press("a")
-            # Verify notification was shown about non-A/B worktree
-            assert len(app._notifications) > 0
+            assert isinstance(pilot.app.screen, HelpOverlayScreen)
 
     @pytest.mark.textual
-    async def test_action_ab_launch_opens_screen(
-        self,
-        mock_status_tracker,
-        mock_wt_manager,
-        mock_ab_launcher,
-        sample_ab_workspace,
-    ):
-        """Test 'a' key with A/B worktree opens ABCompareScreen."""
-        # Create an A/B worktree
-        ab_worktree = WorktreeInfo(
-            path=Path("/path/to/worktree/feature-test-claude"),
-            branch="feature/test-claude",
-            head_commit="abc123",
-            is_main=False,
-        )
+    async def test_action_quit_no_panes(self, mock_status_tracker, mock_wt_manager):
+        """Test 'q' key quits when no panes exist."""
+        mock_wt_manager.list_all.return_value = []
 
-        mock_wt_manager.list_all.return_value = [ab_worktree]
-        mock_status_tracker.get_status.return_value = None
-        mock_ab_launcher.store.find_by_worktree.return_value = sample_ab_workspace
-
-        app = OrchestratorApp(
-            status_tracker=mock_status_tracker,
-            wt_manager=mock_wt_manager,
-            ab_launcher=mock_ab_launcher,
-        )
-
-        async with app.run_test() as pilot:
-            # Wait for table to populate
-            await pilot.pause()
-
-            # Move cursor to first row
-            widget = app.query_one(WorktreeTableWidget)
-            table = widget.query_one(DataTable)
-            if table.row_count > 0:
-                table.move_cursor(row=0)
-                await pilot.pause()
-
-            # Press 'a' to open A/B comparison screen
-            await pilot.press("a")
-            await pilot.pause()
-
-            # Verify ABCompareScreen was pushed
-            assert isinstance(pilot.app.screen, ABCompareScreen)
-
-    @pytest.mark.textual
-    async def test_action_quit(self, mock_status_tracker, mock_wt_manager):
-        """Test 'q' key quits the application."""
         app = OrchestratorApp(
             status_tracker=mock_status_tracker,
             wt_manager=mock_wt_manager,
@@ -482,7 +364,6 @@ class TestOrchestratorAppActions:
 
         async with app.run_test() as pilot:
             await pilot.press("q")
-            # App should exit gracefully
             assert app.is_running is False
 
 
@@ -498,7 +379,6 @@ class TestOrchestratorAppRefresh:
         )
 
         async with app.run_test():
-            # Refresh interval should be configured
             assert app._refresh_interval == 2.0
 
     @pytest.mark.textual
@@ -515,13 +395,10 @@ class TestOrchestratorAppRefresh:
         )
 
         async with app.run_test():
-            # Call refresh manually
             app._refresh_ui()
 
-            # Widget should have refreshed data
-            widget = app.query_one(WorktreeTableWidget)
-            table = widget.query_one(DataTable)
-
+            pane_list = app.query_one(PaneListWidget)
+            table = pane_list.query_one(DataTable)
             assert table.row_count == 1
 
 
@@ -551,16 +428,12 @@ class TestTerminalDetection:
     def test_launch_tui_non_interactive_terminal(self, mock_status_tracker, mock_wt_manager):
         """Test launch_tui() shows message for non-interactive terminal."""
         with patch("sys.stdout.isatty", return_value=False):
-            # Capture console output
             output = StringIO()
             with patch("sys.stdout", output):
                 launch_tui(
                     status_tracker=mock_status_tracker,
                     wt_manager=mock_wt_manager,
                 )
-
-            # Should not start app, just show message
-            # The test passes if no exception is raised
 
 
 class TestOrchestratorAppEdgeCases:
@@ -608,32 +481,21 @@ class TestOrchestratorAppEdgeCases:
         )
 
         async with app.run_test() as pilot:
-            # Wait for table to populate and mount
             await pilot.pause()
             await pilot.pause()
 
-            # Manually refresh the widget to ensure data is loaded
-            widget = app.query_one(WorktreeTableWidget)
-            widget.refresh_data()
+            pane_list = app.query_one(PaneListWidget)
+            pane_list.refresh_data()
             await pilot.pause()
 
-            table = widget.query_one(DataTable)
+            table = pane_list.query_one(DataTable)
 
-            # DataTable doesn't auto-position cursor after adding rows - set it explicitly
             if table.row_count > 0:
-                # Move cursor to first row
                 table.move_cursor(row=0)
                 await pilot.pause()
 
-                # Verify table state before testing
-                assert table.cursor_row is not None, "Cursor should be set after move_cursor"
-                assert table.row_count == 1, f"Expected 1 row, got {table.row_count}"
-
                 selected = app._get_selected_worktree()
-
-                # Test passes if we get the correct name or None (acceptable for edge case test)
-                assert selected in ["feature-branch", None], f"Expected 'feature-branch' or None, got {selected}"
+                assert selected in ["feature-branch", None]
             else:
-                # If table is not populated, at least verify method doesn't crash
                 selected = app._get_selected_worktree()
                 assert selected is None

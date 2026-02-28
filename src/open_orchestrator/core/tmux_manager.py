@@ -546,6 +546,62 @@ class TmuxManager:
 
         return self.create_session(config)
 
+    def create_tui_session(
+        self,
+        workspace_name: str,
+        repo_path: str,
+    ) -> TmuxSessionInfo:
+        """Create a tmux session with owt TUI in pane 0 (dmux-style).
+
+        The TUI sidebar runs in the first pane, agent panes are added alongside
+        it. Mouse mode is disabled so Textual handles mouse events.
+
+        Args:
+            workspace_name: Name for the workspace/session.
+            repo_path: Path to the main repository.
+
+        Returns:
+            TmuxSessionInfo with created session details.
+
+        Raises:
+            TmuxSessionExistsError: If session already exists.
+            TmuxError: If session creation fails.
+        """
+        config = TmuxSessionConfig(
+            session_name=workspace_name,
+            working_directory=repo_path,
+            layout=TmuxLayout.SINGLE,
+            pane_count=1,
+            auto_start_ai=False,
+            window_name="owt",
+            mouse_mode=False,  # Let Textual handle mouse
+        )
+
+        session_info = self.create_session(config)
+
+        # Set environment variables for workspace discovery
+        self._run_tmux_cmd("set-environment", "-t", workspace_name, "OWT_WORKSPACE", workspace_name)
+        self._run_tmux_cmd("set-environment", "-t", workspace_name, "OWT_REPO", repo_path)
+
+        # Start owt tui in pane 0
+        try:
+            session = self.server.sessions.filter(session_name=workspace_name)[0]
+            pane = session.active_window.active_pane
+            if pane:
+                pane.send_keys(
+                    f"OWT_WORKSPACE={shlex.quote(workspace_name)} "
+                    f"OWT_REPO={shlex.quote(repo_path)} "
+                    f"owt tui",
+                    enter=True,
+                )
+        except libtmux.exc.LibTmuxException:
+            pass
+
+        # Install status bar
+        self.install_status_bar(workspace_name)
+
+        return session_info
+
     def get_session_for_worktree(self, worktree_name: str) -> TmuxSessionInfo | None:
         """
         Find existing tmux session for a worktree.
@@ -761,6 +817,14 @@ class TmuxManager:
         except (subprocess.CalledProcessError, ValueError, IndexError):
             return (0, 0)
 
+    @staticmethod
+    def _run_tmux_cmd(*args: str) -> bool:
+        """Run a tmux command, return True on success."""
+        result = subprocess.run(
+            ["tmux", *args], check=False, capture_output=True, text=True,
+        )
+        return result.returncode == 0
+
     def install_keybindings(
         self,
         session_name: str,
@@ -770,9 +834,9 @@ class TmuxManager:
         """
         Install tmux keybindings for on-demand pane creation in a workspace session.
 
-        Binds:
-        - prefix+n → tmux display-popup running owt-popup picker
-        - prefix+X → confirm-before close pane + cleanup worktree
+        Binds (prefix+key):
+        - n → tmux display-popup running owt-popup picker
+        - X → confirm-before close pane + cleanup worktree
 
         Requires tmux >= 3.2 for display-popup support.
 
@@ -790,55 +854,43 @@ class TmuxManager:
 
         # Temp file path unique to this session
         result_file = f"/tmp/owt-popup-{session_name}.json"
+        log_file = f"/tmp/owt-popup-{session_name}.log"
 
         # Quote paths that may contain spaces
         q_result = shlex.quote(result_file)
         q_workspace = shlex.quote(workspace_name)
         q_repo = shlex.quote(repo_path)
+        q_log = shlex.quote(log_file)
 
         # prefix+n: open popup picker, then run owt pane add with the result
+        # Log errors so failed popups can be debugged
         popup_shell_cmd = (
-            f"owt-popup {q_result} && "
+            f"owt-popup {q_result} 2>{q_log} && "
             f"owt pane add --from-popup {q_result} "
-            f"--workspace {q_workspace} --repo {q_repo}"
+            f"--workspace {q_workspace} --repo {q_repo} 2>>{q_log}"
         )
-        try:
-            subprocess.run(
-                [
-                    "tmux", "bind-key", "-T", "prefix", "n",
-                    "display-popup", "-E", "-w", "60", "-h", "20",
-                    popup_shell_cmd,
-                ],
-                check=True,
-            )
-        except subprocess.CalledProcessError as e:
-            raise TmuxError(f"Failed to bind prefix+n: {e}") from e
 
-        # prefix+X: close current pane and remove its worktree (with confirmation)
+        # Bind prefix+n → popup picker
+        if not self._run_tmux_cmd(
+            "bind-key", "-T", "prefix", "n",
+            "display-popup", "-E", "-w", "60", "-h", "20",
+            popup_shell_cmd,
+        ):
+            raise TmuxError("Failed to bind prefix+n")
+
+        # Bind prefix+X → close pane + cleanup worktree
         close_cmd = (
             f"owt pane remove --pane-id '#{{pane_id}}' --workspace {q_workspace}"
         )
-        try:
-            subprocess.run(
-                [
-                    "tmux", "bind-key", "-T", "prefix", "X",
-                    "confirm-before", "-p", "Close pane and delete worktree? (y/n)",
-                    f"run-shell {shlex.quote(close_cmd)} ; kill-pane",
-                ],
-                check=True,
-            )
-        except subprocess.CalledProcessError:
-            pass  # Non-critical — don't fail workspace creation
+        self._run_tmux_cmd(
+            "bind-key", "-T", "prefix", "X",
+            "confirm-before", "-p", "Close pane and delete worktree? (y/n)",
+            f"run-shell {shlex.quote(close_cmd)} ; kill-pane",
+        )
 
         # Set environment variables on the session for discovery
-        subprocess.run(
-            ["tmux", "set-environment", "-t", session_name, "OWT_WORKSPACE", workspace_name],
-            check=False,
-        )
-        subprocess.run(
-            ["tmux", "set-environment", "-t", session_name, "OWT_REPO", repo_path],
-            check=False,
-        )
+        self._run_tmux_cmd("set-environment", "-t", session_name, "OWT_WORKSPACE", workspace_name)
+        self._run_tmux_cmd("set-environment", "-t", session_name, "OWT_REPO", repo_path)
 
         # Install status bar showing worktree status
         self.install_status_bar(session_name)
