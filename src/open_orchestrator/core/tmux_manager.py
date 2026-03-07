@@ -703,13 +703,27 @@ class TmuxManager:
             session = self.server.sessions.filter(session_name=session_name)[0]
             window = session.active_window
 
-            # Always split right of the last pane so agents form columns
-            # (sidebar | agent1 | agent2 | agent3 ...).
-            window.panes[-1].select()
-            new_pane = window.split(
-                start_directory=worktree_path,
-                direction=PaneDirection.Right,
-            )
+            # Grid layout: agent panes fill columns of 2.
+            # - Odd agent count (1st, 3rd, ...): split right → new column
+            # - Even agent count (2nd, 4th, ...): split below → halve the column
+            agent_panes = window.panes[1:]  # exclude sidebar (pane 0)
+            agent_count = len(agent_panes)
+
+            if agent_count > 0 and agent_count % 2 == 1:
+                # Odd number of agents → split the last agent below (halve its column)
+                target_pane = agent_panes[-1]
+                target_pane.select()
+                new_pane = window.split(
+                    start_directory=worktree_path,
+                    direction=PaneDirection.Below,
+                )
+            else:
+                # Zero or even agents → split right of the last pane (new column)
+                window.panes[-1].select()
+                new_pane = window.split(
+                    start_directory=worktree_path,
+                    direction=PaneDirection.Right,
+                )
 
             # Apply a balanced grid layout (sidebar + agent columns)
             if new_pane:
@@ -799,12 +813,16 @@ class TmuxManager:
     def _apply_grid_layout(window: libtmux.Window) -> None:
         """Apply sidebar + equal-width agent columns layout.
 
-        Uses tmux's built-in even-horizontal layout then resizes the sidebar
-        to a fixed width. This is more reliable than generating custom layout
-        strings which are fragile with border/separator math.
-        """
-        session_name = window.session.name or ""
+        Agent panes are arranged in a grid: columns of 2 panes each.
+        The sidebar stays at a fixed width on the left.
 
+        Layout with 4 agents:
+        ┌──────────┬──────────┬──────────┐
+        │          │ agent 1  │ agent 3  │
+        │ sidebar  ├──────────┼──────────┤
+        │          │ agent 2  │ agent 4  │
+        └──────────┴──────────┴──────────┘
+        """
         try:
             panes = window.panes
             agent_count = len(panes) - 1
@@ -814,12 +832,18 @@ class TmuxManager:
         if agent_count <= 0:
             return
 
-        # Step 1: even-horizontal distributes all panes as equal columns
+        import math
+        num_columns = math.ceil(agent_count / 2)
+
+        # Use tiled layout as a starting point, then fix sidebar width.
+        # tiled handles arbitrary pane counts better than even-horizontal
+        # for mixed horizontal/vertical splits.
+        session_name = window.session.name or ""
         TmuxManager._run_tmux_cmd(
-            "select-layout", "-t", session_name, "even-horizontal",
+            "select-layout", "-t", session_name, "tiled",
         )
 
-        # Step 2: shrink sidebar to fixed width — tmux redistributes the rest
+        # Shrink sidebar to fixed width — tmux redistributes the rest
         sidebar_pane_id = panes[0].pane_id
         TmuxManager._run_tmux_cmd(
             "resize-pane", "-t", sidebar_pane_id, "-x",

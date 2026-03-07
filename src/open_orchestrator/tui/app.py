@@ -272,13 +272,13 @@ class PaneListWidget(Widget):
         self.status_tracker = status_tracker
         self.wt_manager = wt_manager
         self._pane_names: list[str] = []
+        self._main_name: str | None = None
 
     def compose(self) -> ComposeResult:
         yield DataTable(cursor_type="row")
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_column("", width=2)      # selection indicator
         table.add_column("", width=2)      # status icon
         table.add_column("Pane", width=20) # pane name
         table.add_column("", width=5)      # agent tag
@@ -293,11 +293,13 @@ class PaneListWidget(Widget):
         """
         worktrees = self.wt_manager.list_all()
         pane_data = []
+        # Show main worktree first as the orchestrator pane
         for wt in worktrees:
             if wt.is_main:
-                continue
-            status = self.status_tracker.get_status(wt.name)
-            pane_data.append((wt, status))
+                pane_data.insert(0, (wt, None))
+            else:
+                status = self.status_tracker.get_status(wt.name)
+                pane_data.append((wt, status))
         self.update_from_data(pane_data)
 
     def update_from_data(self, pane_data: list[tuple[Any, Any]]) -> None:
@@ -311,12 +313,19 @@ class PaneListWidget(Widget):
         table.clear()
 
         self._pane_names = []
+        self._main_name = None
 
         for wt, wt_status in pane_data:
+            if wt.is_main:
+                self._main_name = wt.name
             self._pane_names.append(wt.name)
 
-            # Status icon
-            if wt_status:
+            if wt.is_main:
+                # Orchestrator pane — distinct styling
+                status_icon = Text("\u25c6", style="#ffaf00")  # ◆ yellow diamond
+                pane_name = Text("orchestrator", style="bold")
+                agent_tag = Text("")
+            elif wt_status:
                 icon_char, icon_color = STATUS_ICONS.get(
                     wt_status.activity_status,
                     ("\u25cc", "#6c6c6c"),
@@ -326,11 +335,11 @@ class PaneListWidget(Widget):
                 # Agent tag
                 tag = AGENT_TAGS.get(str(wt_status.ai_tool), "")
                 agent_tag = Text(f"[{tag}]", style="#6c6c6c") if tag else Text("")
+                pane_name = Text(wt.name[:20])
             else:
                 status_icon = Text("\u25cc", style="#6c6c6c")
                 agent_tag = Text("")
-
-            pane_name = Text(wt.name[:20])
+                pane_name = Text(wt.name[:20])
 
             table.add_row(status_icon, pane_name, agent_tag)
 
@@ -356,6 +365,10 @@ class PaneListWidget(Widget):
     @property
     def pane_count(self) -> int:
         return len(self._pane_names)
+
+    def is_main_pane(self, name: str) -> bool:
+        """Check if the given pane name is the main orchestrator pane."""
+        return name == self._main_name
 
 
 class StatusBarWidget(Static):
@@ -467,13 +480,15 @@ class OrchestratorApp(App[None]):
         try:
             worktrees = self.wt_manager.list_all()
             pane_data = []
+            # Show main worktree first as the orchestrator pane
             for wt in worktrees:
                 if wt.is_main:
-                    continue
-                status = self.status_tracker.get_status(wt.name)
-                pane_data.append((wt, status))
+                    pane_data.insert(0, (wt, None))
+                else:
+                    status = self.status_tracker.get_status(wt.name)
+                    pane_data.append((wt, status))
 
-            pane_names = [wt.name for wt, _ in pane_data]
+            pane_names = [wt.name for wt, _ in pane_data if not wt.is_main]
             summary = self.status_tracker.get_summary(pane_names)
             self.call_from_thread(self._apply_refresh_data, pane_data, summary)
         except Exception:
@@ -581,6 +596,11 @@ class OrchestratorApp(App[None]):
             self.notify("No pane selected", severity="warning")
             return
 
+        pane_list = self.query_one("#pane-list", PaneListWidget)
+        if pane_list.is_main_pane(selected):
+            self.notify("Cannot close orchestrator pane", severity="warning")
+            return
+
         self.push_screen(
             ConfirmScreen(f"Close '{selected}' and delete worktree?"),
             callback=lambda confirmed: self._do_close_pane(selected) if confirmed else None,
@@ -610,6 +630,11 @@ class OrchestratorApp(App[None]):
         selected = self._get_selected_worktree()
         if selected is None:
             self.notify("No pane selected", severity="warning")
+            return
+
+        pane_list = self.query_one("#pane-list", PaneListWidget)
+        if pane_list.is_main_pane(selected):
+            self.notify("Cannot merge orchestrator pane", severity="warning")
             return
 
         self.push_screen(

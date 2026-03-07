@@ -123,6 +123,16 @@ def create_pane(
     config = load_config()
     ai_tool_enum = ai_tool
 
+    # Check for duplicate pane name (branch → worktree name)
+    wt_manager = WorktreeManager(repo_path=repo_path)
+    existing_names = {wt.name for wt in wt_manager.list_all()}
+    # WorktreeManager typically derives name from branch (last segment)
+    candidate_name = branch.split("/")[-1] if "/" in branch else branch
+    if candidate_name in existing_names:
+        raise PaneActionError(
+            f"A pane named '{candidate_name}' already exists. Use a different branch name."
+        )
+
     # Resolve template
     if template_name:
         from open_orchestrator.config import get_builtin_templates
@@ -136,7 +146,6 @@ def create_pane(
                 ai_tool_enum = tmpl.ai_tool
 
     # 1. Create the worktree
-    wt_manager = WorktreeManager(repo_path=repo_path)
     try:
         worktree = wt_manager.create(branch=branch)
     except WorktreeAlreadyExistsError:
