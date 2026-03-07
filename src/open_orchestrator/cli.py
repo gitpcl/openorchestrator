@@ -2485,9 +2485,30 @@ def send_to_worktree(
     tmux_manager = TmuxManager()
     session = tmux_manager.get_session_for_worktree(worktree.name)
 
-    if not session:
+    # Resolve target session and pane — either a dedicated session or a workspace pane
+    target_session_name: str | None = None
+    target_pane = pane
+    target_window = window
+
+    if session:
+        target_session_name = session.session_name
+    else:
+        # Check if the worktree is a pane in a workspace
+        workspace_name = f"owt-{wt_manager.project_name}"
+        try:
+            workspace_manager = WorkspaceManager()
+            workspace = workspace_manager.get_workspace(workspace_name)
+            workspace_pane = workspace.get_pane_by_worktree(worktree.name)
+            if workspace_pane:
+                target_session_name = workspace_name
+                target_pane = workspace_pane.pane_index
+                target_window = 0
+        except WorkspaceNotFoundError:
+            pass
+
+    if not target_session_name:
         msg = (
-            f"No tmux session found for worktree '{identifier}'. "
+            f"No tmux session or workspace pane found for worktree '{identifier}'. "
             f"Create one with: owt tmux create "
             f"{tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}"
         )
@@ -2499,9 +2520,9 @@ def send_to_worktree(
     try:
         if no_enter:
             # Send without Enter - use raw tmux command
-            subprocess.run(["tmux", "send-keys", "-t", f"{session.session_name}:{window}.{pane}", command], check=True)
+            subprocess.run(["tmux", "send-keys", "-t", f"{target_session_name}:{target_window}.{target_pane}", command], check=True)
         else:
-            tmux_manager.send_keys_to_pane(session_name=session.session_name, keys=command, pane_index=pane, window_index=window)
+            tmux_manager.send_keys_to_pane(session_name=target_session_name, keys=command, pane_index=target_pane, window_index=target_window)
 
         # Track the command in the status system
         wt_status = status_tracker.get_status(worktree.name)
@@ -2511,7 +2532,7 @@ def send_to_worktree(
                 worktree_name=worktree.name,
                 worktree_path=str(worktree.path),
                 branch=worktree.branch,
-                tmux_session=session.session_name,
+                tmux_session=target_session_name,
             )
 
         # Record command unless --no-log is specified
@@ -2520,11 +2541,11 @@ def send_to_worktree(
                 target_worktree=worktree.name,
                 command=command,
                 source_worktree=source_worktree,
-                pane_index=pane,
-                window_index=window,
+                pane_index=target_pane,
+                window_index=target_window,
             )
 
-        console.print(f"[green]Sent to {session.session_name}:[/green] {command[:50]}{'...' if len(command) > 50 else ''}")
+        console.print(f"[green]Sent to {target_session_name}:{target_window}.{target_pane}:[/green] {command[:50]}{'...' if len(command) > 50 else ''}")
 
     except TmuxError as e:
         raise click.ClickException(str(e)) from e

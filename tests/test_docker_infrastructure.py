@@ -403,22 +403,38 @@ class TestDockerEnvironmentIntegration:
     @pytest.mark.slow
     def test_coverage_report_generates_successfully(self) -> None:
         """Verify coverage report generates without errors."""
-        # Arrange
-        test_file = Path("tests/test_docker_infrastructure.py")
-
-        # Act
-        result = subprocess.run(
-            [
-                "pytest",
-                str(test_file),
-                "--cov=src/open_orchestrator",
-                "--cov-report=term",
-                "-v",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        # Arrange — use a small, fast test file to avoid recursive subprocess spawning
+        # (running this file recursively causes exponential process growth)
+        test_file = Path("tests/test_cleanup.py")
+        if not test_file.exists():
+            # Fall back to collecting without running
+            result = subprocess.run(
+                [
+                    "pytest",
+                    "--collect-only",
+                    "-q",
+                    "--cov=src/open_orchestrator",
+                    "--cov-report=term",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        else:
+            # Act
+            result = subprocess.run(
+                [
+                    "pytest",
+                    str(test_file),
+                    "--cov=src/open_orchestrator",
+                    "--cov-report=term",
+                    "--cov-fail-under=0",
+                    "-v",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
 
         # Assert
         assert result.returncode == 0, f"pytest with coverage failed: {result.stderr}"

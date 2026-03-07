@@ -976,7 +976,7 @@ $ owt send cleanup "check for stale code" --no-log
 
 #### How It Works
 
-1. **Command Sent:** Your command is transmitted to the target worktree's tmux session
+1. **Command Sent:** Your command is transmitted to the target worktree's tmux session or workspace pane
 2. **AI Receives:** If AI tool is active in that pane, it receives the instruction
 3. **Status Logged:** Command is logged in `~/.open-orchestrator/ai_status.json` (unless `--no-log`)
 4. **You Continue:** Return immediately to your current work
