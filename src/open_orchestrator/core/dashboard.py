@@ -246,7 +246,7 @@ class Dashboard:
             with Live(
                 self._create_layout(),
                 console=self.console,
-                refresh_per_second=1 / self.config.refresh_rate,
+                refresh_per_second=1 / self.config.refresh_rate if self.config.refresh_rate > 0 else 1.0,
                 screen=True,
             ) as live:
                 while self._running:

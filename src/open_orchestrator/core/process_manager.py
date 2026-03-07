@@ -240,16 +240,25 @@ class ProcessManager:
 
         try:
             # Start the process
-            with open(log_file, "w") if log_file else subprocess.DEVNULL as output:
+            import shlex
+
+            cmd_list = shlex.split(command)
+            log_handle = open(log_file, "w") if log_file else None  # noqa: SIM115
+            stdout_target = log_handle if log_handle else subprocess.DEVNULL
+            try:
                 process = subprocess.Popen(
-                    command,
-                    shell=True,  # noqa: S602
+                    cmd_list,
+                    shell=False,
                     cwd=worktree_path,
-                    stdout=output,
+                    stdout=stdout_target,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
                     start_new_session=True,  # Detach from parent
                 )
+            except Exception:
+                if log_handle:
+                    log_handle.close()
+                raise
 
             # Capture process group ID for proper cleanup of child processes
             try:

@@ -8,6 +8,7 @@ Arrow keys navigate, Enter selects, ESC dismisses.
 from __future__ import annotations
 
 from textual.app import ComposeResult
+from textual.events import Key
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Label, OptionList
@@ -74,6 +75,13 @@ class ThemePickerPanel(Widget):
 
     def on_mount(self) -> None:
         self.query_one("#theme-options", OptionList).focus()
+
+    def on_key(self, event: Key) -> None:
+        """Intercept Escape before OptionList consumes it."""
+        if event.key == "escape":
+            event.prevent_default()
+            event.stop()
+            self.action_dismiss_panel()
 
     def on_option_list_option_selected(
         self, event: OptionList.OptionSelected

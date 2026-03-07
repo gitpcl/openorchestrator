@@ -329,7 +329,11 @@ class CleanupService:
         import subprocess
 
         result = subprocess.run(
-            ["git", "worktree", "remove", "--force", worktree_path], capture_output=True, text=True, timeout=30
+            ["git", "worktree", "remove", "--force", worktree_path],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=self.repo_root if hasattr(self, "repo_root") else None,
         )
 
         if result.returncode != 0:

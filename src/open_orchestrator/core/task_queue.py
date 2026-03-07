@@ -172,9 +172,9 @@ class TaskQueue:
 
     def _generate_task_id(self, worktree_name: str) -> str:
         """Generate unique task ID."""
-        self._next_task_id += 1
-        timestamp = int(datetime.now().timestamp())
-        return f"{worktree_name}-{timestamp}-{self._next_task_id}"
+        import uuid
+
+        return f"{worktree_name}-{uuid.uuid4().hex[:8]}"
 
     def enqueue(
         self,

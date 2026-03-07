@@ -19,6 +19,7 @@ from open_orchestrator.models.status import (
     AIActivityStatus,
     StatusStore,
     StatusSummary,
+    TokenUsage,
     WorktreeAIStatus,
 )
 from open_orchestrator.utils.io import atomic_write_text, shared_file_lock

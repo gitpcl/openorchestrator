@@ -103,7 +103,7 @@ class TestProcessManager:
         # Verify command was called correctly
         mock_popen.assert_called_once()
         call_kwargs = mock_popen.call_args.kwargs
-        assert call_kwargs["shell"] is True
+        assert call_kwargs["shell"] is False
         assert call_kwargs["cwd"] == mock_worktree_path
 
     @patch("subprocess.Popen")

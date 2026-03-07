@@ -40,13 +40,19 @@ class PaneActionError(Exception):
 def popup_result_path(workspace_name: str) -> str:
     """Get the temp file path for popup picker results.
 
+    Uses a user-specific directory to prevent symlink/TOCTOU attacks.
+
     Args:
         workspace_name: Workspace / session name.
 
     Returns:
-        Path like /tmp/owt-popup-<workspace>.json.
+        Path to a user-owned temp file for popup results.
     """
-    return f"/tmp/owt-popup-{workspace_name}.json"
+    import tempfile
+
+    user_tmp = Path(tempfile.gettempdir()) / f"owt-{os.getuid()}"
+    user_tmp.mkdir(mode=0o700, exist_ok=True)
+    return str(user_tmp / f"owt-popup-{workspace_name}.json")
 
 
 def read_popup_result(popup_file: str, cleanup: bool = True) -> dict:

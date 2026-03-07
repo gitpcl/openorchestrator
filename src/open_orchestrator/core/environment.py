@@ -244,16 +244,28 @@ class EnvironmentSetup:
             if adjust_paths:
                 content = source_env.read_text()
                 adjusted_content = self._adjust_env_paths(content, source_path, worktree_path)
-                target_env.write_text(adjusted_content)
+                # Write atomically with restrictive permissions to avoid exposing secrets
+                import tempfile
+
+                fd, tmp_path = tempfile.mkstemp(dir=worktree_path, prefix=".env.tmp")
+                try:
+                    os.fchmod(fd, 0o600)
+                    os.write(fd, adjusted_content.encode())
+                    os.close(fd)
+                    os.replace(tmp_path, target_env)
+                except Exception:
+                    os.close(fd) if not os.get_inheritable(fd) else None
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+                    raise
             else:
                 shutil.copy2(source_env, target_env)
-
-            try:
-                os.chmod(target_env, 0o600)
-            except PermissionError:
-                logger.warning(
-                    f"Could not set restrictive permissions on {target_env}. Manual chmod may be required for security."
-                )
+                try:
+                    os.chmod(target_env, 0o600)
+                except PermissionError:
+                    logger.warning(
+                        f"Could not set restrictive permissions on {target_env}. Manual chmod may be required for security."
+                    )
 
             logger.info(f".env file set up at: {target_env}")
             return target_env

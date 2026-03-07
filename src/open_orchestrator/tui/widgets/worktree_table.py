@@ -111,8 +111,6 @@ class WorktreeTableWidget(Widget):
 
         # Get data
         worktrees = self.wt_manager.list_all()
-        worktree_names = [wt.name for wt in worktrees]
-        self.status_tracker.cleanup_orphans(worktree_names)
 
         for worktree in worktrees:
             if worktree.is_main:

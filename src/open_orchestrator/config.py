@@ -54,6 +54,11 @@ class AITool(str, Enum):
     CLAUDE = "claude"
     OPENCODE = "opencode"
     DROID = "droid"
+    CODEX = "codex"
+    GEMINI_CLI = "gemini-cli"
+    AIDER = "aider"
+    AMP = "amp"
+    KILO_CODE = "kilo-code"
 
     @classmethod
     def get_binary_name(cls, tool: "AITool") -> str:
@@ -104,7 +109,7 @@ class AITool(str, Enum):
             Complete command string to execute
         """
         # Use full path if provided, otherwise use tool name
-        binary = executable_path or tool.value
+        binary = shlex.quote(executable_path) if executable_path else tool.value
 
         if tool == cls.CLAUDE:
             cmd_parts = [binary]
@@ -115,7 +120,7 @@ class AITool(str, Enum):
         if tool == cls.DROID:
             cmd_parts = [binary]
             if droid_auto:
-                cmd_parts.append(f"--auto {droid_auto.value}")
+                cmd_parts.append(f"--auto {shlex.quote(droid_auto.value)}")
             if droid_skip_permissions:
                 cmd_parts.append("--skip-permissions-unsafe")
             return " ".join(cmd_parts)

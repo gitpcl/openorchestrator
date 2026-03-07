@@ -116,9 +116,15 @@ def run_picker(stdscr: curses.window) -> dict | None:
                 name_attr = curses.A_NORMAL
                 abbrev_attr = curses.A_DIM
 
-            stdscr.addstr(y, 4, marker, marker_attr)
-            stdscr.addstr(y, 6, f" {name}", name_attr)
-            stdscr.addstr(y, 6 + len(name) + 2, abbrev, abbrev_attr)
+            try:
+                stdscr.addstr(y, 4, marker, marker_attr)
+                name_text = f" {name}"[:max_x - 7] if len(name) + 7 > max_x else f" {name}"
+                stdscr.addstr(y, 6, name_text, name_attr)
+                abbrev_x = 6 + len(name_text) + 1
+                if abbrev_x + len(abbrev) < max_x:
+                    stdscr.addstr(y, abbrev_x, abbrev, abbrev_attr)
+            except curses.error:
+                pass
 
         # Footer
         footer_y = max_y - 2

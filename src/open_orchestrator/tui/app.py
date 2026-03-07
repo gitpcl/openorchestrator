@@ -286,26 +286,34 @@ class PaneListWidget(Widget):
         self.refresh_data()
 
     def refresh_data(self) -> None:
-        """Refresh pane list from status tracker and worktree manager."""
+        """Refresh pane list from status tracker and worktree manager.
+
+        Performs I/O inline — suitable for on_mount (runs once).
+        For periodic refresh, use update_from_data() with pre-fetched data.
+        """
+        worktrees = self.wt_manager.list_all()
+        pane_data = []
+        for wt in worktrees:
+            if wt.is_main:
+                continue
+            status = self.status_tracker.get_status(wt.name)
+            pane_data.append((wt, status))
+        self.update_from_data(pane_data)
+
+    def update_from_data(self, pane_data: list[tuple[Any, Any]]) -> None:
+        """Update the pane list from pre-fetched data (called on main thread).
+
+        Args:
+            pane_data: List of (WorktreeInfo, WorktreeAIStatus | None) tuples.
+        """
         table = self.query_one(DataTable)
         cursor_row = table.cursor_row if table.row_count > 0 else 0
         table.clear()
 
-        worktrees = self.wt_manager.list_all()
         self._pane_names = []
 
-        for wt in worktrees:
-            if wt.is_main:
-                continue
-
+        for wt, wt_status in pane_data:
             self._pane_names.append(wt.name)
-            idx = len(self._pane_names) - 1
-            is_selected = idx == cursor_row
-
-            wt_status = self.status_tracker.get_status(wt.name)
-
-            # Selection indicator
-            selector = Text("\u25b8 " if is_selected else "  ")
 
             # Status icon
             if wt_status:
@@ -322,11 +330,9 @@ class PaneListWidget(Widget):
                 status_icon = Text("\u25cc", style="#6c6c6c")
                 agent_tag = Text("")
 
-            # Pane name (clip to width)
-            name = wt.name[:20]
-            pane_name = Text(name, style="bold" if is_selected else "")
+            pane_name = Text(wt.name[:20])
 
-            table.add_row(selector, status_icon, pane_name, agent_tag)
+            table.add_row(status_icon, pane_name, agent_tag)
 
         # Restore cursor position
         if table.row_count > 0:
@@ -359,8 +365,15 @@ class StatusBarWidget(Static):
         super().__init__(**kwargs)
         self.status_tracker = status_tracker
 
-    def refresh_data(self, pane_names: list[str]) -> None:
-        summary = self.status_tracker.get_summary(pane_names)
+    def refresh_data(self, pane_names: list[str], summary: Any | None = None) -> None:
+        """Refresh status bar counts.
+
+        Args:
+            pane_names: List of pane names (used for total count).
+            summary: Pre-fetched StatusSummary. If None, fetches inline (I/O).
+        """
+        if summary is None:
+            summary = self.status_tracker.get_summary(pane_names)
         active = summary.active_ai_sessions if summary else 0
         total = len(pane_names)
         self.update(f" {active} active / {total} total")
@@ -445,14 +458,38 @@ class OrchestratorApp(App[None]):
         self.set_interval(self._refresh_interval, self._refresh_ui)
 
     def _refresh_ui(self) -> None:
+        """Trigger a background data fetch for UI refresh."""
+        self._fetch_refresh_data()
+
+    @work(thread=True, exclusive=True, group="refresh")
+    def _fetch_refresh_data(self) -> None:
+        """Fetch data in background thread, then update UI on main thread."""
+        try:
+            worktrees = self.wt_manager.list_all()
+            pane_data = []
+            for wt in worktrees:
+                if wt.is_main:
+                    continue
+                status = self.status_tracker.get_status(wt.name)
+                pane_data.append((wt, status))
+
+            pane_names = [wt.name for wt, _ in pane_data]
+            summary = self.status_tracker.get_summary(pane_names)
+            self.call_from_thread(self._apply_refresh_data, pane_data, summary)
+        except Exception:
+            logger.debug("Failed to fetch refresh data", exc_info=True)
+
+    def _apply_refresh_data(self, pane_data: list[tuple[Any, Any]], summary: Any) -> None:
+        """Apply pre-fetched data to widgets (runs on main thread)."""
         try:
             pane_list = self.query_one("#pane-list", PaneListWidget)
-            pane_list.refresh_data()
+            pane_list.update_from_data(pane_data)
 
+            pane_names = [wt.name for wt, _ in pane_data]
             status_bar = self.query_one("#status-bar", StatusBarWidget)
-            status_bar.refresh_data(pane_list.pane_names)
+            status_bar.refresh_data(pane_names, summary=summary)
         except Exception:
-            logger.debug("Failed to refresh TUI", exc_info=True)
+            logger.debug("Failed to apply refresh data", exc_info=True)
 
     def _get_selected_worktree(self) -> str | None:
         pane_list = self.query_one("#pane-list", PaneListWidget)
@@ -761,14 +798,19 @@ class OrchestratorApp(App[None]):
             self._do_quit()
 
     def _do_quit(self) -> None:
-        """Kill the tmux session (all agent panes), then exit Textual."""
-        # Kill the whole tmux session first so agent panes don't linger.
-        # This kills all panes including pane 0 (where TUI runs), which
-        # causes Textual's terminal to close. We call exit() as well for
-        # cases where we're not inside tmux.
-        if self.workspace_name:
-            TmuxManager._run_tmux_cmd("kill-session", "-t", self.workspace_name)
+        """Exit Textual first, then kill the tmux session on unmount."""
+        # Store workspace name before exit clears state, so on_unmount
+        # can kill the tmux session AFTER Textual restores the terminal.
+        # Previously kill-session ran first, sending SIGHUP to pane 0
+        # before Textual could clean up (cursor restore, cooked mode).
+        self._pending_session_kill: str | None = self.workspace_name
         self.exit()
+
+    def on_unmount(self) -> None:
+        """Called after Textual has restored the terminal. Kill tmux session now."""
+        session_to_kill = getattr(self, "_pending_session_kill", None)
+        if session_to_kill:
+            TmuxManager._run_tmux_cmd("kill-session", "-t", session_to_kill)
 
 
 def is_interactive_terminal() -> bool:

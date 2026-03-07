@@ -153,6 +153,20 @@ class SyncService:
 
             pull_result = self._pull_changes(path)
 
+            if pull_result.returncode != 0:
+                # Pull failed — restore stash if we stashed earlier
+                if stashed:
+                    self._run_git_command(path, ["stash", "pop"])
+                return WorktreeSyncResult(
+                    worktree_path=worktree_path,
+                    branch_name=branch_name,
+                    status=SyncStatus.CONFLICTS,
+                    message=f"Merge conflicts detected: {pull_result.stderr}",
+                    commits_behind=commits_behind,
+                    commits_ahead=commits_ahead,
+                    upstream_branch=upstream,
+                )
+
             if stashed:
                 stash_result = self._run_git_command(path, ["stash", "pop"])
 
@@ -166,17 +180,6 @@ class SyncService:
                         commits_ahead=commits_ahead,
                         upstream_branch=upstream,
                     )
-
-            if pull_result.returncode != 0:
-                return WorktreeSyncResult(
-                    worktree_path=worktree_path,
-                    branch_name=branch_name,
-                    status=SyncStatus.CONFLICTS,
-                    message=f"Merge conflicts detected: {pull_result.stderr}",
-                    commits_behind=commits_behind,
-                    commits_ahead=commits_ahead,
-                    upstream_branch=upstream,
-                )
 
             return WorktreeSyncResult(
                 worktree_path=worktree_path,

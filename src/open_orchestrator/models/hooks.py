@@ -10,7 +10,7 @@ This module provides data models for:
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class HookType(str, Enum):
@@ -36,8 +36,6 @@ class HookAction(str, Enum):
 class HookConfig(BaseModel):
     """Configuration for a single hook."""
 
-    model_config = ConfigDict(use_enum_values=True)
-
     name: str = Field(..., description="Unique name for this hook")
     enabled: bool = Field(default=True, description="Whether the hook is enabled")
     hook_type: HookType = Field(..., description="When this hook should trigger")
@@ -55,8 +53,6 @@ class HookConfig(BaseModel):
 class HookExecutionResult(BaseModel):
     """Result of a hook execution."""
 
-    model_config = ConfigDict(use_enum_values=True)
-
     hook_name: str = Field(..., description="Name of the executed hook")
     hook_type: HookType = Field(..., description="Type of hook that was triggered")
     action: HookAction = Field(..., description="Action that was performed")
@@ -71,8 +67,6 @@ class HookExecutionResult(BaseModel):
 
 class HookHistoryEntry(BaseModel):
     """Entry in the hook execution history."""
-
-    model_config = ConfigDict(use_enum_values=True)
 
     result: HookExecutionResult = Field(..., description="Execution result")
     timestamp: datetime = Field(default_factory=datetime.now, description="When this entry was created")

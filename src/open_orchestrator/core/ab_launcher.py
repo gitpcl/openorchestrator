@@ -278,8 +278,13 @@ class ABLauncher:
             self.tmux_manager._start_ai_tool_in_pane(panes[0], tool_a)
             self.tmux_manager._start_ai_tool_in_pane(panes[1], tool_b)
 
-        # Select first pane
-        panes[0].select()
+            # Select first pane
+            panes[0].select()
+        else:
+            raise ABLauncherError(
+                f"Expected 2 panes but got {len(panes)}. "
+                "tmux split-window may have failed."
+            )
 
         return session
 

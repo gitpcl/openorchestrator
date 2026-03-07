@@ -6,6 +6,7 @@ the same task in parallel worktrees, allowing users to compare their
 performance, token usage, and outputs.
 """
 
+import logging
 from typing import Any
 
 from rich.console import Group, RenderableType
@@ -16,11 +17,14 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
+from textual import work
 
 from open_orchestrator.core.status import StatusTracker
 from open_orchestrator.core.worktree import WorktreeManager
 from open_orchestrator.models.ab_workspace import ABWorkspace
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
+
+logger = logging.getLogger(__name__)
 
 
 class ToolPanel(Static):
@@ -59,9 +63,16 @@ class ToolPanel(Static):
         self.refresh_data()
 
     def refresh_data(self) -> None:
-        """Refresh the panel with latest status data."""
-        status = self.status_tracker.get_status(self.worktree_name)
+        """Refresh the panel with latest status data.
 
+        Performs I/O inline — suitable for on_mount (runs once).
+        For periodic refresh, use update_from_status() with pre-fetched data.
+        """
+        status = self.status_tracker.get_status(self.worktree_name)
+        self.update_from_status(status)
+
+    def update_from_status(self, status: WorktreeAIStatus | None) -> None:
+        """Update the panel from pre-fetched status data (called on main thread)."""
         if not status:
             self.update(self._render_no_data())
             return
@@ -198,10 +209,21 @@ class CostComparisonPanel(Static):
         self.refresh_data()
 
     def refresh_data(self) -> None:
-        """Refresh the comparison panel with latest data."""
+        """Refresh the comparison panel with latest data.
+
+        Performs I/O inline — suitable for on_mount (runs once).
+        For periodic refresh, use update_from_statuses() with pre-fetched data.
+        """
         status_a = self.status_tracker.get_status(self.worktree_a)
         status_b = self.status_tracker.get_status(self.worktree_b)
+        self.update_from_statuses(status_a, status_b)
 
+    def update_from_statuses(
+        self,
+        status_a: WorktreeAIStatus | None,
+        status_b: WorktreeAIStatus | None,
+    ) -> None:
+        """Update the comparison panel from pre-fetched status data (called on main thread)."""
         self.update(self._render_comparison(status_a, status_b))
 
     def _render_comparison(self, status_a: WorktreeAIStatus | None, status_b: WorktreeAIStatus | None) -> Panel:
@@ -391,17 +413,36 @@ class ABCompareScreen(Screen[None]):
         self._update_focus()
 
     def _refresh_ui(self) -> None:
-        """Refresh UI with latest status data."""
-        # Refresh tool panels
-        tool_a_panel = self.query_one("#tool-a-panel", ToolPanel)
-        tool_a_panel.refresh_data()
+        """Trigger a background data fetch for UI refresh."""
+        self._fetch_refresh_data()
 
-        tool_b_panel = self.query_one("#tool-b-panel", ToolPanel)
-        tool_b_panel.refresh_data()
+    @work(thread=True, exclusive=True, group="ab_refresh")
+    def _fetch_refresh_data(self) -> None:
+        """Fetch status data in background thread, then update UI on main thread."""
+        try:
+            status_a = self.status_tracker.get_status(self.workspace.worktree_a)
+            status_b = self.status_tracker.get_status(self.workspace.worktree_b)
+            self.call_from_thread(self._apply_refresh_data, status_a, status_b)
+        except Exception:
+            logger.debug("Failed to fetch A/B refresh data", exc_info=True)
 
-        # Refresh cost comparison
-        cost_panel = self.query_one(CostComparisonPanel)
-        cost_panel.refresh_data()
+    def _apply_refresh_data(
+        self,
+        status_a: WorktreeAIStatus | None,
+        status_b: WorktreeAIStatus | None,
+    ) -> None:
+        """Apply pre-fetched data to widgets (runs on main thread)."""
+        try:
+            tool_a_panel = self.query_one("#tool-a-panel", ToolPanel)
+            tool_a_panel.update_from_status(status_a)
+
+            tool_b_panel = self.query_one("#tool-b-panel", ToolPanel)
+            tool_b_panel.update_from_status(status_b)
+
+            cost_panel = self.query_one(CostComparisonPanel)
+            cost_panel.update_from_statuses(status_a, status_b)
+        except Exception:
+            logger.debug("Failed to apply A/B refresh data", exc_info=True)
 
     def _update_focus(self) -> None:
         """Update focus indicators on tool panels."""

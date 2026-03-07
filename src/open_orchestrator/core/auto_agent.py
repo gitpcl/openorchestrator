@@ -140,7 +140,7 @@ class AutoAgent:
         # Set up log file
         if self.log_file:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
-            self.log_handle = open(self.log_file, "wb")
+            self.log_handle = open(self.log_file, "w", encoding="utf-8")
 
         try:
             # Spawn process

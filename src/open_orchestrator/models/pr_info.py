@@ -10,7 +10,7 @@ This module provides data models for:
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class PRStatus(str, Enum):
@@ -25,8 +25,6 @@ class PRStatus(str, Enum):
 
 class PRInfo(BaseModel):
     """Information about a linked GitHub Pull Request."""
-
-    model_config = ConfigDict(use_enum_values=True)
 
     worktree_name: str = Field(..., description="Name of the worktree")
     repo_owner: str = Field(..., description="GitHub repository owner")
@@ -65,8 +63,6 @@ class PRInfo(BaseModel):
 
 class PRLinkResult(BaseModel):
     """Result of a PR link operation."""
-
-    model_config = ConfigDict(use_enum_values=True)
 
     success: bool = Field(..., description="Whether linking succeeded")
     worktree_name: str = Field(..., description="Worktree that was linked")

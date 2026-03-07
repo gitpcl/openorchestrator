@@ -143,9 +143,13 @@ class Updater:
             True if latest is newer than current
         """
         try:
-            # Simple version comparison (0.1.0 -> [0, 1, 0])
-            latest_parts = [int(x) for x in latest.split(".")]
-            current_parts = [int(x) for x in current.split(".")]
+            import re
+
+            # Strip pre-release suffixes before parsing (e.g. 0.3.0-alpha -> 0.3.0)
+            latest_clean = re.split(r"[-+]", latest, maxsplit=1)[0]
+            current_clean = re.split(r"[-+]", current, maxsplit=1)[0]
+            latest_parts = [int(x) for x in latest_clean.split(".")]
+            current_parts = [int(x) for x in current_clean.split(".")]
 
             # Pad to same length
             max_len = max(len(latest_parts), len(current_parts))

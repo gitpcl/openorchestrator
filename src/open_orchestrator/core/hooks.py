@@ -276,14 +276,17 @@ class HookService:
         title = hook.notification_title or f"Open Orchestrator: {worktree_name}"
         message = hook.notification_message or f"Status changed to {context.get('status', 'unknown')}"
 
-        # Expand variables in message
+        # Expand variables in message using safe substitution
         format_vars = {
             "worktree": worktree_name,
             "status": context.get("status", "unknown"),
             "task": context.get("task", ""),
         }
         format_vars.update(context)
-        message = message.format(**format_vars)
+        try:
+            message = message.format(**{k: v for k, v in format_vars.items() if isinstance(k, str) and isinstance(v, (str, int, float))})
+        except (KeyError, ValueError, IndexError):
+            pass  # Leave message as-is if format fails
 
         # Use osascript on macOS for notifications
         import platform
