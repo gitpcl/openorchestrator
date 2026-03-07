@@ -3500,9 +3500,9 @@ def list_hooks(as_json: bool) -> None:
     """
     import json as json_module
 
-    from open_orchestrator.core.hooks import HookService
+    from open_orchestrator.core.hooks import get_hook_service_from_config
 
-    hook_service = HookService()
+    hook_service = get_hook_service_from_config()
     hooks = hook_service.get_all_hooks()
 
     if as_json:
@@ -3624,10 +3624,10 @@ def add_hook(
         owt hooks add log-changes --type on_status_changed --command "echo $OWT_WORKTREE changed to $OWT_STATUS"
         owt hooks add slack-notify --type on_task_completed --action webhook --webhook-url https://hooks.slack.com/...
     """
-    from open_orchestrator.core.hooks import HookService
+    from open_orchestrator.core.hooks import get_hook_service_from_config
     from open_orchestrator.models.hooks import HookAction, HookConfig, HookType
 
-    hook_service = HookService()
+    hook_service = get_hook_service_from_config()
 
     # Validate required options based on action
     action_enum = HookAction(action)
@@ -3662,9 +3662,9 @@ def remove_hook(name: str) -> None:
     Example:
         owt hooks remove notify-blocked
     """
-    from open_orchestrator.core.hooks import HookService
+    from open_orchestrator.core.hooks import get_hook_service_from_config
 
-    hook_service = HookService()
+    hook_service = get_hook_service_from_config()
 
     if hook_service.unregister_hook(name):
         console.print(f"[green]Hook '{name}' removed.[/green]")
@@ -3680,9 +3680,9 @@ def enable_hook(name: str) -> None:
     Example:
         owt hooks enable notify-blocked
     """
-    from open_orchestrator.core.hooks import HookService
+    from open_orchestrator.core.hooks import get_hook_service_from_config
 
-    hook_service = HookService()
+    hook_service = get_hook_service_from_config()
 
     if hook_service.enable_hook(name):
         console.print(f"[green]Hook '{name}' enabled.[/green]")
@@ -3698,9 +3698,9 @@ def disable_hook(name: str) -> None:
     Example:
         owt hooks disable notify-blocked
     """
-    from open_orchestrator.core.hooks import HookService
+    from open_orchestrator.core.hooks import get_hook_service_from_config
 
-    hook_service = HookService()
+    hook_service = get_hook_service_from_config()
 
     if hook_service.disable_hook(name):
         console.print(f"[green]Hook '{name}' disabled.[/green]")
@@ -3721,9 +3721,9 @@ def init_hooks() -> None:
     Example:
         owt hooks init
     """
-    from open_orchestrator.core.hooks import HookService
+    from open_orchestrator.core.hooks import get_hook_service_from_config
 
-    hook_service = HookService()
+    hook_service = get_hook_service_from_config()
     hooks = hook_service.create_default_hooks()
 
     console.print("[green]Created default hooks:[/green]")
@@ -3755,9 +3755,9 @@ def show_hook_history(limit: int, as_json: bool) -> None:
     """
     import json as json_module
 
-    from open_orchestrator.core.hooks import HookService
+    from open_orchestrator.core.hooks import get_hook_service_from_config
 
-    hook_service = HookService()
+    hook_service = get_hook_service_from_config()
     history = hook_service.get_history(limit)
 
     if as_json:
@@ -3808,9 +3808,9 @@ def test_hook(name: str, worktree: str) -> None:
         owt hooks test notify-blocked
         owt hooks test slack-notify --worktree my-feature
     """
-    from open_orchestrator.core.hooks import HookService
+    from open_orchestrator.core.hooks import get_hook_service_from_config
 
-    hook_service = HookService()
+    hook_service = get_hook_service_from_config()
     hook = hook_service.get_hook(name)
 
     if not hook:

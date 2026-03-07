@@ -108,6 +108,7 @@ class TestHookRegistration:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="test-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,
@@ -130,6 +131,7 @@ class TestHookRegistration:
         config = HooksConfig(storage_path=storage_path)
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="persistent-hook",
             hook_type=HookType.ON_BLOCKED,
             action=HookAction.NOTIFICATION,
@@ -150,6 +152,7 @@ class TestHookRegistration:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="update-hook",
             hook_type=HookType.ON_ERROR,
             action=HookAction.LOG,
@@ -170,6 +173,7 @@ class TestHookRegistration:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="remove-hook",
             hook_type=HookType.ON_IDLE,
             action=HookAction.SHELL_COMMAND,
@@ -202,11 +206,13 @@ class TestHookRegistration:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook1 = HookConfig(
+            run_async=False,
             name="hook1",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.LOG,
         )
         hook2 = HookConfig(
+            run_async=False,
             name="hook2",
             hook_type=HookType.ON_BLOCKED,
             action=HookAction.NOTIFICATION,
@@ -233,6 +239,7 @@ class TestHookExecution:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="shell-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,
@@ -259,6 +266,7 @@ class TestHookExecution:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="env-hook",
             hook_type=HookType.ON_BLOCKED,
             action=HookAction.SHELL_COMMAND,
@@ -284,6 +292,7 @@ class TestHookExecution:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="log-hook",
             hook_type=HookType.ON_ERROR,
             action=HookAction.LOG,
@@ -313,6 +322,7 @@ class TestHookExecution:
         )
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="notify-hook",
             hook_type=HookType.ON_TASK_COMPLETED,
             action=HookAction.NOTIFICATION,
@@ -348,6 +358,7 @@ class TestHookExecution:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="webhook-hook",
             hook_type=HookType.ON_TASK_STARTED,
             action=HookAction.WEBHOOK,
@@ -379,6 +390,7 @@ class TestHookExecution:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="fail-hook",
             hook_type=HookType.ON_ERROR,
             action=HookAction.SHELL_COMMAND,
@@ -407,6 +419,7 @@ class TestHookExecution:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="timeout-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,
@@ -440,6 +453,7 @@ class TestHookFiltering:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="filtered-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,
@@ -472,6 +486,7 @@ class TestHookFiltering:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="status-filtered-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,
@@ -504,6 +519,7 @@ class TestHookFiltering:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="disabled-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,
@@ -528,6 +544,7 @@ class TestHookFiltering:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="toggle-hook",
             hook_type=HookType.ON_ERROR,
             action=HookAction.LOG,
@@ -558,6 +575,7 @@ class TestHookHistory:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="tracked-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,
@@ -579,6 +597,7 @@ class TestHookHistory:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="history-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,
@@ -601,6 +620,7 @@ class TestHookHistory:
         config = HooksConfig(storage_path=temp_directory / "hooks.json")
         service = HookService(config=config)
         hook = HookConfig(
+            run_async=False,
             name="clear-hook",
             hook_type=HookType.ON_STATUS_CHANGED,
             action=HookAction.SHELL_COMMAND,

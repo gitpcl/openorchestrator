@@ -22,7 +22,7 @@ from open_orchestrator.models.status import (
     TokenUsage,
     WorktreeAIStatus,
 )
-from open_orchestrator.utils.io import atomic_write_text, shared_file_lock
+from open_orchestrator.utils.io import atomic_write_text, exclusive_file_lock, shared_file_lock
 
 if TYPE_CHECKING:
     from open_orchestrator.models.status import HealthReport, HealthSummary
@@ -59,15 +59,16 @@ class StatusTracker:
         self.config = config or StatusConfig()
         self._storage_path = self.config.storage_path or self._get_default_path()
         self._store: StatusStore = StatusStore()
+        self._removed_keys: set[str] = set()
         self._hook_service = None
         self._load_store()
 
     def _get_hook_service(self):
         """Lazy-load the hook service to avoid circular imports."""
         if self._hook_service is None and self.config.enable_hooks:
-            from open_orchestrator.core.hooks import HookService
+            from open_orchestrator.core.hooks import get_hook_service_from_config
 
-            self._hook_service = HookService()
+            self._hook_service = get_hook_service_from_config()
         return self._hook_service
 
     def _trigger_hooks(
@@ -122,13 +123,39 @@ class StatusTracker:
             self._store = StatusStore()
 
     def _save_store(self) -> None:
-        """Persist status store to storage using atomic write and 0o600 perms."""
-        data = json.dumps(
-            self._store.model_dump(mode="json"),
-            indent=2,
-            default=str,
-        )
-        atomic_write_text(self._storage_path, data, perms=0o600)
+        """Persist status store with exclusive lock to prevent lost updates."""
+        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self._storage_path.with_suffix(".lock")
+        try:
+            with open(lock_path, "w") as lock_f:
+                with exclusive_file_lock(lock_f):
+                    # Re-read to merge concurrent changes
+                    if self._storage_path.exists():
+                        try:
+                            with open(self._storage_path) as f:
+                                disk_data = json.load(f)
+                                disk_store = StatusStore.model_validate(disk_data)
+                                # Merge: keep disk entries we don't have locally
+                                # (skip keys explicitly removed in this session)
+                                for name, status in disk_store.statuses.items():
+                                    if name not in self._store.statuses and name not in self._removed_keys:
+                                        self._store.statuses[name] = status
+                        except (OSError, json.JSONDecodeError, ValueError):
+                            pass
+                    data = json.dumps(
+                        self._store.model_dump(mode="json"),
+                        indent=2,
+                        default=str,
+                    )
+                    atomic_write_text(self._storage_path, data, perms=0o600)
+        except OSError:
+            # Fallback: write without lock
+            data = json.dumps(
+                self._store.model_dump(mode="json"),
+                indent=2,
+                default=str,
+            )
+            atomic_write_text(self._storage_path, data, perms=0o600)
 
     def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Get status for a specific worktree."""
@@ -304,6 +331,7 @@ class StatusTracker:
         removed = self._store.remove_status(worktree_name)
 
         if removed:
+            self._removed_keys.add(worktree_name)
             self._save_store()
 
         return removed
@@ -370,6 +398,7 @@ class StatusTracker:
         for name in current_names:
             if name not in valid_worktree_names:
                 self._store.remove_status(name)
+                self._removed_keys.add(name)
                 removed.append(name)
 
         if removed:

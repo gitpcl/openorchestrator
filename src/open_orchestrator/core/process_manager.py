@@ -5,6 +5,7 @@ This module provides functionality to manage AI tool processes without tmux,
 allowing users who don't use tmux to still benefit from worktree management.
 """
 
+import json
 import logging
 import os
 import signal
@@ -17,7 +18,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_orchestrator.config import AITool, DroidAutoLevel
-from open_orchestrator.utils.io import atomic_write_text, shared_file_lock
+from open_orchestrator.utils.io import atomic_write_text, exclusive_file_lock, shared_file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class ProcessManager:
         self.config = config or ProcessManagerConfig()
         self._storage_path = self.config.storage_path or self._get_default_path()
         self._store: ProcessStore = ProcessStore()
+        self._removed_keys: set[str] = set()
         self._load_store()
 
         # Ensure log directory exists
@@ -127,15 +129,39 @@ class ProcessManager:
             self._store = ProcessStore()
 
     def _save_store(self) -> None:
-        """Persist the process store to disk."""
+        """Persist process store with exclusive lock to prevent lost updates."""
+        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self._storage_path.with_suffix(".lock")
         try:
-            atomic_write_text(
-                self._storage_path,
-                self._store.model_dump_json(indent=2),
-            )
-        except Exception as e:
-            logger.error(f"Failed to save process store: {e}")
-            raise ProcessError(f"Failed to save process store: {e}") from e
+            with open(lock_path, "w") as lock_f:
+                with exclusive_file_lock(lock_f):
+                    # Re-read to merge concurrent changes
+                    if self._storage_path.exists():
+                        try:
+                            with open(self._storage_path) as f:
+                                disk_data = json.load(f)
+                                disk_store = ProcessStore.model_validate(disk_data)
+                                # Merge: keep disk processes we don't have locally
+                                # (skip keys explicitly removed in this session)
+                                for name, proc in disk_store.processes.items():
+                                    if name not in self._store.processes and name not in self._removed_keys:
+                                        self._store.processes[name] = proc
+                        except (OSError, json.JSONDecodeError, ValueError):
+                            pass
+                    atomic_write_text(
+                        self._storage_path,
+                        self._store.model_dump_json(indent=2),
+                    )
+        except OSError:
+            # Fallback: write without lock
+            try:
+                atomic_write_text(
+                    self._storage_path,
+                    self._store.model_dump_json(indent=2),
+                )
+            except Exception as e:
+                logger.error(f"Failed to save process store: {e}")
+                raise ProcessError(f"Failed to save process store: {e}") from e
 
     def _cleanup_dead_processes(self) -> None:
         """Remove entries for processes that are no longer running."""
@@ -148,6 +174,7 @@ class ProcessManager:
 
         for name in dead_worktrees:
             del self._store.processes[name]
+            self._removed_keys.add(name)
 
         if dead_worktrees:
             self._save_store()
@@ -313,6 +340,7 @@ class ProcessManager:
 
         if not self._is_process_alive(proc_info.pid):
             del self._store.processes[worktree_name]
+            self._removed_keys.add(worktree_name)
             self._save_store()
             return False
 
@@ -370,6 +398,7 @@ class ProcessManager:
                 pass
 
             del self._store.processes[worktree_name]
+            self._removed_keys.add(worktree_name)
             self._save_store()
 
             logger.info(f"Stopped process for {worktree_name} (PID: {proc_info.pid})")
@@ -383,6 +412,7 @@ class ProcessManager:
                 pass
 
             del self._store.processes[worktree_name]
+            self._removed_keys.add(worktree_name)
             self._save_store()
             return False
         except Exception as e:
@@ -395,6 +425,7 @@ class ProcessManager:
         if proc_info and not self._is_process_alive(proc_info.pid):
             # Clean up dead process
             del self._store.processes[worktree_name]
+            self._removed_keys.add(worktree_name)
             self._save_store()
             return None
 

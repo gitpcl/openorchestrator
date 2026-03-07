@@ -76,6 +76,56 @@ def shared_file_lock(file_handle: TextIO) -> Iterator[None]:
                 pass
 
 
+@contextmanager
+def exclusive_file_lock(file_handle: TextIO) -> Iterator[None]:
+    """Cross-platform exclusive (write) file lock context manager.
+
+    On Unix, uses fcntl.flock with LOCK_EX.
+    On Windows, uses msvcrt.locking (non-blocking, best-effort).
+    If locking is unavailable or fails, continues without locking.
+
+    Usage:
+        with open(path, "w") as f:
+            with exclusive_file_lock(f):
+                f.write(data)
+    """
+    locked = False
+
+    try:
+        if sys.platform == "win32":
+            try:
+                import msvcrt
+
+                msvcrt.locking(file_handle.fileno(), msvcrt.LK_NBLCK, 1)
+                locked = True
+            except OSError:
+                pass
+        else:
+            try:
+                import fcntl
+
+                fcntl.flock(file_handle, fcntl.LOCK_EX)
+                locked = True
+            except OSError:
+                pass
+
+        yield
+
+    finally:
+        if locked:
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+
+                    msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(file_handle, fcntl.LOCK_UN)
+            except OSError:
+                pass
+
+
 def atomic_write_text(path: str | Path, data: str, perms: int = 0o600) -> None:
     """Atomically write text content to path with restrictive permissions.
 

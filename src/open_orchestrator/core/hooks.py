@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -25,7 +26,7 @@ from open_orchestrator.models.hooks import (
     HookType,
 )
 from open_orchestrator.models.status import AIActivityStatus
-from open_orchestrator.utils.io import atomic_write_text, shared_file_lock
+from open_orchestrator.utils.io import atomic_write_text, exclusive_file_lock, shared_file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,11 @@ class HooksConfig:
     allowed_commands: list[str] = field(default_factory=list)
 
 
+def _escape_applescript(s: str) -> str:
+    """Escape a string for safe embedding in AppleScript double-quoted strings."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
 class HookService:
     """
     Manages and executes hooks for status changes.
@@ -65,6 +71,7 @@ class HookService:
         self.config = config or HooksConfig()
         self._storage_path = self.config.storage_path or self._get_default_path()
         self._store: HooksStore = HooksStore()
+        self._removed_keys: set[str] = set()
         self._load_store()
 
     def _get_default_path(self) -> Path:
@@ -85,13 +92,39 @@ class HookService:
             self._store = HooksStore()
 
     def _save_store(self) -> None:
-        """Persist hooks store to storage."""
-        data = json.dumps(
-            self._store.model_dump(mode="json"),
-            indent=2,
-            default=str,
-        )
-        atomic_write_text(self._storage_path, data, perms=0o600)
+        """Persist hooks store with exclusive lock to prevent lost updates."""
+        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self._storage_path.with_suffix(".lock")
+        try:
+            with open(lock_path, "w") as lock_f:
+                with exclusive_file_lock(lock_f):
+                    # Re-read to merge concurrent changes
+                    if self._storage_path.exists():
+                        try:
+                            with open(self._storage_path) as f:
+                                disk_data = json.load(f)
+                                disk_store = HooksStore.model_validate(disk_data)
+                                # Merge: keep disk hooks we don't have locally
+                                # (skip keys explicitly removed in this session)
+                                for name, hook in disk_store.hooks.items():
+                                    if name not in self._store.hooks and name not in self._removed_keys:
+                                        self._store.hooks[name] = hook
+                        except (OSError, json.JSONDecodeError, ValueError):
+                            pass
+                    data = json.dumps(
+                        self._store.model_dump(mode="json"),
+                        indent=2,
+                        default=str,
+                    )
+                    atomic_write_text(self._storage_path, data, perms=0o600)
+        except OSError:
+            # Fallback: write without lock
+            data = json.dumps(
+                self._store.model_dump(mode="json"),
+                indent=2,
+                default=str,
+            )
+            atomic_write_text(self._storage_path, data, perms=0o600)
 
     def register_hook(self, hook: HookConfig) -> None:
         """Register a new hook or update existing one."""
@@ -102,6 +135,7 @@ class HookService:
         """Unregister a hook by name. Returns True if removed."""
         removed = self._store.remove_hook(name)
         if removed:
+            self._removed_keys.add(name)
             self._save_store()
         return removed
 
@@ -164,16 +198,37 @@ class HookService:
                 if hook.filter_statuses and status not in hook.filter_statuses:
                     continue
 
-            result = self._execute_hook(hook, worktree_name, context or {})
-            results.append(result)
-
-            # Add to history
-            self._store.add_history_entry(result)
+            if hook.run_async:
+                # Fire and forget in background thread
+                thread = threading.Thread(
+                    target=self._execute_and_record,
+                    args=(hook, worktree_name, context or {}),
+                    daemon=True,
+                )
+                thread.start()
+            else:
+                result = self._execute_hook(hook, worktree_name, context or {})
+                results.append(result)
+                self._store.add_history_entry(result)
 
         if results:
             self._save_store()
 
         return results
+
+    def _execute_and_record(
+        self,
+        hook: HookConfig,
+        worktree_name: str,
+        context: dict[str, Any],
+    ) -> None:
+        """Execute a hook and record the result (for async execution)."""
+        try:
+            result = self._execute_hook(hook, worktree_name, context)
+            self._store.add_history_entry(result)
+            self._save_store()
+        except Exception as e:
+            logger.warning(f"Async hook '{hook.name}' failed: {e}")
 
     def _execute_hook(
         self,
@@ -293,7 +348,9 @@ class HookService:
 
         if platform.system() == "Darwin":
             sound_opt = 'sound name "default"' if self.config.notification_sound else ""
-            script = f'display notification "{message}" with title "{title}" {sound_opt}'
+            safe_message = _escape_applescript(message)
+            safe_title = _escape_applescript(title)
+            script = f'display notification "{safe_message}" with title "{safe_title}" {sound_opt}'
 
             try:
                 subprocess.run(
@@ -423,6 +480,28 @@ class HookService:
 
         self._save_store()
         return defaults
+
+
+def get_hook_service_from_config() -> HookService:
+    """Create a HookService using settings from the app config.
+
+    Reads hook-related settings from the user's config file
+    (e.g. ~/.config/open-orchestrator/config.toml) and applies them
+    to the HooksConfig dataclass used by HookService.
+    """
+    from open_orchestrator.config import load_config
+
+    config = load_config()
+    hooks_cfg = HooksConfig()
+
+    hook_settings = config.hooks
+    hooks_cfg.max_history_entries = hook_settings.max_history_entries
+    hooks_cfg.default_timeout = hook_settings.default_timeout
+    hooks_cfg.enable_notifications = hook_settings.enable_notifications
+    hooks_cfg.notification_sound = hook_settings.notification_sound
+    hooks_cfg.log_hook_output = hook_settings.log_hook_output
+
+    return HookService(hooks_cfg)
 
 
 def get_hook_type_for_status(

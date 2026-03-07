@@ -27,6 +27,7 @@ from open_orchestrator.core.hooks import (
     HookExecutionError,
     HooksConfig,
     HookService,
+    get_hook_service_from_config,
     get_hook_type_for_status,
 )
 from open_orchestrator.core.pr_linker import (
@@ -97,6 +98,7 @@ __all__ = [
     "WorktreeUsageStats",
     "Dashboard",
     "DashboardConfig",
+    "get_hook_service_from_config",
     "get_hook_type_for_status",
     "HookError",
     "HookExecutionError",
