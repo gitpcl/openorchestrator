@@ -820,12 +820,18 @@ class TmuxManager:
         try:
             win_w = int(window.window_width)
             win_h = int(window.window_height)
-            agent_count = len(window.panes) - 1  # exclude sidebar
+            panes = window.panes
+            agent_count = len(panes) - 1  # exclude sidebar
         except (TypeError, ValueError, libtmux.exc.LibTmuxException):
             return
 
         if agent_count <= 0:
             return
+
+        # Use actual tmux pane indices (may be non-sequential after remove/add cycles)
+        pane_indices = [int(p.pane_index) for p in panes]
+        sidebar_pane_id = pane_indices[0]
+        agent_pane_ids = pane_indices[1:]
 
         # Determine optimal column count for agent panes
         if agent_count <= 3:
@@ -848,7 +854,7 @@ class TmuxManager:
         agent_w = win_w - sidebar_w - 1  # -1 for border
 
         col_w = agent_w // num_cols
-        pane_idx = 1  # first agent pane
+        agent_i = 0  # index into agent_pane_ids
         col_layouts: list[str] = []
 
         for ci, rows in enumerate(per_col):
@@ -862,8 +868,8 @@ class TmuxManager:
                 # Height: last row gets remainder
                 rh = row_h if ri < rows - 1 else (win_h - row_h * (rows - 1))
                 rh = max(rh, 1)
-                row_layouts.append(f"{cw}x{rh},{sidebar_w + 1 + col_w * ci},{row_h * ri},{pane_idx}")
-                pane_idx += 1
+                row_layouts.append(f"{cw}x{rh},{sidebar_w + 1 + col_w * ci},{row_h * ri},{agent_pane_ids[agent_i]}")
+                agent_i += 1
 
             if len(row_layouts) == 1:
                 col_layouts.append(row_layouts[0])
@@ -871,7 +877,7 @@ class TmuxManager:
                 inner = ",".join(row_layouts)
                 col_layouts.append(f"{cw}x{win_h},{sidebar_w + 1 + col_w * ci},0[{inner}]")
 
-        sidebar_layout = f"{sidebar_w}x{win_h},0,0,0"
+        sidebar_layout = f"{sidebar_w}x{win_h},0,0,{sidebar_pane_id}"
 
         if len(col_layouts) == 1:
             agent_area = col_layouts[0]
