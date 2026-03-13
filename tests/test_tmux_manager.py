@@ -91,9 +91,9 @@ class TestTmuxManager:
         """Test session name generation from worktree name."""
         manager = TmuxManager()
 
-        assert manager._generate_session_name("feature-test") == "owt-feature-test"
-        assert manager._generate_session_name("feature/test") == "owt-feature-test"
-        assert manager._generate_session_name("feature.test") == "owt-feature-test"
+        assert manager.generate_session_name("feature-test") == "owt-feature-test"
+        assert manager.generate_session_name("feature/test") == "owt-feature-test"
+        assert manager.generate_session_name("feature.test") == "owt-feature-test"
 
     def test_session_prefix(self):
         """Test that session prefix is correctly defined."""

@@ -73,15 +73,15 @@ STATUS_ICONS: dict[str, tuple[str, str]] = {
 }
 
 # Agent abbreviation tags (matches dmux style)
-AGENT_TAGS: dict[str, str] = {
-    "claude": "cc",
-    "opencode": "oc",
-    "droid": "dr",
-    "codex": "cx",
-    "gemini-cli": "gc",
-    "aider": "ai",
-    "amp": "am",
-    "kilo-code": "kc",
+AGENT_TAGS: dict[AITool, str] = {
+    AITool.CLAUDE: "cc",
+    AITool.OPENCODE: "oc",
+    AITool.DROID: "dr",
+    AITool.CODEX: "cx",
+    AITool.GEMINI_CLI: "gc",
+    AITool.AIDER: "ai",
+    AITool.AMP: "am",
+    AITool.KILO_CODE: "kc",
 }
 
 
@@ -252,6 +252,25 @@ def _build_textual_themes() -> dict[str, Theme]:
 TEXTUAL_THEMES = _build_textual_themes()
 
 
+def _build_pane_data(
+    wt_manager: WorktreeManager, status_tracker: StatusTracker
+) -> list[tuple[Any, Any]]:
+    """Build pane data list from worktrees and status tracker.
+
+    Returns a list of (WorktreeInfo, WorktreeAIStatus | None) tuples with
+    the main worktree first (status=None).
+    """
+    worktrees = wt_manager.list_all()
+    pane_data: list[tuple[Any, Any]] = []
+    for wt in worktrees:
+        if wt.is_main:
+            pane_data.insert(0, (wt, None))
+        else:
+            status = status_tracker.get_status(wt.name)
+            pane_data.append((wt, status))
+    return pane_data
+
+
 class PaneListWidget(Widget):
     """dmux-style pane list widget.
 
@@ -291,15 +310,7 @@ class PaneListWidget(Widget):
         Performs I/O inline — suitable for on_mount (runs once).
         For periodic refresh, use update_from_data() with pre-fetched data.
         """
-        worktrees = self.wt_manager.list_all()
-        pane_data = []
-        # Show main worktree first as the orchestrator pane
-        for wt in worktrees:
-            if wt.is_main:
-                pane_data.insert(0, (wt, None))
-            else:
-                status = self.status_tracker.get_status(wt.name)
-                pane_data.append((wt, status))
+        pane_data = _build_pane_data(self.wt_manager, self.status_tracker)
         self.update_from_data(pane_data)
 
     def update_from_data(self, pane_data: list[tuple[Any, Any]]) -> None:
@@ -333,7 +344,8 @@ class PaneListWidget(Widget):
                 status_icon = Text(icon_char, style=icon_color)
 
                 # Agent tag
-                tag = AGENT_TAGS.get(str(wt_status.ai_tool), "")
+                ai_tool_key = AITool(wt_status.ai_tool) if isinstance(wt_status.ai_tool, str) else wt_status.ai_tool
+                tag = AGENT_TAGS.get(ai_tool_key, "")
                 agent_tag = Text(f"[{tag}]", style="#6c6c6c") if tag else Text("")
                 pane_name = Text(wt.name[:20])
             else:
@@ -447,6 +459,7 @@ class OrchestratorApp(App[None]):
         self.repo_path = repo_path or os.environ.get("OWT_REPO", "")
         self._refresh_interval: float = 2.0
         self._owt_theme_name = theme_name
+        self._pending_session_kill: str | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="sidebar"):
@@ -478,15 +491,9 @@ class OrchestratorApp(App[None]):
     def _fetch_refresh_data(self) -> None:
         """Fetch data in background thread, then update UI on main thread."""
         try:
-            worktrees = self.wt_manager.list_all()
-            pane_data = []
-            # Show main worktree first as the orchestrator pane
-            for wt in worktrees:
-                if wt.is_main:
-                    pane_data.insert(0, (wt, None))
-                else:
-                    status = self.status_tracker.get_status(wt.name)
-                    pane_data.append((wt, status))
+            # Re-read status from disk so we pick up changes from other processes
+            self.status_tracker.reload()
+            pane_data = _build_pane_data(self.wt_manager, self.status_tracker)
 
             pane_names = [wt.name for wt, _ in pane_data if not wt.is_main]
             summary = self.status_tracker.get_summary(pane_names)
@@ -775,8 +782,9 @@ class OrchestratorApp(App[None]):
 
         # Update tmux status bar and pane borders to match new theme
         if self.workspace_name:
-            TmuxManager().install_status_bar(self.workspace_name)
-            TmuxManager._run_tmux_cmd("refresh-client", "-S")
+            tmux = TmuxManager()
+            tmux.install_status_bar(self.workspace_name)
+            tmux._run_tmux_cmd("refresh-client", "-S")
 
         self.notify(f"Theme: {theme_name}")
         self._dismiss_theme_panel()
@@ -824,18 +832,13 @@ class OrchestratorApp(App[None]):
 
     def _do_quit(self) -> None:
         """Exit Textual first, then kill the tmux session on unmount."""
-        # Store workspace name before exit clears state, so on_unmount
-        # can kill the tmux session AFTER Textual restores the terminal.
-        # Previously kill-session ran first, sending SIGHUP to pane 0
-        # before Textual could clean up (cursor restore, cooked mode).
-        self._pending_session_kill: str | None = self.workspace_name
+        self._pending_session_kill = self.workspace_name
         self.exit()
 
     def on_unmount(self) -> None:
         """Called after Textual has restored the terminal. Kill tmux session now."""
-        session_to_kill = getattr(self, "_pending_session_kill", None)
-        if session_to_kill:
-            TmuxManager._run_tmux_cmd("kill-session", "-t", session_to_kill)
+        if self._pending_session_kill:
+            TmuxManager._run_tmux_cmd("kill-session", "-t", self._pending_session_kill)
 
 
 def is_interactive_terminal() -> bool:

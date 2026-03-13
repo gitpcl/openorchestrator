@@ -2092,7 +2092,7 @@ def switch_worktree(identifier: str, tmux: bool) -> None:
                 console.print(f"[yellow]No tmux session found for worktree '{identifier}'[/yellow]")
                 hint = (
                     f"[dim]Create one with: owt tmux create "
-                    f"{tmux_manager._generate_session_name(worktree.name)} "
+                    f"{tmux_manager.generate_session_name(worktree.name)} "
                     f"-d {worktree.path}[/dim]"
                 )
                 console.print(hint)
@@ -2510,7 +2510,7 @@ def send_to_worktree(
         msg = (
             f"No tmux session or workspace pane found for worktree '{identifier}'. "
             f"Create one with: owt tmux create "
-            f"{tmux_manager._generate_session_name(worktree.name)} -d {worktree.path}"
+            f"{tmux_manager.generate_session_name(worktree.name)} -d {worktree.path}"
         )
         raise click.ClickException(msg)
 

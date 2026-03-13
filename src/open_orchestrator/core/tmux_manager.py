@@ -128,7 +128,7 @@ class TmuxManager:
             self._server = libtmux.Server()
         return self._server
 
-    def _generate_session_name(self, worktree_name: str) -> str:
+    def generate_session_name(self, worktree_name: str) -> str:
         """Generate consistent session name from worktree name."""
         sanitized = worktree_name.replace("/", "-").replace(".", "-")
         return f"{self.SESSION_PREFIX}-{sanitized}"
@@ -528,7 +528,7 @@ class TmuxManager:
         Returns:
             TmuxSessionInfo with created session details
         """
-        session_name = self._generate_session_name(worktree_name)
+        session_name = self.generate_session_name(worktree_name)
 
         config = TmuxSessionConfig(
             session_name=session_name,
@@ -613,7 +613,7 @@ class TmuxManager:
         Returns:
             TmuxSessionInfo if found, None otherwise
         """
-        session_name = self._generate_session_name(worktree_name)
+        session_name = self.generate_session_name(worktree_name)
 
         if not self.session_exists(session_name):
             return None
@@ -832,9 +832,6 @@ class TmuxManager:
         if agent_count <= 0:
             return
 
-        import math
-        num_columns = math.ceil(agent_count / 2)
-
         # Use tiled layout as a starting point, then fix sidebar width.
         # tiled handles arbitrary pane counts better than even-horizontal
         # for mixed horizontal/vertical splits.
@@ -919,8 +916,10 @@ class TmuxManager:
                 f"Upgrade tmux or use 'owt pane add' directly."
             )
 
-        # Temp file path unique to this session
-        result_file = f"/tmp/owt-popup-{session_name}.json"
+        from open_orchestrator.core.pane_actions import popup_result_path
+
+        # Use the same secure temp path as pane_actions
+        result_file = popup_result_path(session_name)
         log_file = f"/tmp/owt-popup-{session_name}.log"
 
         # Quote paths that may contain spaces

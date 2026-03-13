@@ -157,6 +157,14 @@ class StatusTracker:
             )
             atomic_write_text(self._storage_path, data, perms=0o600)
 
+    def reload(self) -> None:
+        """Re-read status store from disk.
+
+        Call this before reading statuses when external processes may have
+        updated the file (e.g., in a long-running TUI refresh loop).
+        """
+        self._load_store()
+
     def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Get status for a specific worktree."""
         return self._store.get_status(worktree_name)
