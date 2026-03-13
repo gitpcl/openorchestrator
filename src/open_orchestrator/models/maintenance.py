@@ -42,7 +42,6 @@ class WorktreeUsageStats(BaseModel):
     branch_name: str = Field(..., description="Git branch name")
     created_at: datetime = Field(..., description="When the worktree was created")
     last_accessed: datetime = Field(..., description="Last access timestamp")
-    access_count: int = Field(default=0, ge=0, description="Number of times accessed")
     last_commit_date: datetime | None = Field(default=None, description="Date of the most recent commit")
     has_uncommitted_changes: bool = Field(default=False, description="Whether worktree has uncommitted changes")
     has_unpushed_commits: bool = Field(default=False, description="Whether worktree has commits not pushed to remote")
@@ -89,17 +88,3 @@ class SyncReport(BaseModel):
     up_to_date: int = Field(default=0, ge=0, description="Number of worktrees already up to date")
     with_conflicts: int = Field(default=0, ge=0, description="Number of syncs with merge conflicts")
     results: list[WorktreeSyncResult] = Field(default_factory=list, description="Individual results for each worktree")
-
-
-class UsageStatsSummary(BaseModel):
-    """Summary of usage statistics across all worktrees."""
-
-    total_worktrees: int = Field(default=0, ge=0)
-    active_worktrees: int = Field(default=0, ge=0)
-    stale_worktrees: int = Field(default=0, ge=0)
-    dirty_worktrees: int = Field(default=0, ge=0)
-    total_access_count: int = Field(default=0, ge=0)
-    oldest_worktree: datetime | None = None
-    newest_worktree: datetime | None = None
-    most_recently_accessed: datetime | None = None
-    least_recently_accessed: datetime | None = None

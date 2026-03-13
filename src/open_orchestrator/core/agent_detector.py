@@ -8,7 +8,6 @@ import shutil
 
 from open_orchestrator.config import AITool
 
-
 # Additional tools not in the AITool enum but detectable on the system
 _EXTRA_AGENT_BINARIES: dict[str, str] = {
     "codex": "codex",

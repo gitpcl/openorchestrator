@@ -1,131 +1,64 @@
 # Open Orchestrator
 
-Git Worktree + Claude Code orchestration tool for parallel development workflows with on-demand workspace mode (dmux-like).
+Git Worktree + AI agent orchestration tool for parallel development workflows with curses-based switchboard UI.
 
-## Quick Commands (Common)
+## Commands (10 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `owt new "task description"` | `owt n` | Create worktree from task description (prompt-first) |
-| `owt tui` | | Launch persistent TUI sidebar (dmux-style) |
-| `owt list` | `owt ls` | List all worktrees with status |
-| `owt status` | `owt st` | Show AI activity across all worktrees |
-| `owt merge <worktree>` | `owt m` | Merge worktree branch and clean up |
-| `owt close <worktree>` | `owt x` | Remove pane + delete worktree atomically |
-| `owt delete <name>` | `owt rm` | Delete worktree and its tmux session |
-| `owt create <branch>` | | Create worktree from branch name (power-user) |
-| `owt create <branch> --plan-mode` | | Create worktree with Claude in plan mode |
-
-## Advanced Commands
-
-| Command | Description |
-|---------|-------------|
-| `owt tui` | Launch persistent TUI sidebar in current terminal |
-| `owt pane add --branch <name>` | Add worktree pane on demand |
-| `owt pane remove --worktree <name>` | Remove pane + delete worktree |
-| `owt switch <name> --tmux` | Switch to worktree's tmux session |
-| `owt send <name> "cmd"` | Send command to another worktree's Claude |
-| `owt status` | Show Claude activity across all worktrees |
-| `owt delete <name>` | Delete worktree and its tmux session |
-| `owt cleanup` | Remove stale worktrees (dry-run by default) |
-| `owt cleanup --json` | Output cleanup report in JSON format |
-| `owt sync --all` | Sync all worktrees with upstream |
-| `owt sync --all --json` | Output sync report in JSON format |
-| `owt pr link <worktree> --pr <num>` | Link worktree to GitHub PR |
-| `owt pr status <worktree>` | Show PR status for worktree |
-| `owt hooks list` | List configured status change hooks |
-| `owt hooks add` | Add a new status change hook |
-| `owt copy-session <src> <dest>` | Copy Claude session to new worktree |
-| `owt resume <worktree>` | Get command to resume Claude session |
-| `owt completion install` | Install shell auto-completion |
-| `owt dashboard` | Launch live TUI dashboard |
-| `owt tokens show` | Show token usage across worktrees |
-| `owt process start <wt>` | Start AI tool without tmux |
-| `owt process list` | List running AI tool processes |
-| `owt skill install` | Install Claude Code skill (symlink) |
-| `owt skill install --copy` | Install Claude Code skill (copy) |
-| `owt skill status` | Check skill installation status |
-| `owt skill uninstall` | Remove Claude Code skill |
-
-## tmux Commands
-
-| Command | Description |
-|---------|-------------|
-| `owt tmux create <name> -d <dir>` | Create tmux session |
-| `owt tmux attach <name>` | Attach to session |
-| `owt tmux list` | List owt sessions |
-| `owt tmux kill <name>` | Kill session |
+| `owt` | | **Launch the Switchboard** — the default experience |
+| `owt new "task"` | `owt n` | Create worktree + tmux session + deps + AI agent. One command. |
+| `owt list` | `owt ls` | Quick text list of worktrees (non-interactive, for scripts/pipes) |
+| `owt switch <name>` | `owt s` | Jump to a worktree's tmux session |
+| `owt send <name> "msg"` | | Send command to a worktree's AI agent |
+| `owt merge <name>` | `owt m` | Two-phase merge + auto-cleanup worktree + tmux session |
+| `owt delete <name>` | `owt rm` | Delete worktree + tmux session + status |
+| `owt sync [--all]` | | Sync worktree(s) with upstream |
+| `owt cleanup [--force]` | | Remove stale worktrees (dry-run by default) |
+| `owt version` | `-v` | Show version |
 
 ## Slash Commands
 
-- `/worktree` - Main worktree management command
 - `/wt-create` - Quick worktree creation
 - `/wt-list` - List worktrees
-- `/wt-status` - Show Claude activity across worktrees
+- `/wt-status` - Show AI activity across worktrees
 - `/wt-cleanup` - Cleanup stale worktrees
 
 ## Development
 
 ```bash
-# Install in development mode
 uv pip install -e .
-
-# Run tests
 uv run pytest
-
-# Run specific test
-uv run pytest tests/test_worktree.py -v
-
-# Type checking
-uv run mypy src/
-
-# Linting
 uv run ruff check src/
+uv run mypy src/
 ```
 
 ## Project Structure
 
 ```
 src/open_orchestrator/
-├── cli.py              # CLI entry point (click)
-├── config.py           # Configuration management
+├── cli.py              # CLI entry point (click, ~660 LOC)
+├── config.py           # Configuration management (~300 LOC)
 ├── core/
 │   ├── worktree.py     # Git worktree operations
-│   ├── tmux_manager.py # tmux session management
-│   ├── tmux_cli.py     # tmux CLI commands
+│   ├── tmux_manager.py # tmux session management (SINGLE + MAIN_VERTICAL layouts)
+│   ├── switchboard.py  # Curses-based card grid UI (the killer feature)
 │   ├── project_detector.py  # Project type detection
 │   ├── environment.py  # Dependency, .env & CLAUDE.md setup
 │   ├── cleanup.py      # Worktree cleanup service
 │   ├── sync.py         # Upstream sync service
-│   ├── status.py       # Claude activity status tracking
-│   ├── hooks.py        # Status change hooks (notifications, webhooks)
-│   ├── session.py      # Claude session copying & resume
-│   ├── pr_linker.py    # GitHub PR linking integration
-│   ├── process_manager.py  # Non-tmux process management
-│   ├── branch_namer.py    # Branch name generation from task descriptions
-│   ├── merge.py           # Two-phase merge logic
-│   ├── pane_actions.py    # Shared pane lifecycle (CLI + TUI)
-│   ├── agent_detector.py  # Detect installed AI coding tools
-│   ├── dashboard.py    # Live TUI dashboard
-│   └── skill_installer.py  # Claude Code skill installation
+│   ├── status.py       # AI activity status tracking
+│   ├── branch_namer.py # Branch name generation from task descriptions
+│   ├── merge.py        # Two-phase merge logic
+│   ├── pane_actions.py # Shared pane lifecycle (create/remove orchestration)
+│   └── agent_detector.py  # Detect installed AI coding tools
 ├── models/
 │   ├── worktree_info.py    # Worktree models
 │   ├── project_config.py   # Project config models
 │   ├── maintenance.py      # Cleanup/sync models
-│   ├── status.py           # Claude status models
-│   ├── hooks.py            # Hook configuration models
-│   ├── session.py          # Session data models
-│   └── pr_info.py          # PR info models
-├── tui/
-│   ├── app.py              # Persistent TUI sidebar (dmux-style, Textual)
-│   ├── styles.tcss         # TUI styles (orange accent theme)
-│   ├── screens/
-│   │   ├── confirm.py      # Confirmation modal screen
-│   │   ├── help_overlay.py # Keybinding help overlay
-│   │   └── ab_compare.py   # A/B comparison screen
-│   └── widgets/            # Reusable TUI widgets
+│   └── status.py           # AI status models
 ├── popup/
-│   └── picker.py           # Popup picker for on-demand pane creation (tmux display-popup)
+│   └── picker.py           # Popup picker for pane creation (tmux display-popup)
 ├── skills/
 │   └── open-orchestrator/
 │       └── SKILL.md        # Claude Code skill definition
@@ -140,12 +73,13 @@ src/open_orchestrator/
 - Use `rich` for terminal output
 - Use `click` for CLI commands
 - Use `pydantic` for data models
+- Dependencies: click, pydantic, rich, toml, gitpython, libtmux (6 total)
 
 ## Key Patterns
 
 ### Creating a worktree
 ```python
-from open_orchestrator.core import WorktreeManager
+from open_orchestrator.core.worktree import WorktreeManager
 
 manager = WorktreeManager()
 worktree = manager.create(branch="feature/new-feature", base_branch="main")
@@ -153,45 +87,27 @@ worktree = manager.create(branch="feature/new-feature", base_branch="main")
 
 ### Managing tmux sessions
 ```python
-from open_orchestrator.core import TmuxManager, TmuxLayout
+from open_orchestrator.core.tmux_manager import TmuxManager
 
 tmux = TmuxManager()
 session = tmux.create_worktree_session(
     worktree_name="my-feature",
     worktree_path="/path/to/worktree",
-    layout=TmuxLayout.THREE_PANE,
-    auto_start_claude=True
 )
 ```
 
-### Detecting project type
+### Tracking AI status
 ```python
-from open_orchestrator.core import ProjectDetector
-
-detector = ProjectDetector()
-config = detector.detect("/path/to/project")
-print(f"Type: {config.project_type}, Manager: {config.package_manager}")
-```
-
-### Tracking Claude status
-```python
-from open_orchestrator.core import StatusTracker
-from open_orchestrator.models import ClaudeActivityStatus
+from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.models.status import AIActivityStatus
 
 tracker = StatusTracker()
-
-# Initialize status for a worktree
 tracker.initialize_status(
     worktree_name="my-feature",
     worktree_path="/path/to/worktree",
     branch="feature/my-feature",
     tmux_session="owt-my-feature"
 )
-
-# Update what Claude is working on
-tracker.update_task("my-feature", "Implementing auth flow", ClaudeActivityStatus.WORKING)
-
-# Get summary of all worktrees
+tracker.update_task("my-feature", "Implementing auth flow", AIActivityStatus.WORKING)
 summary = tracker.get_summary()
-print(f"Active: {summary.active_claudes}, Blocked: {summary.blocked_claudes}")
 ```

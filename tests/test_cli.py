@@ -2,17 +2,16 @@
 Tests for CLI entry point and commands.
 """
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from open_orchestrator.cli import is_interactive_terminal, main
+from open_orchestrator.cli import main
 from open_orchestrator.core.worktree import (
     NotAGitRepositoryError,
-    WorktreeAlreadyExistsError,
+    WorktreeNotFoundError,
 )
 from open_orchestrator.models.worktree_info import WorktreeInfo
 
@@ -38,202 +37,66 @@ def mock_worktree_info(temp_directory: Path) -> WorktreeInfo:
 class TestCLIMain:
     """Test main CLI entry point."""
 
-    def test_main_group_exists(self, cli_runner: CliRunner) -> None:
-        """Test main CLI group can be invoked."""
+    def test_main_group_help(self, cli_runner: CliRunner) -> None:
+        """Test main CLI group can be invoked with --help."""
         result = cli_runner.invoke(main, ["--help"])
         assert result.exit_code == 0
         assert "Open Orchestrator" in result.output
-        assert "create" in result.output
+        assert "new" in result.output
         assert "list" in result.output
         assert "send" in result.output
-        assert "status" in result.output
 
-    def test_version_option(self, cli_runner: CliRunner) -> None:
-        """Test version option displays version or reports not installed."""
-        result = cli_runner.invoke(main, ["--version"])
-        # Accept either success (package installed) or error (package not found in test env)
-        assert result.exit_code == 0 or "not installed" in str(result.exception)
-
-
-class TestCreateCommand:
-    """Test 'owt create' command."""
-
-    @patch("open_orchestrator.cli.WorktreeManager")
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.ProjectDetector")
-    @patch("open_orchestrator.cli.EnvironmentSetup")
-    @patch("open_orchestrator.cli.StatusTracker")
-    def test_create_worktree_basic(
-        self,
-        mock_status: MagicMock,
-        mock_env_setup: MagicMock,
-        mock_detector: MagicMock,
-        mock_tmux: MagicMock,
-        mock_wt_manager: MagicMock,
-        cli_runner: CliRunner,
-        mock_worktree_info: WorktreeInfo,
-    ) -> None:
-        """Test creating a worktree with basic options."""
-        # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.create.return_value = mock_worktree_info
-        mock_wt_instance.repo.working_dir = "/fake/repo"
-
-        mock_detector_instance = mock_detector.return_value
-        mock_detector_instance.detect.return_value = None
-
-        # Act
-        result = cli_runner.invoke(main, ["create", "feature/test", "--no-tmux", "--no-deps", "--no-env"])
-
-        # Assert
+    def test_version_command(self, cli_runner: CliRunner) -> None:
+        """Test version command."""
+        result = cli_runner.invoke(main, ["version"])
         assert result.exit_code == 0
-        mock_wt_instance.create.assert_called_once_with(
-            branch="feature/test",
-            base_branch=None,
-            path=None,
-            force=False,
-        )
-        assert "Worktree created successfully" in result.output
-
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_create_worktree_with_base_branch(
-        self,
-        mock_wt_manager: MagicMock,
-        cli_runner: CliRunner,
-        mock_worktree_info: WorktreeInfo,
-    ) -> None:
-        """Test creating a worktree with base branch."""
-        # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.create.return_value = mock_worktree_info
-        mock_wt_instance.repo.working_dir = "/fake/repo"
-
-        # Act
-        result = cli_runner.invoke(main, ["create", "feature/new", "--base", "develop", "--no-tmux", "--no-deps", "--no-env"])
-
-        # Assert
-        assert result.exit_code == 0
-        mock_wt_instance.create.assert_called_once_with(
-            branch="feature/new",
-            base_branch="develop",
-            path=None,
-            force=False,
-        )
-
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_create_worktree_already_exists(
-        self,
-        mock_wt_manager: MagicMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """Test creating a worktree that already exists fails."""
-        # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.create.side_effect = WorktreeAlreadyExistsError("Worktree already exists")
-
-        # Act
-        result = cli_runner.invoke(main, ["create", "feature/existing", "--no-tmux"])
-
-        # Assert
-        assert result.exit_code != 0
-        assert "Worktree already exists" in result.output
-
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_create_worktree_not_a_git_repo(
-        self,
-        mock_wt_manager: MagicMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """Test creating a worktree outside a git repository fails."""
-        # Arrange
-        mock_wt_manager.side_effect = NotAGitRepositoryError("Not a git repository")
-
-        # Act
-        result = cli_runner.invoke(main, ["create", "feature/test"])
-
-        # Assert
-        assert result.exit_code != 0
-        assert "Not a git repository" in result.output
-
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.WorktreeManager")
-    @patch("open_orchestrator.cli.TmuxManager")
-    def test_create_worktree_with_tmux(
-        self,
-        mock_tmux: MagicMock,
-        mock_wt_manager: MagicMock,
-        mock_status: MagicMock,
-        cli_runner: CliRunner,
-        mock_worktree_info: WorktreeInfo,
-    ) -> None:
-        """Test creating a worktree with tmux session in separate-session mode."""
-        # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.create.return_value = mock_worktree_info
-        mock_wt_instance.repo.working_dir = "/fake/repo"
-        mock_wt_instance.list_all.return_value = []
-
-        mock_tmux_instance = mock_tmux.return_value
-        mock_session_info = MagicMock()
-        mock_session_info.session_name = "owt-feature-test"
-        mock_session_info.pane_count = 2
-        mock_tmux_instance.create_worktree_session.return_value = mock_session_info
-        mock_tmux_instance.is_inside_tmux.return_value = False
-
-        # Act — use --separate-session since default is workspace mode
-        result = cli_runner.invoke(main, ["create", "feature/test", "--tmux", "--separate-session", "--no-deps", "--no-env", "--no-sync-claude-md"])
-
-        # Assert
-        assert result.exit_code == 0
-        mock_tmux_instance.create_worktree_session.assert_called_once()
-        assert "tmux session created" in result.output.lower() or "session" in result.output.lower()
+        assert "open-orchestrator" in result.output
 
 
 class TestListCommand:
     """Test 'owt list' command."""
 
+    @patch("open_orchestrator.cli.StatusTracker")
+    @patch("open_orchestrator.cli.TmuxManager")
     @patch("open_orchestrator.cli.WorktreeManager")
     def test_list_worktrees_empty(
         self,
         mock_wt_manager: MagicMock,
+        mock_tmux: MagicMock,
+        mock_status: MagicMock,
         cli_runner: CliRunner,
     ) -> None:
         """Test listing worktrees when there are none."""
-        # Arrange
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.list_all.return_value = []
 
-        # Act
         result = cli_runner.invoke(main, ["list"])
-
-        # Assert
         assert result.exit_code == 0
-        mock_wt_instance.list_all.assert_called_once()
 
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.cli.StatusTracker")
     @patch("open_orchestrator.cli.TmuxManager")
+    @patch("open_orchestrator.cli.WorktreeManager")
     def test_list_worktrees_with_results(
         self,
-        mock_tmux: MagicMock,
         mock_wt_manager: MagicMock,
+        mock_tmux: MagicMock,
+        mock_status: MagicMock,
         cli_runner: CliRunner,
         mock_worktree_info: WorktreeInfo,
     ) -> None:
         """Test listing worktrees with results."""
-        # Arrange
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.list_all.return_value = [mock_worktree_info]
 
         mock_tmux_instance = mock_tmux.return_value
         mock_tmux_instance.get_session_for_worktree.return_value = None
 
-        # Act
-        result = cli_runner.invoke(main, ["list"])
+        mock_status_instance = mock_status.return_value
+        mock_status_instance.get_status.return_value = None
 
-        # Assert
+        result = cli_runner.invoke(main, ["list"])
         assert result.exit_code == 0
         assert "feature/test" in result.output
-        mock_wt_instance.list_all.assert_called_once()
 
     @patch("open_orchestrator.cli.WorktreeManager")
     def test_list_worktrees_not_a_git_repo(
@@ -242,13 +105,9 @@ class TestListCommand:
         cli_runner: CliRunner,
     ) -> None:
         """Test listing worktrees outside a git repository fails."""
-        # Arrange
         mock_wt_manager.side_effect = NotAGitRepositoryError("Not a git repository")
 
-        # Act
         result = cli_runner.invoke(main, ["list"])
-
-        # Assert
         assert result.exit_code != 0
 
 
@@ -256,228 +115,61 @@ class TestSendCommand:
     """Test 'owt send' command."""
 
     @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.WorktreeManager")
     @patch("open_orchestrator.cli.TmuxManager")
+    @patch("open_orchestrator.cli.WorktreeManager")
     def test_send_command_to_worktree(
         self,
-        mock_tmux: MagicMock,
         mock_wt_manager: MagicMock,
+        mock_tmux: MagicMock,
         mock_status: MagicMock,
         cli_runner: CliRunner,
         mock_worktree_info: WorktreeInfo,
     ) -> None:
-        """Test sending a command to a worktree's Claude instance."""
-        # Arrange
+        """Test sending a command to a worktree's AI agent."""
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.return_value = mock_worktree_info
 
         mock_tmux_instance = mock_tmux.return_value
-        mock_session_info = MagicMock()
-        mock_session_info.session_name = "owt-feature-test"
-        mock_tmux_instance.get_session_for_worktree.return_value = mock_session_info
+        mock_tmux_instance.generate_session_name.return_value = "owt-test-worktree"
+        mock_tmux_instance.session_exists.return_value = True
 
-        # Act
-        result = cli_runner.invoke(main, ["send", "feature/test", "echo hello"])
-
-        # Assert
+        result = cli_runner.invoke(main, ["send", "feature/test", "echo", "hello"])
         assert result.exit_code == 0
         mock_tmux_instance.send_keys_to_pane.assert_called_once()
 
-    @patch("open_orchestrator.cli.StatusTracker")
     @patch("open_orchestrator.cli.WorktreeManager")
-    @patch("open_orchestrator.cli.TmuxManager")
     def test_send_command_to_nonexistent_worktree(
         self,
-        mock_tmux: MagicMock,
         mock_wt_manager: MagicMock,
-        mock_status: MagicMock,
         cli_runner: CliRunner,
     ) -> None:
         """Test sending a command to a nonexistent worktree fails."""
-        # Arrange
-        from open_orchestrator.core.worktree import WorktreeNotFoundError
-
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.side_effect = WorktreeNotFoundError("Worktree not found")
 
-        # Act
-        result = cli_runner.invoke(main, ["send", "feature/nonexistent", "echo hello"])
-
-        # Assert
+        result = cli_runner.invoke(main, ["send", "feature/nonexistent", "echo", "hello"])
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
 
-    @patch("open_orchestrator.cli.WorktreeManager")
     @patch("open_orchestrator.cli.TmuxManager")
-    def test_send_command_to_worktree_without_tmux_session(
+    @patch("open_orchestrator.cli.WorktreeManager")
+    def test_send_command_without_tmux_session(
         self,
-        mock_tmux: MagicMock,
         mock_wt_manager: MagicMock,
+        mock_tmux: MagicMock,
         cli_runner: CliRunner,
         mock_worktree_info: WorktreeInfo,
     ) -> None:
         """Test sending a command to a worktree without a tmux session fails."""
-        # Arrange
         mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.list_all.return_value = [mock_worktree_info]
+        mock_wt_instance.get.return_value = mock_worktree_info
 
         mock_tmux_instance = mock_tmux.return_value
-        mock_tmux_instance.get_session_for_worktree.return_value = None
+        mock_tmux_instance.generate_session_name.return_value = "owt-test-worktree"
+        mock_tmux_instance.session_exists.return_value = False
 
-        # Act
-        result = cli_runner.invoke(main, ["send", "feature/test", "echo hello"])
-
-        # Assert
+        result = cli_runner.invoke(main, ["send", "feature/test", "echo", "hello"])
         assert result.exit_code != 0
-        assert "no tmux session" in result.output.lower() or "session not found" in result.output.lower()
-
-
-class TestStatusCommand:
-    """Test 'owt status' command."""
-
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_status_command_empty(
-        self,
-        mock_wt_manager: MagicMock,
-        mock_status: MagicMock,
-        mock_tmux: MagicMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """Test status command with no active Claude instances."""
-        # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.list_all.return_value = []
-
-        mock_status_instance = mock_status.return_value
-        mock_summary = MagicMock()
-        mock_summary.active_claudes = 0
-        mock_summary.idle_claudes = 0
-        mock_summary.blocked_claudes = 0
-        mock_summary.total_claudes = 0
-        mock_summary.statuses = []
-        mock_status_instance.get_summary.return_value = mock_summary
-
-        # Act
-        result = cli_runner.invoke(main, ["status"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "0" in result.output or "no" in result.output.lower()
-
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_status_command_with_active_claudes(
-        self,
-        mock_wt_manager: MagicMock,
-        mock_status: MagicMock,
-        mock_tmux: MagicMock,
-        cli_runner: CliRunner,
-        mock_worktree_info: WorktreeInfo,
-    ) -> None:
-        """Test status command with active Claude instances."""
-        from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
-
-        # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.list_all.return_value = [mock_worktree_info]
-
-        mock_wt_status = WorktreeAIStatus(
-            worktree_name="test-worktree",
-            worktree_path=str(mock_worktree_info.path),
-            branch="feature/test",
-            tmux_session="owt-test",
-            activity_status=AIActivityStatus.WORKING,
-            current_task="Implementing auth",
-        )
-
-        mock_status_instance = mock_status.return_value
-        mock_summary = MagicMock()
-        mock_summary.active_claudes = 1
-        mock_summary.idle_claudes = 0
-        mock_summary.blocked_claudes = 0
-        mock_summary.total_claudes = 1
-        mock_summary.statuses = [mock_wt_status]
-        mock_summary.active_ai_sessions = 1
-        mock_summary.idle_ai_sessions = 0
-        mock_summary.blocked_ai_sessions = 0
-        mock_summary.total_commands_sent = 0
-        mock_summary.total_input_tokens = 0
-        mock_summary.total_output_tokens = 0
-        mock_summary.total_estimated_cost_usd = 0.0
-        mock_summary.most_recent_activity = None
-        mock_status_instance.get_summary.return_value = mock_summary
-
-        # Act
-        result = cli_runner.invoke(main, ["status"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "1" in result.output or "active" in result.output.lower()
-
-
-class TestCleanupCommand:
-    """Test 'owt cleanup' command."""
-
-    @patch("open_orchestrator.core.cleanup.CleanupService")
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_cleanup_dry_run(
-        self,
-        mock_wt_manager: MagicMock,
-        mock_cleanup: MagicMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """Test cleanup command in dry-run mode."""
-        # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.list_all.return_value = []
-
-        mock_cleanup_instance = mock_cleanup.return_value
-        mock_report = MagicMock()
-        mock_report.deleted = []
-        mock_report.skipped = []
-        mock_report.errors = []
-        mock_report.stale_found = 0
-        mock_report.cleaned_up = 0
-        mock_cleanup_instance.cleanup.return_value = mock_report
-        mock_cleanup_instance.get_stale_worktrees.return_value = []
-
-        # Act
-        result = cli_runner.invoke(main, ["cleanup"])
-
-        # Assert
-        assert result.exit_code == 0
-
-    @patch("open_orchestrator.core.cleanup.CleanupService")
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_cleanup_with_force(
-        self,
-        mock_wt_manager: MagicMock,
-        mock_cleanup: MagicMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """Test cleanup command with force flag."""
-        # Arrange
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.list_all.return_value = []
-
-        mock_cleanup_instance = mock_cleanup.return_value
-        mock_report = MagicMock()
-        mock_report.deleted = []
-        mock_report.skipped = []
-        mock_report.errors = []
-        mock_report.stale_found = 0
-        mock_report.cleaned_up = 0
-        mock_cleanup_instance.cleanup.return_value = mock_report
-        mock_cleanup_instance.get_stale_worktrees.return_value = []
-
-        # Act
-        result = cli_runner.invoke(main, ["cleanup", "--no-dry-run", "--force", "--yes"])
-
-        # Assert
-        assert result.exit_code == 0
 
 
 class TestDeleteCommand:
@@ -495,18 +187,15 @@ class TestDeleteCommand:
         mock_worktree_info: WorktreeInfo,
     ) -> None:
         """Test deleting a worktree successfully."""
-        # Arrange
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.return_value = mock_worktree_info
         mock_wt_instance.delete.return_value = mock_worktree_info.path
 
         mock_tmux_instance = mock_tmux.return_value
-        mock_tmux_instance.get_session_for_worktree.return_value = None
+        mock_tmux_instance.generate_session_name.return_value = "owt-test-worktree"
+        mock_tmux_instance.session_exists.return_value = False
 
-        # Act
         result = cli_runner.invoke(main, ["delete", "feature/test", "--force", "--yes"])
-
-        # Assert
         assert result.exit_code == 0
         mock_wt_instance.delete.assert_called_once()
 
@@ -517,16 +206,10 @@ class TestDeleteCommand:
         cli_runner: CliRunner,
     ) -> None:
         """Test deleting a nonexistent worktree fails."""
-        # Arrange
-        from open_orchestrator.core.worktree import WorktreeNotFoundError
-
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.side_effect = WorktreeNotFoundError("Worktree not found")
 
-        # Act
         result = cli_runner.invoke(main, ["delete", "feature/nonexistent"])
-
-        # Assert
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
 
@@ -536,30 +219,23 @@ class TestSwitchCommand:
 
     @patch("open_orchestrator.cli.TmuxManager")
     @patch("open_orchestrator.cli.WorktreeManager")
-    def test_switch_to_worktree_with_tmux(
+    def test_switch_to_worktree_no_session(
         self,
         mock_wt_manager: MagicMock,
         mock_tmux: MagicMock,
         cli_runner: CliRunner,
         mock_worktree_info: WorktreeInfo,
     ) -> None:
-        """Test switching to a worktree's tmux session."""
-        # Arrange
+        """Test switching to a worktree without tmux session fails."""
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.return_value = mock_worktree_info
 
         mock_tmux_instance = mock_tmux.return_value
-        mock_session_info = MagicMock()
-        mock_session_info.session_name = "owt-feature-test"
-        mock_tmux_instance.get_session_for_worktree.return_value = mock_session_info
-        mock_tmux_instance.is_inside_tmux.return_value = True
+        mock_tmux_instance.generate_session_name.return_value = "owt-test-worktree"
+        mock_tmux_instance.session_exists.return_value = False
 
-        # Act
-        result = cli_runner.invoke(main, ["switch", "feature/test", "--tmux"])
-
-        # Assert
-        assert result.exit_code == 0
-        mock_tmux_instance.switch_client.assert_called_once()
+        result = cli_runner.invoke(main, ["switch", "feature/test"])
+        assert result.exit_code != 0
 
     @patch("open_orchestrator.cli.WorktreeManager")
     def test_switch_to_nonexistent_worktree(
@@ -568,404 +244,26 @@ class TestSwitchCommand:
         cli_runner: CliRunner,
     ) -> None:
         """Test switching to a nonexistent worktree fails."""
-        # Arrange
-        from open_orchestrator.core.worktree import WorktreeNotFoundError
-
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.side_effect = WorktreeNotFoundError("Worktree not found")
 
-        # Act
         result = cli_runner.invoke(main, ["switch", "feature/nonexistent"])
-
-        # Assert
         assert result.exit_code != 0
 
 
-class TestPlanModeFlag:
-    """Test --plan-mode flag integration in create command."""
+class TestSwitchboardLaunch:
+    """Test switchboard launches when no subcommand given."""
 
-    @patch("open_orchestrator.core.environment.sync_claude_md")
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.EnvironmentSetup")
-    @patch("open_orchestrator.cli.ProjectDetector")
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_create_with_plan_mode_flag(
-        self,
-        mock_wt_manager: MagicMock,
-        mock_tmux: MagicMock,
-        mock_detector: MagicMock,
-        mock_env_setup: MagicMock,
-        mock_status: MagicMock,
-        mock_sync_claude_md: MagicMock,
-        cli_runner: CliRunner,
-        temp_directory: Path,
+    @patch("open_orchestrator.core.switchboard.launch_switchboard")
+    def test_no_args_launches_switchboard(
+        self, mock_switchboard: MagicMock, cli_runner: CliRunner
     ) -> None:
-        """Test --plan-mode flag is passed to TmuxManager.create_worktree_session."""
-        # Arrange
-        mock_worktree_info = WorktreeInfo(
-            path=temp_directory / "test-worktree",
-            branch="feature/test",
-            head_commit="abc123f",
-            is_main=False,
-            is_detached=False,
-        )
+        """Test that 'owt' with no args launches the switchboard."""
+        result = cli_runner.invoke(main, [])
+        mock_switchboard.assert_called_once()
 
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.create.return_value = mock_worktree_info
-        mock_wt_instance.repo.working_dir = "/fake/repo"
-        mock_wt_instance.list_all.return_value = []
-
-        mock_detector_instance = mock_detector.return_value
-        mock_detector_instance.detect.return_value = None
-
-        mock_tmux_instance = mock_tmux.return_value
-        mock_session = MagicMock()
-        mock_session.session_name = "owt-feature-test"
-        mock_session.pane_count = 2
-        mock_tmux_instance.create_worktree_session.return_value = mock_session
-
-        mock_sync_claude_md.return_value = []
-
-        # Act — use --separate-session to test create_worktree_session path
-        result = cli_runner.invoke(main, ["create", "feature/test", "--plan-mode", "--claude", "--separate-session", "--no-deps", "--no-env"])
-
-        # Assert
-        assert result.exit_code == 0
-        mock_tmux_instance.create_worktree_session.assert_called_once()
-        call_kwargs = mock_tmux_instance.create_worktree_session.call_args[1]
-        assert call_kwargs["plan_mode"] is True
-        assert "plan mode" in result.output
-
-    @patch("open_orchestrator.core.environment.sync_claude_md")
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.EnvironmentSetup")
-    @patch("open_orchestrator.cli.ProjectDetector")
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.WorktreeManager")
-    def test_create_without_plan_mode_flag(
-        self,
-        mock_wt_manager: MagicMock,
-        mock_tmux: MagicMock,
-        mock_detector: MagicMock,
-        mock_env_setup: MagicMock,
-        mock_status: MagicMock,
-        mock_sync_claude_md: MagicMock,
-        cli_runner: CliRunner,
-        temp_directory: Path,
-    ) -> None:
-        """Test plan_mode defaults to False when --plan-mode flag not provided."""
-        # Arrange
-        mock_worktree_info = WorktreeInfo(
-            path=temp_directory / "test-worktree",
-            branch="feature/test",
-            head_commit="abc123f",
-            is_main=False,
-            is_detached=False,
-        )
-
-        mock_wt_instance = mock_wt_manager.return_value
-        mock_wt_instance.create.return_value = mock_worktree_info
-        mock_wt_instance.repo.working_dir = "/fake/repo"
-        mock_wt_instance.list_all.return_value = []
-
-        mock_detector_instance = mock_detector.return_value
-        mock_detector_instance.detect.return_value = None
-
-        mock_tmux_instance = mock_tmux.return_value
-        mock_session = MagicMock()
-        mock_session.session_name = "owt-feature-test"
-        mock_session.pane_count = 2
-        mock_tmux_instance.create_worktree_session.return_value = mock_session
-
-        mock_sync_claude_md.return_value = []
-
-        # Act — use --separate-session to test create_worktree_session path
-        result = cli_runner.invoke(main, ["create", "feature/test", "--claude", "--separate-session", "--no-deps", "--no-env"])
-
-        # Assert
-        assert result.exit_code == 0
-        mock_tmux_instance.create_worktree_session.assert_called_once()
-        call_kwargs = mock_tmux_instance.create_worktree_session.call_args[1]
-        assert call_kwargs["plan_mode"] is False
-        assert "plan mode" not in result.output
-
-
-class TestShellCompletion:
-    """Test shell completion generation commands."""
-
-    def test_completion_bash_command(self, cli_runner: CliRunner) -> None:
-        """Test 'owt completion bash' outputs bash completion script."""
-        # Act
-        result = cli_runner.invoke(main, ["completion", "bash"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "_OWT_COMPLETE=bash_source owt" in result.output
-        assert "eval" in result.output
-
-    def test_completion_zsh_command(self, cli_runner: CliRunner) -> None:
-        """Test 'owt completion zsh' outputs zsh completion script."""
-        # Act
-        result = cli_runner.invoke(main, ["completion", "zsh"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "_OWT_COMPLETE=zsh_source owt" in result.output
-        assert "eval" in result.output
-
-    def test_completion_fish_command(self, cli_runner: CliRunner) -> None:
-        """Test 'owt completion fish' outputs fish completion script."""
-        # Act
-        result = cli_runner.invoke(main, ["completion", "fish"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "_OWT_COMPLETE=fish_source owt" in result.output
-        assert "source" in result.output
-
-    @patch.dict("os.environ", {"SHELL": "/bin/bash"})
-    def test_completion_install_auto_detect_bash(self, cli_runner: CliRunner) -> None:
-        """Test 'owt completion install' auto-detects bash shell."""
-        # Act
-        result = cli_runner.invoke(main, ["completion", "install"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "bash" in result.output
-        assert "~/.bashrc" in result.output
-
-    @patch.dict("os.environ", {"SHELL": "/bin/zsh"})
-    def test_completion_install_auto_detect_zsh(self, cli_runner: CliRunner) -> None:
-        """Test 'owt completion install' auto-detects zsh shell."""
-        # Act
-        result = cli_runner.invoke(main, ["completion", "install"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "zsh" in result.output
-        assert "~/.zshrc" in result.output
-
-    @patch.dict("os.environ", {"SHELL": "/usr/bin/fish"})
-    def test_completion_install_auto_detect_fish(self, cli_runner: CliRunner) -> None:
-        """Test 'owt completion install' auto-detects fish shell."""
-        # Act
-        result = cli_runner.invoke(main, ["completion", "install"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "fish" in result.output
-        assert "~/.config/fish/completions" in result.output
-
-    def test_completion_install_explicit_shell(self, cli_runner: CliRunner) -> None:
-        """Test 'owt completion install --shell' with explicit shell choice."""
-        # Act
-        result = cli_runner.invoke(main, ["completion", "install", "--shell", "zsh"])
-
-        # Assert
-        assert result.exit_code == 0
-        assert "zsh" in result.output
-        assert "~/.zshrc" in result.output
-
-
-class TestTerminalDetection:
-    """Tests for terminal detection function in CLI."""
-
-    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
-    @patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False)
-    def test_is_interactive_terminal_true_for_tty(self, mock_isatty: MagicMock) -> None:
-        """Test is_interactive_terminal returns True for interactive TTY."""
-        # Clear CI env vars for this test
-        with patch.dict(
-            os.environ,
-            {"CI": "", "GITHUB_ACTIONS": "", "GITLAB_CI": "", "JENKINS": "", "TRAVIS": "", "CIRCLECI": ""},
-            clear=False,
-        ):
-            result = is_interactive_terminal()
-            assert result is True
-
-    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=False)
-    def test_is_interactive_terminal_false_for_non_tty(self, mock_isatty: MagicMock) -> None:
-        """Test is_interactive_terminal returns False for non-TTY (piped output)."""
-        result = is_interactive_terminal()
-        assert result is False
-
-    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
-    @patch.dict(os.environ, {"TERM": "dumb"}, clear=False)
-    def test_is_interactive_terminal_false_for_term_dumb(self, mock_isatty: MagicMock) -> None:
-        """Test is_interactive_terminal returns False when TERM=dumb."""
-        # Clear CI vars for this test
-        with patch.dict(
-            os.environ,
-            {"CI": "", "GITHUB_ACTIONS": "", "GITLAB_CI": "", "JENKINS": "", "TRAVIS": "", "CIRCLECI": ""},
-            clear=False,
-        ):
-            result = is_interactive_terminal()
-            assert result is False
-
-    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
-    @patch.dict(os.environ, {"TERM": ""}, clear=False)
-    def test_is_interactive_terminal_false_for_empty_term(self, mock_isatty: MagicMock) -> None:
-        """Test is_interactive_terminal returns False when TERM is empty."""
-        # Clear CI vars for this test
-        with patch.dict(
-            os.environ,
-            {"CI": "", "GITHUB_ACTIONS": "", "GITLAB_CI": "", "JENKINS": "", "TRAVIS": "", "CIRCLECI": ""},
-            clear=False,
-        ):
-            result = is_interactive_terminal()
-            assert result is False
-
-    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
-    @patch.dict(os.environ, {"TERM": "xterm-256color", "CI": "true"}, clear=False)
-    def test_is_interactive_terminal_false_for_ci_true(self, mock_isatty: MagicMock) -> None:
-        """Test is_interactive_terminal returns False when CI=true."""
-        result = is_interactive_terminal()
-        assert result is False
-
-    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
-    @patch.dict(os.environ, {"TERM": "xterm-256color", "GITHUB_ACTIONS": "true"}, clear=False)
-    def test_is_interactive_terminal_false_for_github_actions(self, mock_isatty: MagicMock) -> None:
-        """Test is_interactive_terminal returns False in GitHub Actions."""
-        result = is_interactive_terminal()
-        assert result is False
-
-    @patch("open_orchestrator.cli.sys.stdout.isatty", return_value=True)
-    @patch.dict(os.environ, {"TERM": "xterm-256color", "GITLAB_CI": "true"}, clear=False)
-    def test_is_interactive_terminal_false_for_gitlab_ci(self, mock_isatty: MagicMock) -> None:
-        """Test is_interactive_terminal returns False in GitLab CI."""
-        result = is_interactive_terminal()
-        assert result is False
-
-
-class TestCLIDefaultTUIBehavior:
-    """Tests for TUI launch and fallback behavior when CLI is invoked without subcommand."""
-
-    @patch("open_orchestrator.cli.is_interactive_terminal", return_value=True)
-    def test_tui_launches_when_interactive(
-        self, mock_is_interactive: MagicMock, cli_runner: CliRunner
-    ) -> None:
-        """Test TUI launches when owt is run without arguments in interactive terminal."""
-        # Mock the tui module to prevent actual TUI launch
-        mock_launch_tui = MagicMock()
-        mock_tui_module = MagicMock()
-        mock_tui_module.launch_tui = mock_launch_tui
-
-        with patch.dict("sys.modules", {"open_orchestrator.tui": mock_tui_module}):
-            # Act
-            result = cli_runner.invoke(main)
-
-            # Assert
-            assert "Launching interactive TUI mode" in result.output
-            mock_launch_tui.assert_called_once()
-
-    @patch("open_orchestrator.cli.is_interactive_terminal", return_value=False)
-    def test_help_displayed_when_non_interactive(
-        self, mock_is_interactive: MagicMock, cli_runner: CliRunner
-    ) -> None:
-        """Test help output displayed when terminal is non-interactive."""
-        # Act
-        result = cli_runner.invoke(main)
-
-        # Assert
-        assert "Non-interactive terminal detected" in result.output
-        assert "Open Orchestrator" in result.output  # Help text
-        assert "create" in result.output  # Subcommands listed
-
-    @patch("open_orchestrator.cli.is_interactive_terminal", return_value=True)
-    def test_graceful_fallback_on_import_error(
-        self, mock_is_interactive: MagicMock, cli_runner: CliRunner
-    ) -> None:
-        """Test graceful fallback when OrchestratorApp import fails."""
-        import builtins
-        import sys
-
-        # Store original import
-        original_import = builtins.__import__
-
-        def failing_import(name, *args, **kwargs):
-            if name == "open_orchestrator.tui":
-                raise ImportError("Module not found")
-            return original_import(name, *args, **kwargs)
-
-        # Remove cached tui module and patch import
-        with patch.dict(sys.modules):
-            # Remove the tui module from cache
-            modules_to_remove = [k for k in list(sys.modules.keys()) if k.startswith("open_orchestrator.tui")]
-            for mod in modules_to_remove:
-                sys.modules.pop(mod, None)
-
-            with patch.object(builtins, "__import__", failing_import):
-                # Act
-                result = cli_runner.invoke(main)
-
-                # Assert
-                assert "Could not import TUI module" in result.output
-                assert "Falling back to help output" in result.output
-                assert "Open Orchestrator" in result.output
-
-    @patch("open_orchestrator.cli.is_interactive_terminal", return_value=True)
-    def test_graceful_fallback_on_tui_exception(
-        self, mock_is_interactive: MagicMock, cli_runner: CliRunner
-    ) -> None:
-        """Test graceful fallback when TUI initialization raises exception."""
-        # Create a mock TUI module that raises an exception on launch
-        mock_launch_tui = MagicMock(side_effect=Exception("TUI crash"))
-        mock_tui_module = MagicMock()
-        mock_tui_module.launch_tui = mock_launch_tui
-
-        with patch.dict("sys.modules", {"open_orchestrator.tui": mock_tui_module}):
-            # Act
-            result = cli_runner.invoke(main)
-
-            # Assert
-            assert "TUI initialization failed" in result.output
-            assert "Falling back to help output" in result.output
-            assert "Open Orchestrator" in result.output
-
-    def test_existing_subcommands_continue_working_create(self, cli_runner: CliRunner) -> None:
-        """Test 'owt create' command still works."""
-        with patch("open_orchestrator.cli.WorktreeManager") as mock_wt_manager:
-            mock_wt_instance = mock_wt_manager.return_value
-            mock_wt_instance.create.return_value = MagicMock(
-                path=Path("/tmp/test"),
-                branch="feature/test",
-                head_commit="abc123",
-            )
-            mock_wt_instance.repo.working_dir = "/fake/repo"
-
-            result = cli_runner.invoke(main, ["create", "feature/test", "--no-tmux", "--no-deps", "--no-env"])
-
-            assert result.exit_code == 0
-
-    def test_existing_subcommands_continue_working_list(self, cli_runner: CliRunner) -> None:
-        """Test 'owt list' command still works."""
-        with patch("open_orchestrator.cli.WorktreeManager") as mock_wt_manager:
-            mock_wt_instance = mock_wt_manager.return_value
-            mock_wt_instance.list_all.return_value = []
-
-            result = cli_runner.invoke(main, ["list"])
-
-            assert result.exit_code == 0
-
-    def test_existing_subcommands_continue_working_help(self, cli_runner: CliRunner) -> None:
-        """Test 'owt --help' command still works."""
+    def test_help_still_works(self, cli_runner: CliRunner) -> None:
+        """Test 'owt --help' still works."""
         result = cli_runner.invoke(main, ["--help"])
-
         assert result.exit_code == 0
         assert "Open Orchestrator" in result.output
-        assert "create" in result.output
-        assert "list" in result.output
-
-    def test_main_group_accepts_no_arguments_with_invoke_without_command(
-        self, cli_runner: CliRunner
-    ) -> None:
-        """Test main group with invoke_without_command=True accepts no arguments."""
-        # When invoke_without_command=True, invoking without subcommand should not fail
-        with patch("open_orchestrator.cli.is_interactive_terminal", return_value=False):
-            result = cli_runner.invoke(main, [])
-
-            # Should not fail with "Missing command" error
-            assert "Missing command" not in result.output
-            # Should show help instead
-            assert "Open Orchestrator" in result.output

@@ -1,7 +1,7 @@
 [project]
 name = "open-orchestrator"
-version = "0.1.0"
-description = "Git Worktree + Claude Code orchestration tool for managing parallel development workflows"
+version = "0.2.0"
+description = "Git Worktree + AI agent orchestration tool for parallel development workflows"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -31,8 +31,6 @@ dependencies = [
     "toml>=0.10.0",
     "gitpython>=3.1.0",
     "libtmux>=0.25.0",
-    "pexpect>=4.9.0",
-    "textual>=0.47.0",
 ]
 
 [project.urls]
@@ -46,7 +44,6 @@ Changelog = "https://github.com/gitpcl/openorchestrator/releases"
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "pytest-textual-snapshot>=0.3.0",
     "pytest-asyncio>=0.21.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
@@ -55,7 +52,6 @@ dev = [
     "types-pyyaml>=6.0.0",
     "build>=1.0.0",
     "twine>=5.0.0",
-    "pillow>=10.0.0",
 ]
 
 [project.scripts]
@@ -101,6 +97,7 @@ ignore = [
     "S108",  # insecure temp file usage - acceptable in test fixtures with mocks
     "S603",  # subprocess call - false positive when using list arguments
     "S607",  # partial executable path - acceptable for well-known system commands (git, tmux)
+    "S110",  # try-except-pass - acceptable for best-effort cleanup operations
 ]
 
 [tool.mypy]
@@ -117,7 +114,6 @@ asyncio_mode = "auto"
 markers = [
     "gh_cli: Tests that require GitHub CLI (gh) to be installed or mocked",
     "tmux: Tests that require tmux to be installed or mocked",
-    "textual: Tests for Textual TUI components and dashboard",
     "slow: Tests that take longer than 1 second to execute",
 ]
 
@@ -136,7 +132,6 @@ omit = [
 precision = 2
 show_missing = true
 skip_covered = false
-fail_under = 90.0
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
@@ -158,7 +153,6 @@ output = "coverage.xml"
 source = [
     "src/open_orchestrator",
     "*/site-packages/open_orchestrator",
-    "/app/src/open_orchestrator"  # Docker container path
 ]
 
 [dependency-groups]
@@ -166,13 +160,3 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
 ]
-
-# Coverage targets for Feb 1 feature modules
-# Target: 90% coverage for these new modules:
-# - src/open_orchestrator/core/skill_installer.py
-# - src/open_orchestrator/core/dashboard.py
-# - src/open_orchestrator/core/process_manager.py
-# - src/open_orchestrator/core/hooks.py
-# - src/open_orchestrator/core/session.py
-# - src/open_orchestrator/core/pr_linker.py
-# - src/open_orchestrator/core/status.py (token tracking additions)

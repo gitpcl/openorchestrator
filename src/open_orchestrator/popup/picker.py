@@ -13,7 +13,6 @@ import json
 import shutil
 import sys
 
-
 # Agent definitions: (display_name, abbreviation, binary_name)
 AGENTS = [
     ("Claude Code", "cc", "claude"),

@@ -6,7 +6,6 @@ Uses simple text processing — no LLM needed.
 
 import re
 
-
 # Common filler words to strip from branch names
 _FILLER_WORDS = frozenset({
     "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",

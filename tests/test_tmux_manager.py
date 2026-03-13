@@ -24,11 +24,8 @@ class TestTmuxLayout:
 
     def test_layout_values(self):
         """Test that all expected layouts are defined."""
+        assert TmuxLayout.SINGLE.value == "single"
         assert TmuxLayout.MAIN_VERTICAL.value == "main-vertical"
-        assert TmuxLayout.THREE_PANE.value == "three-pane"
-        assert TmuxLayout.QUAD.value == "quad"
-        assert TmuxLayout.EVEN_HORIZONTAL.value == "even-horizontal"
-        assert TmuxLayout.EVEN_VERTICAL.value == "even-vertical"
 
 
 class TestTmuxSessionConfig:
@@ -40,8 +37,8 @@ class TestTmuxSessionConfig:
 
         assert config.session_name == "test-session"
         assert config.working_directory == str(temp_dir)
-        assert config.layout == TmuxLayout.MAIN_VERTICAL
-        assert config.pane_count == 2
+        assert config.layout == TmuxLayout.SINGLE
+        assert config.pane_count == 1
         assert config.auto_start_ai is True
         assert config.window_name is None
 
@@ -50,14 +47,14 @@ class TestTmuxSessionConfig:
         config = TmuxSessionConfig(
             session_name="custom-session",
             working_directory=str(temp_dir),
-            layout=TmuxLayout.QUAD,
-            pane_count=4,
+            layout=TmuxLayout.MAIN_VERTICAL,
+            pane_count=2,
             auto_start_ai=False,
             window_name="main-window",
         )
 
-        assert config.layout == TmuxLayout.QUAD
-        assert config.pane_count == 4
+        assert config.layout == TmuxLayout.MAIN_VERTICAL
+        assert config.pane_count == 2
         assert config.auto_start_ai is False
         assert config.window_name == "main-window"
 
@@ -341,8 +338,6 @@ class TestTmuxManager:
         result = manager.create_worktree_session(
             worktree_name="feature-test",
             worktree_path=str(temp_dir),
-            layout=TmuxLayout.THREE_PANE,
-            pane_count=3,
             auto_start_ai=False,
         )
 
@@ -439,17 +434,8 @@ class TestTmuxLayoutSetup:
         window.select_layout.assert_called_with("main-vertical")
 
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
-    def test_setup_three_pane_layout(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
-        """Test three-pane layout setup."""
-        # The bottom pane (accessed via window.panes[-1]) will have split_window called
-        mock_bottom_pane = MagicMock()
-
-        # Create a mock panes list where [-1] returns our bottom pane
-        # After first split_window, window.panes[-1] should be the bottom pane
-        mock_panes = MagicMock()
-        mock_panes.__getitem__ = MagicMock(side_effect=lambda i: mock_bottom_pane if i == -1 else MagicMock())
-        mock_libtmux_session.active_window.panes = mock_panes
-
+    def test_setup_single_layout(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
+        """Test single layout (no splits)."""
         mock_server = MagicMock()
         mock_server.has_session.return_value = False
         mock_server.new_session.return_value = mock_libtmux_session
@@ -457,38 +443,14 @@ class TestTmuxLayoutSetup:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session", working_directory=str(temp_dir), layout=TmuxLayout.THREE_PANE, auto_start_ai=False
+            session_name="test-session", working_directory=str(temp_dir), layout=TmuxLayout.SINGLE, auto_start_ai=False
         )
 
         manager.create_session(config)
 
         window = mock_libtmux_session.active_window
-        # Three-pane layout:
-        # 1. First split on window to create top/bottom (window.split)
-        # 2. Second split on bottom pane to create left/right (bottom_pane.split)
-        assert window.split.call_count == 1
-        assert mock_bottom_pane.split.call_count == 1
-
-    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
-    def test_setup_quad_layout(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
-        """Test quad layout setup."""
-        mock_panes = [MagicMock() for _ in range(4)]
-        mock_libtmux_session.active_window.panes = mock_panes
-
-        mock_server = MagicMock()
-        mock_server.has_session.return_value = False
-        mock_server.new_session.return_value = mock_libtmux_session
-        mock_server_prop.return_value = mock_server
-
-        manager = TmuxManager()
-        config = TmuxSessionConfig(
-            session_name="test-session", working_directory=str(temp_dir), layout=TmuxLayout.QUAD, auto_start_ai=False
-        )
-
-        manager.create_session(config)
-
-        window = mock_libtmux_session.active_window
-        window.select_layout.assert_called_with("tiled")
+        # Single layout should not call split
+        window.split.assert_not_called()
 
 
 class TestAIToolSupport:

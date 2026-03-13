@@ -1,1652 +1,244 @@
 # Open Orchestrator
 
-A Git Worktree + AI coding tool orchestration system for managing parallel development workflows with AI agent swarms. Coordinate multiple Claude Code sessions, Agent Teams, or AI agents across isolated branches with single-terminal control. Supports Claude Code, OpenCode, and Droid.
-
-![Open Orchestrator Demo](./assets/demo.gif)
+A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a curses-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid.
 
 ## Overview
 
-Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own AI coding session and tmux pane. Start with `owt new "task description"` for prompt-first workflow (auto-generates branch names, detects installed AI tools), or use `owt create <branch>` for explicit control. Features a persistent TUI sidebar (dmux-style) with direct key capture (`n`/`x`/`m` — no prefix needed), two-phase merge (`owt merge`), atomic cleanup (`owt close`), and a live tmux status bar showing worktree activity.
+Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own AI coding session and tmux session. Start with `owt new "task description"` — it auto-generates a branch name, creates the worktree, installs dependencies, copies `.env`, and starts the AI tool. Run `owt` to launch the **switchboard** — a card grid showing all active agents at a glance.
 
-> **Agent Teams vs Open Orchestrator:** While [Claude Code's Agent Teams](https://code.claude.com/docs/en/agent-teams) coordinate multiple AI agents within the *same codebase*, Open Orchestrator manages multiple *isolated worktrees* (different branches, different directories, independent environments). They're complementary tools that can work together - use Agent Teams for intra-branch collaboration, Open Orchestrator for cross-branch orchestration. [Learn more](#open-orchestrator-vs-agent-teams)
+> **Agent Teams vs Open Orchestrator:** [Claude Code's Agent Teams](https://code.claude.com/docs/en/agent-teams) coordinate multiple AI agents within the *same codebase*. Open Orchestrator manages multiple *isolated worktrees* (different branches, different directories, independent environments). They're complementary — use Agent Teams for intra-branch collaboration, Open Orchestrator for cross-branch orchestration.
 
 ## Features
 
-- **Prompt-First Workflow**: `owt new "task description"` — auto-generates branch name, detects AI tools, starts working
-- **Two-Phase Merge**: `owt merge` handles merge conflicts early by merging base→feature first, then feature→base
-- **Atomic Close**: `owt close` removes pane + stops processes + deletes worktree in one step
-- **Command Aliases**: `owt n`, `owt ls`, `owt st`, `owt m`, `owt x`, `owt rm` for quick access
-- **Persistent TUI Sidebar**: dmux-style sidebar captures keys directly (`n`/`x`/`m`/`j`/`k`) — no tmux prefix needed
-- **Mouse-Enabled tmux**: Click to switch panes, drag to resize - mouse support enabled by default
-- **Git Worktree Management**: Create, list, switch, and delete worktrees with automatic branch management
-- **Template-Based Workflows**: Pre-configured templates for common tasks (bugfix, feature, research, security-audit, etc.)
-- **tmux Integration**: Auto-create tmux sessions with customizable layouts and live status bar
-- **AI Tool Auto-Detection**: Detects 12+ installed AI tools (Claude, Codex, Gemini CLI, Aider, Amp, Kilo Code, OpenCode, Droid) with picker when multiple found
-- **Health Monitoring**: Detect stuck tasks, high costs, stale worktrees with actionable recommendations
-- **Cost Optimization**: Track token usage, compare AI tool costs, get cheapest tool recommendations
-- **Project Detection**: Automatically detect project type (Python, Node.js, Rust, Go, PHP) and package manager
-- **Dependency Installation**: Auto-install dependencies when creating new worktrees
-- **Environment Setup**: Copy `.env` files and `CLAUDE.md` with path adjustments
-- **Cleanup Service**: Detect and clean up stale worktrees with safety checks
-- **Live Dashboard**: Real-time TUI monitoring of all worktrees and AI sessions
-- **Token Tracking**: Monitor AI token usage and estimated costs per worktree
-- **GitHub PR Integration**: Link worktrees to PRs, track PR status, clean up merged PRs
-- **Status Change Hooks**: Trigger notifications, webhooks, or scripts on status changes
-- **Session Management**: Copy Claude sessions between worktrees, resume previous sessions
-- **Shell Completion**: Auto-completion for bash, zsh, and fish shells
-- **No-tmux Mode**: Manage AI processes without tmux for simpler setups
-- **Self-Update**: Built-in update checker and self-update functionality
+- **10 commands** — focused CLI surface, no bloat
+- **Switchboard UI** — curses-based card grid with status lights, instant navigation
+- **One-command setup** — `owt new "task"` does everything: branch → worktree → deps → .env → tmux → AI tool
+- **Two-phase merge** — `owt merge` catches conflicts early, then auto-cleans worktree + session
+- **Full teardown** — `owt delete` kills tmux session + removes worktree + cleans status
+- **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
+- **Project detection** — auto-detects Python, Node.js, Rust, Go, PHP and installs deps
+- **Environment setup** — copies `.env` files and `CLAUDE.md` with path adjustments
+- **6 dependencies** — click, pydantic, rich, toml, gitpython, libtmux
 
 ## Installation
 
 ### Requirements
 
-- Python 3.10 or higher
+- Python 3.10+
 - Git
 - tmux
-- Claude Code CLI (or OpenCode/Droid)
+- An AI coding tool (Claude Code, OpenCode, or Droid)
 
-### Install from PyPI (recommended)
+### Install from PyPI
 
 ```bash
-# Using pipx (recommended for CLI tools)
-pipx install open-orchestrator
-
-# Using uv
-uv pip install open-orchestrator
-
-# Using pip
 pip install open-orchestrator
 ```
 
-After installation, the `owt` command will be available in your terminal:
+### Install from source
 
 ```bash
-owt --help
-```
-
-### Install from source (for development)
-
-```bash
-# Clone the repository
 git clone https://github.com/gitpcl/openorchestrator.git
-cd open-orchestrator
-
-# Install with uv (recommended)
-uv pip install -e ".[dev]"
-
-# Or install with pip
-pip install -e ".[dev]"
+cd openorchestrator
+uv pip install -e .
 ```
 
 ## Quick Start
 
-### Create from task description (recommended)
-
 ```bash
-# Describe what you want to do — branch name is auto-generated
+# Create a worktree with AI agent (one command does everything)
 owt new "Add user authentication with JWT"
-# → Creates branch feat/add-user-authentication-jwt
-# → Auto-detects installed AI tools
-# → Starts AI with your task as the initial prompt
 
-# Interactive mode (prompts for description)
-owt new
+# Launch the switchboard to see all active agents
+owt
+
+# Jump to an agent's session
+owt switch auth-jwt
+
+# Send a message to an agent
+owt send auth-jwt "Fix the failing tests"
+
+# Merge and clean up when done
+owt merge auth-jwt
 ```
 
-### Create from branch name (power-user)
-
-```bash
-# Explicit branch name
-owt create feature/add-login
-
-# Create from a template
-owt create bugfix/auth-error --template bugfix
-
-# Create with Claude in plan mode (safe exploration)
-owt create feature/research --plan-mode
-
-# Create with specific AI tool
-owt create feature/new-api --ai-tool opencode
-```
-
-### Common aliases
-
-```bash
-owt n     # → owt new
-owt ls    # → owt list
-owt st    # → owt status
-owt m     # → owt merge
-owt x     # → owt close
-owt rm    # → owt delete
-```
-
-### Merge and cleanup
-
-```bash
-# Two-phase merge: base→feature then feature→base, auto-cleanup
-owt merge feature/add-login
-
-# Merge but keep worktree
-owt merge feature/add-login --keep
-
-# Atomic close: remove pane + stop processes + delete worktree
-owt close feature/add-login
-```
-
-### List and monitor
-
-```bash
-owt list                    # List worktrees
-owt status                  # AI activity across worktrees
-owt dashboard               # Live TUI dashboard
-```
-
-### Clean up stale worktrees
-
-```bash
-owt cleanup --dry-run       # Preview what would be cleaned
-owt cleanup                 # Actually clean up
-```
-
-### Update to latest version
-
-```bash
-# Check for updates
-owt update --check
-
-# Update to latest version
-owt update
-
-# Update to specific version
-owt update --version v0.2.0
-
-# Show version information
-owt version
-owt version --full
-```
-
-### Monitor with live dashboard
-
-```bash
-# Launch live dashboard
-owt dashboard
-
-# Check token usage and cost comparison
-owt tokens show
-owt cost
-
-# Check worktree health
-owt health --all
-```
-
-## CLI Command Reference
-
-### Worktree Commands
+## Commands
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `owt new "task description"` | `owt n` | Create worktree from task description (prompt-first, auto-names branch) |
-| `owt create <branch>` | | Create worktree from explicit branch name (power-user) |
-| `owt list` | `owt ls` | List all worktrees with status |
-| `owt status [name]` | `owt st` | Show AI activity status across all worktrees |
-| `owt merge <worktree>` | `owt m` | Two-phase merge worktree branch into base + auto-cleanup |
-| `owt close <worktree>` | `owt x` | Atomic close: remove pane + stop processes + delete worktree |
-| `owt delete <name>` | `owt rm` | Delete worktree and its tmux session |
-| `owt switch <name>` | | Switch to worktree (prints path or attaches tmux) |
-| `owt sync <name>` | | Sync a worktree with its upstream branch |
-| `owt send <name> "cmd"` | | Send a command to another worktree's AI session |
-| `owt cleanup` | | Remove stale worktrees (dry-run by default) |
-| `owt dashboard` | | Launch live TUI dashboard to monitor all worktrees |
-| `owt agent start <wt> "<task>"` | | Start autonomous agent that works independently |
-| `owt agent status` | | Show status of all autonomous agents |
-| `owt agent logs <wt>` | | View logs for autonomous agent |
-| `owt agent health` | | Check health of autonomous agents |
+| `owt` | | **Launch the Switchboard** — card grid with status lights |
+| `owt new "task"` | `owt n` | Create worktree + tmux + deps + AI agent |
+| `owt list` | `owt ls` | List worktrees with status |
+| `owt switch <name>` | `owt s` | Jump to a worktree's tmux session |
+| `owt send <name> "msg"` | | Send command to a worktree's AI agent |
+| `owt merge <name>` | `owt m` | Two-phase merge + cleanup |
+| `owt delete <name>` | `owt rm` | Delete worktree + tmux + status |
+| `owt sync [--all]` | | Sync with upstream |
+| `owt cleanup [--force]` | | Remove stale worktrees |
+| `owt version` | | Show version |
 
-### TUI & Pane Commands
+## The Switchboard
 
-| Command | Description |
-|---------|-------------|
-| `owt tui` | Launch persistent TUI sidebar (dmux-style, direct key capture) |
-| `owt pane add --branch <name>` | Add a worktree pane on demand (also via `n` in TUI) |
-| `owt pane remove --worktree <name>` | Remove pane and delete worktree (also via `x` in TUI) |
-| `owt pane remove --keep-worktree` | Remove pane but keep the git worktree |
+Run `owt` with no arguments to launch the switchboard — your command center:
 
-### Template Commands
+```
+  SWITCHBOARD                                    4 lines  ●3 active ○1
 
-| Command | Description |
-|---------|-------------|
-| `owt template list` | List all available templates |
-| `owt template show <name>` | Show template details and configuration |
+  ┌─ auth-jwt ──────────────┐   ┌─ fix-login ──────────────┐
+  │ ● WORKING        12m    │   │ ○ IDLE              3h    │
+  │ feat/auth-jwt           │   │ fix/login-redirect        │
+  │ claude                  │   │ claude                    │
+  │ Implementing JWT auth   │   │ —                         │
+  └─────────────────────────┘   └───────────────────────────┘
 
-### Health & Cost Commands
+  ┌─ api-refactor ──────────┐   ┌─ db-migration ────────────┐
+  │ ● WORKING        45m    │   │ ⚠ BLOCKED           5m    │
+  │ refactor/api-v2         │   │ feat/db-migration         │
+  │ opencode                │   │ claude                    │
+  │ Refactoring endpoints   │   │ Waiting for input         │
+  └─────────────────────────┘   └───────────────────────────┘
 
-| Command | Description |
-|---------|-------------|
-| `owt health [name]` | Check worktree health (stuck tasks, high costs, etc.) |
-| `owt cost [name]` | Compare AI tool costs for current token usage |
+  [↑↓←→] navigate  [Enter] patch in  [s] send  [n] new  [d] drop  [m] merge  [q] quit
+```
 
-### Session & Token Commands
+**Status lights:** ● working, ○ idle, ⚠ blocked, ✓ done
 
-| Command | Description |
-|---------|-------------|
-| `owt copy-session <src> <dest>` | Copy Claude session data between worktrees |
-| `owt resume <name>` | Get resume command for a worktree's Claude session |
-| `owt session [name]` | Show Claude session information for worktrees |
-| `owt tokens show [name]` | Show token usage for worktree(s) |
-| `owt tokens update <name>` | Manually update token usage |
-| `owt tokens reset <name>` | Reset token usage to zero |
+**Keys:**
+- **Arrow keys** — navigate between cards
+- **Enter** — patch into that agent's tmux session
+- **s** — send a message to the selected agent
+- **n** — create a new worktree + agent
+- **d** — delete the selected worktree (with confirmation)
+- **m** — merge the selected worktree
+- **q** — quit
 
-### GitHub PR Commands
+## Workflow Templates
 
-| Command | Description |
-|---------|-------------|
-| `owt pr link <name> --pr <num>` | Link a worktree to a GitHub PR |
-| `owt pr unlink <name>` | Remove PR association from worktree |
-| `owt pr status [name]` | Show PR status for worktree(s) |
-| `owt pr list` | List all worktrees with linked PRs |
-| `owt pr refresh <name>` | Refresh PR info from GitHub |
-| `owt pr cleanup` | Delete worktrees with merged PRs |
+Three built-in templates for common workflows:
 
-### Hook Commands
-
-| Command | Description |
-|---------|-------------|
-| `owt hooks list` | List configured status change hooks |
-| `owt hooks add` | Add a new hook (interactive) |
-| `owt hooks remove <id>` | Remove a hook by ID |
-| `owt hooks enable <id>` | Enable a disabled hook |
-| `owt hooks disable <id>` | Disable a hook |
-| `owt hooks test <id>` | Test a hook execution |
-| `owt hooks history` | View hook execution history |
-| `owt hooks clear-history` | Clear hook execution history |
-
-### Process Commands (No-tmux Mode)
-
-| Command | Description |
-|---------|-------------|
-| `owt process start <name>` | Start AI tool as background process |
-| `owt process stop <name>` | Stop AI tool process |
-| `owt process list` | List running AI tool processes |
-| `owt process logs <name>` | View logs for an AI tool process |
-
-### Shell Completion
-
-| Command | Description |
-|---------|-------------|
-| `owt completion bash` | Generate bash completion script |
-| `owt completion zsh` | Generate zsh completion script |
-| `owt completion fish` | Generate fish completion script |
-| `owt completion install` | Show installation instructions |
-
-### Update & Version
-
-| Command | Description |
-|---------|-------------|
-| `owt version` | Show current version |
-| `owt version --full` | Show detailed installation information |
-| `owt update` | Update to latest version |
-| `owt update --check` | Check for updates without installing |
-| `owt update --version <tag>` | Update to specific version |
-
-### Claude Code Skill
-
-| Command | Description |
-|---------|-------------|
-| `owt skill install` | Install skill to ~/.claude/skills/ (symlink) |
-| `owt skill install --copy` | Install skill as copy (not symlink) |
-| `owt skill status` | Check skill installation status |
-| `owt skill uninstall` | Remove skill from ~/.claude/skills/ |
-
-### tmux Commands
-
-| Command | Description |
-|---------|-------------|
-| `owt tmux create <name>` | Create a tmux session |
-| `owt tmux attach <name>` | Attach to an existing session |
-| `owt tmux list` | List worktree tmux sessions |
-| `owt tmux kill <name>` | Kill a tmux session |
-| `owt tmux send <name> "keys"` | Send keys to a session pane |
-
-### Command Options
-
-#### `owt create`
-
-| Option | Description |
-|--------|-------------|
-| `-b, --base <branch>` | Base branch for creating new branches |
-| `-p, --path <path>` | Custom path for the worktree |
-| `-f, --force` | Force creation even if branch exists elsewhere |
-| `--tmux / --no-tmux` | Create tmux session (default: enabled) |
-| `--claude / --no-claude` | Auto-start AI tool (default: enabled) |
-| `--ai-tool <tool>` | AI tool: `claude`, `opencode`, `droid`, `codex`, `gemini`, `aider`, `amp`, `kilo-code` (default: auto-detect) |
-| `--droid-auto <level>` | Droid autonomy level: `low`, `medium`, `high` |
-| `--droid-skip-permissions` | Skip Droid permissions check (use with caution) |
-| `--opencode-config <path>` | Path to OpenCode configuration file |
-| `-l, --layout <layout>` | tmux layout: `main-vertical`, `three-pane`, `quad`, `even-horizontal`, `even-vertical` |
-| `--panes <n>` | Number of panes (default: 2) |
-| `-a, --attach` | Attach to tmux session after creation |
-| `--deps / --no-deps` | Install dependencies (default: enabled) |
-| `--env / --no-env` | Copy .env file (default: enabled) |
-| `--plan-mode` | Start Claude in plan mode (safe exploration) |
-| `--sync-claude-md / --no-sync-claude-md` | Copy CLAUDE.md files (default: enabled) |
-| `--template <name>` | Use a template (bugfix, feature, research, etc.) |
-| `--auto-optimize` | Auto-select cheapest AI tool for task complexity |
-| `--task <description>` | Task description (used with --auto-optimize) |
-
-#### `owt list`
-
-| Option | Description |
-|--------|-------------|
-| `-a, --all` | Show all worktrees including main |
-
-#### `owt switch`
-
-| Option | Description |
-|--------|-------------|
-| `-t, --tmux` | Attach to worktree's tmux session |
-
-#### `owt delete`
-
-| Option | Description |
-|--------|-------------|
-| `-f, --force` | Force deletion with uncommitted changes |
-| `-y, --yes` | Skip confirmation prompt |
-| `--keep-tmux` | Keep the associated tmux session |
-
-#### `owt cleanup`
-
-| Option | Description |
-|--------|-------------|
-| `-d, --days <n>` | Days threshold for stale detection (default: 14) |
-| `--dry-run / --no-dry-run` | Preview mode (default: dry-run) |
-| `-f, --force` | Include worktrees with uncommitted changes |
-| `-y, --yes` | Skip confirmation prompt |
-| `--json` | Output results in JSON format |
-
-#### `owt sync`
-
-| Option | Description |
-|--------|-------------|
-| `-a, --all` | Sync all worktrees |
-| `--strategy <merge\|rebase>` | Pull strategy (default: merge) |
-| `--no-stash` | Don't auto-stash uncommitted changes |
-| `--json` | Output results in JSON format |
-
-#### `owt dashboard`
-
-| Option | Description |
-|--------|-------------|
-| `-r, --refresh <secs>` | Refresh rate in seconds (default: 2.0) |
-| `--no-tokens` | Hide token usage columns |
-| `--no-commands` | Hide command count column |
-| `-c, --compact` | Compact mode (no summary panel) |
-
-#### `owt send`
-
-| Option | Description |
-|--------|-------------|
-| `-p, --pane <n>` | Target pane index (default: 0) |
-| `-w, --window <n>` | Target window index (default: 0) |
-| `--no-enter` | Don't press Enter after sending |
-| `--no-log` | Don't persist command in status history |
-
-#### `owt status`
-
-| Option | Description |
-|--------|-------------|
-| `-a, --all` | Show status for all worktrees |
-| `--set-task <text>` | Set the current task for this worktree |
-| `--set-status <status>` | Set activity status: idle, working, blocked, waiting, completed, error |
-| `--notes <text>` | Set notes for this worktree |
-| `--json` | Output as JSON |
-
-#### `owt tmux create`
-
-| Option | Description |
-|--------|-------------|
-| `-d, --directory <path>` | Working directory (default: current) |
-| `-l, --layout <layout>` | Pane layout |
-| `-p, --panes <n>` | Number of panes |
-| `--claude / --no-claude` | Auto-start AI tool (default: enabled) |
-| `--ai-tool <tool>` | AI tool: `claude`, `opencode`, `droid`, `codex`, `gemini`, `aider`, `amp`, `kilo-code` (default: auto-detect) |
-| `--droid-auto <level>` | Droid autonomy level: `low`, `medium`, `high` |
-| `--droid-skip-permissions` | Skip Droid permissions check (use with caution) |
-| `--opencode-config <path>` | Path to OpenCode configuration file |
-| `-a, --attach` | Attach after creation |
-
-#### `owt tmux list`
-
-| Option | Description |
-|--------|-------------|
-| `-a, --all` | Show all tmux sessions |
-| `--json` | Output as JSON |
-
-#### `owt tmux kill`
-
-| Option | Description |
-|--------|-------------|
-| `-f, --force` | Kill without confirmation |
-
-#### `owt tmux send`
-
-| Option | Description |
-|--------|-------------|
-| `-p, --pane <n>` | Target pane index |
-| `-w, --window <n>` | Target window index |
+```bash
+owt new "Add payments" --template feature   # Plan mode, TDD workflow
+owt new "Fix crash" --template bugfix       # Root cause focus, minimal changes
+owt new "Patch CVE" --template hotfix       # Emergency, production stability
+```
 
 ## Configuration
 
-Create a `.worktreerc` file in your project root to customize behavior:
+Config files are loaded in priority order:
+1. `.worktreerc` in current directory
+2. `.worktreerc.toml`
+3. `~/.config/open-orchestrator/config.toml`
+4. `~/.worktreerc`
 
 ```toml
 [worktree]
 base_directory = "../"
-naming_pattern = "{project}-{branch}"
 auto_cleanup_days = 14
 
 [tmux]
-default_layout = "single"  # single (on-demand), main-vertical, three-pane, quad
 auto_start_ai = true
-ai_tool = "claude"  # Options: claude, opencode, droid
-pane_count = 2
-mouse_mode = true  # Enable mouse support (click to switch, drag to resize)
+ai_tool = "claude"        # claude, opencode, droid
+mouse_mode = true
 
 [environment]
 auto_install_deps = true
 copy_env_file = true
-
-# Droid-specific configuration
-[droid]
-default_auto_level = "medium"  # low, medium, high
-skip_permissions_unsafe = false
-
-# OpenCode-specific configuration
-[opencode]
-config_path = "~/.config/opencode/opencode.json"
-
-# Custom templates (extends built-in templates)
-[[templates]]
-name = "my-feature"
-description = "My custom feature template"
-base_branch = "develop"
-ai_tool = "claude"
-plan_mode = true
-tmux_layout = "three-pane"
-ai_instructions = "Follow TDD approach"
-auto_commands = ["npm run test:watch"]
-tags = ["feature", "tdd"]
 ```
 
-### Configuration Options
+## AI Tool Support
 
-#### `[worktree]` Section
+Open Orchestrator auto-detects installed AI tools and offers a picker when multiple are found:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `base_directory` | `"../"` | Where to create worktrees relative to main repo |
-| `naming_pattern` | `"{project}-{branch}"` | Pattern for worktree directory names |
-| `auto_cleanup_days` | `14` | Days before a worktree is considered stale |
+| Tool | Binary | Notes |
+|------|--------|-------|
+| Claude Code | `claude` | Default, supports plan mode |
+| OpenCode | `opencode` | Go-based |
+| Droid | `droid` | Supports autonomy levels |
 
-#### `[tmux]` Section
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `default_layout` | `"single"` | Default tmux pane layout (`single` for on-demand mode) |
-| `auto_start_ai` | `true` | Auto-start AI tool in first pane |
-| `ai_tool` | `"claude"` | AI tool to start: `claude`, `opencode`, `droid` |
-| `pane_count` | `2` | Number of panes to create |
-| `mouse_mode` | `true` | Enable mouse support (click to switch panes, drag to resize) |
-
-Available layouts:
-- `single`: Single pane, on-demand mode (default for workspace mode)
-- `main-vertical`: Large left pane, smaller right panes
-- `main-focus`: 1/3 left main + right column of worktree panes
-- `three-pane`: Main top pane, two bottom panes
-- `quad`: Four equal panes
-- `even-horizontal`: Equal horizontal split
-- `even-vertical`: Equal vertical split
-
-#### `[environment]` Section
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `auto_install_deps` | `true` | Auto-install dependencies on worktree creation |
-| `copy_env_file` | `true` | Copy `.env` file to new worktrees |
-
-#### `[droid]` Section
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `default_auto_level` | `null` | Default autonomy level: `low`, `medium`, `high` |
-| `skip_permissions_unsafe` | `false` | Skip permissions check (use with caution) |
-
-#### `[opencode]` Section
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `config_path` | `null` | Path to OpenCode configuration file |
-
-### Templates
-
-Open Orchestrator includes 8 built-in templates for common workflows:
-
-| Template | Description | Base Branch | AI Tool | Plan Mode |
-|----------|-------------|-------------|---------|-----------|
-| `bugfix` | Quick bug fixes with minimal setup | `main` | `claude-haiku` | ✗ |
-| `feature` | New feature development | `develop` | `claude` | ✓ |
-| `research` | Research and exploration tasks | `main` | `claude` | ✓ |
-| `security-audit` | Security reviews and audits | `main` | `claude-opus` | ✓ |
-| `refactor` | Code refactoring and cleanup | `develop` | `claude` | ✓ |
-| `hotfix` | Production hotfixes | `main` | `claude` | ✗ |
-| `experiment` | Experimental changes, no deps install | `develop` | `opencode` | ✓ |
-| `docs` | Documentation updates | `main` | `claude-haiku` | ✗ |
-
-Create custom templates in your `.worktreerc` file:
-
-```toml
-[[templates]]
-name = "tdd-feature"
-description = "Feature development with TDD"
-base_branch = "develop"
-ai_tool = "claude"
-plan_mode = true
-tmux_layout = "three-pane"
-ai_instructions = """
-Follow test-driven development:
-1. Write failing test
-2. Make it pass
-3. Refactor
-"""
-auto_commands = ["npm run test:watch"]
-install_deps = true
-tags = ["feature", "tdd", "testing"]
+```bash
+owt new "task" --ai-tool claude --plan-mode
+owt new "task" --ai-tool opencode
+owt new "task" --ai-tool droid
 ```
 
 ## Project Detection
 
-Open Orchestrator automatically detects your project type and package manager:
+Automatically detects project type and installs dependencies:
 
-| Project Type | Detected By | Package Manager Priority |
-|-------------|-------------|-------------------------|
-| Python | `pyproject.toml`, `requirements.txt` | uv > poetry > pipenv > pip |
-| Node.js | `package.json` | bun > pnpm > yarn > npm |
+| Type | Detection | Package Manager |
+|------|-----------|----------------|
+| Python | `pyproject.toml`, `uv.lock`, `requirements.txt` | uv > poetry > pipenv > pip |
+| Node.js | `package.json`, `bun.lockb`, `pnpm-lock.yaml` | bun > pnpm > yarn > npm |
 | Rust | `Cargo.toml` | cargo |
 | Go | `go.mod` | go |
 | PHP | `composer.json` | composer |
 
-## Usage Modes
+## Common Patterns
 
-Open Orchestrator can be used in two ways:
-
-### 1. Standalone CLI Tool
-
-Use `owt` directly from the terminal to manage worktrees and tmux sessions:
-
+### Parallel Feature Development
 ```bash
-# Create a worktree with auto-setup
-owt create feature/my-feature
-
-# List all worktrees
-owt list
-
-# Attach to a worktree's tmux session
-owt switch feature/my-feature --tmux
-
-# Clean up stale worktrees
-owt cleanup --dry-run
+owt new "Build Stripe integration"
+owt new "Write payment tests"
+owt new "Add payment docs"
+# -> Three agents working in parallel, visible in switchboard
 ```
 
-This mode is ideal for developers who want worktree management without Claude Code integration.
-
-### 2. Claude Code Plugin Integration
-
-For developers using Claude Code, the tool provides slash commands and context hooks that allow Claude to manage worktrees on your behalf.
-
-#### Setup
-
-Copy the `.claude/` directory to your project (or symlink it):
-
+### Bug Investigation + Fix
 ```bash
-# From your project root
-cp -r /path/to/open-orchestrator/.claude .
+owt new "Profile memory usage in user service" --plan-mode
+# -> Agent investigates in plan mode (read-only)
+# Later: owt merge memory-profile
 ```
 
-Or add the permissions to your existing `.claude/settings.json`:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(owt:*)",
-      "Bash(git worktree:*)",
-      "Bash(tmux:*)"
-    ]
-  }
-}
-```
-
-#### Slash Commands
-
-Once configured, Claude Code can use these slash commands:
-
-| Command | Description |
-|---------|-------------|
-| `/worktree` | Main worktree management (create, list, switch, delete) |
-| `/wt-create` | Quick worktree creation shortcut |
-| `/wt-list` | List all worktrees with status |
-| `/wt-cleanup` | Clean up stale worktrees |
-| `/wt-status` | Show Claude activity status across worktrees |
-
-Example usage in Claude Code:
-```
-/worktree create feature/add-authentication
-
-# Use templates
-/wt-create bugfix/auth-error --template bugfix
-
-# Check health
-What's the health status of all worktrees?
-
-# Optimize costs
-Show me cost comparison for feature/api worktree
-```
-
-#### Context Hook (Optional)
-
-To automatically inject worktree context into Claude Code prompts, add the hook to your `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "type": "command",
-        "command": "python3 scripts/context-injector.py"
-      }
-    ]
-  }
-}
-```
-
-This will show `[Worktree: name | Branch: branch]` in your prompts when working in a worktree.
-
-## Persistent TUI Sidebar (Workspace Mode)
-
-Open Orchestrator uses a **persistent TUI sidebar** (dmux-style) as the default workspace mode. The TUI runs in pane 0 and captures keys directly — no tmux prefix needed. Press `n` to add panes, `x` to close, `m` to merge, `j`/`k` to navigate.
-
-### Architecture
-
-```
-tmux session: owt-<project>
-┌─────────────┬────────────────────┐
-│             │   Agent Pane 1     │
-│  TUI        │   (Claude Code)    │
-│  Sidebar    ├────────────────────┤
-│  (pane 0)   │   Agent Pane 2     │
-│  ~25% width │   (OpenCode)       │
-│             ├────────────────────┤
-│  Captures   │   Agent Pane 3     │
-│  keys       │   (Codex)          │
-│  directly   │                    │
-└─────────────┴────────────────────┘
-```
-
-### How It Works
-
-1. `owt create feature/api` creates a workspace with the **TUI sidebar** in pane 0
-2. Press **`n`** in the TUI — popup picker appears as a tmux overlay
-3. Select AI tool, enter branch name, optionally pick a template
-4. A new pane appears to the right with the worktree + AI tool running
-5. Press **`x`** to close a pane, **`m`** to merge its branch
-
-### TUI Keybindings (no prefix needed)
-
-| Key | Action |
-|-----|--------|
-| `n` | Open popup picker → create worktree pane |
-| `x` | Close selected pane (with confirmation) |
-| `m` | Merge selected worktree branch |
-| `j` / `↓` | Navigate down |
-| `k` / `↑` | Navigate up |
-| `Enter` | Focus selected agent pane |
-| `a` | A/B comparison |
-| `?` | Help overlay |
-| `q` | Quit (with confirmation) |
-
-### Quick Start
-
+### Delegating Tasks
 ```bash
-# Launch TUI sidebar directly
-$ owt tui
-
-# Or create first worktree (auto-creates workspace with TUI sidebar)
-$ owt create feature/api
-✅ Created workspace: owt-myproject
-✅ TUI sidebar running in pane 0
-✅ Added pane for feature/api
-
-# In the TUI sidebar, press n → popup picker appears:
-#   AI Tool: 1) claude  2) opencode  3) droid
-#   Select: 1
-#   Branch name: bugfix/login
-#   Template (optional):
-# → New pane appears with bugfix/login + Claude
-
-# Or add from CLI:
-$ owt pane add --branch bugfix/login --workspace owt-myproject --repo /path
-
-# Remove a pane: press x in TUI (with confirmation)
-# Or from CLI:
-$ owt pane remove --worktree bugfix/login --workspace owt-myproject
-```
-
-### TUI Status Icons
-
-The sidebar shows real-time status for each pane:
-
-| Icon | Status | Color |
-|------|--------|-------|
-| `✻` | Working | Cyan |
-| `◌` | Idle | Gray |
-| `△` | Blocked | Red |
-| `⧖` | Waiting | Yellow |
-| `✓` | Completed | Green |
-| `✗` | Error | Red |
-
-Agent panes are tagged: `[cc]` Claude, `[oc]` OpenCode, `[dr]` Droid, `[cx]` Codex, `[gc]` Gemini CLI, `[ai]` Aider, `[am]` Amp, `[kc]` Kilo Code.
-
-### Workspace Commands
-
-```bash
-# List all workspaces
-$ owt workspace list
-
-# Show workspace details
-$ owt workspace show owt-myproject
-
-# Attach to workspace
-$ owt workspace attach owt-myproject
-
-# Destroy workspace (doesn't delete worktrees!)
-$ owt workspace destroy owt-myproject
-```
-
-### Pane Commands
-
-```bash
-# Add pane on demand (also available via n in TUI)
-$ owt pane add --branch feature/x --ai-tool claude --workspace owt-myproject --repo .
-
-# Add pane with template
-$ owt pane add --branch bugfix/y --template bugfix --workspace owt-myproject --repo .
-
-# Remove pane and delete worktree (also available via x in TUI)
-$ owt pane remove --worktree feature/x --workspace owt-myproject
-
-# Remove pane but keep worktree
-$ owt pane remove --worktree feature/x --workspace owt-myproject --keep-worktree
-```
-
-### Separate Session Mode (Opt-Out)
-
-If you prefer standalone tmux sessions, use `--separate-session`:
-
-```bash
-# Create standalone tmux session (not in workspace)
-$ owt create feature/standalone --separate-session
-✅ tmux session created!
-Session: owt-feature-standalone
-Layout: main-vertical
-Panes: 2
-```
-
-### Workspace Configuration
-
-Customize workspace behavior in `.worktreerc`:
-
-```toml
-[workspace]
-# Use unified workspace mode by default
-unified_mode = true
-
-# Default layout (single for on-demand, or main-focus, grid, stack, focus, tile)
-default_layout = "single"
-
-# Maximum panes per workspace (auto-expands in on-demand mode)
-max_panes = 10
-
-# Auto-balance pane sizes when adding/removing
-auto_balance = true
-
-# Focus new pane when worktree created
-focus_on_create = true
-```
-
-## Orchestration Workflow
-
-Open Orchestrator's key value proposition is **single-terminal orchestration** - control multiple AI coding sessions from one terminal window without constantly switching contexts.
-
-### The Problem
-
-Traditional parallel development requires:
-- Multiple terminal windows/tabs open
-- Manual context switching between sessions
-- Lost focus from constant window management
-- No visibility into what AI agents are working on
-- Difficulty coordinating work across branches
-
-### The Solution: Single-Terminal Control
-
-Open Orchestrator lets you:
-1. **Create isolated worktrees** with dedicated AI sessions
-2. **Send commands** to any worktree from your main terminal
-3. **Track AI activity** across all worktrees in real-time
-4. **Orchestrate work** without leaving your current context
-
-### Open Orchestrator vs Agent Teams
-
-**Not familiar with [Claude Code's Agent Teams](https://code.claude.com/docs/en/agent-teams)?** They're an experimental feature that lets multiple AI agents coordinate within the same codebase using shared task lists and inter-agent messaging.
-
-**Key Difference:**
-- **Agent Teams**: Multiple AI agents collaborating in the **same worktree** (same branch, same directory)
-- **Open Orchestrator**: Multiple **isolated worktrees** (different branches, different directories, different environments)
-
-| Feature | Agent Teams | Open Orchestrator |
-|---------|-------------|-------------------|
-| **Scope** | Same codebase, multiple agents | Multiple branches, multiple codebases |
-| **Coordination** | Agents message each other | Single-terminal command delegation |
-| **Isolation** | Shared git worktree | Separate worktrees with independent environments |
-| **Dependencies** | Same node_modules/venv | Each worktree has its own dependencies |
-| **Best For** | Code review, competing hypotheses, research | Parallel feature development, branch management |
-| **Infrastructure** | Built into Claude Code | CLI + git worktrees + tmux |
-
-### Using Both Together
-
-Open Orchestrator can **enhance your Agent Team workflows** by providing infrastructure for agent swarms across branches:
-
-**Pattern 1: Agent Teams per Feature Branch**
-```bash
-# Create isolated worktree for feature A
-owt create feature/auth --plan-mode
-
-# Inside that worktree, spawn Agent Team
-# Have multiple agents collaborate on auth implementation
-
-# Meanwhile, create another worktree for feature B
-owt create feature/payments
-# Spawn different Agent Team here
-
-# Monitor both from main terminal
-owt status --all
-```
-
-**Pattern 2: Parallel Agent Team Research**
-```bash
-# Create worktrees for different experiments
-owt create experiment/approach-a
-owt create experiment/approach-b
-owt create experiment/approach-c
-
-# In each worktree, spawn Agent Team to explore different approaches
-# Each team works in isolation with their own dependencies
-# Compare results across worktrees without conflicts
-```
-
-**Pattern 3: Agent Team + Infrastructure Orchestration**
-```bash
-# Use Open Orchestrator for infrastructure
-owt create feature/refactor
-
-# Use Agent Teams inside for collaboration
-# One agent on security review
-# One agent on performance
-# One agent on test coverage
-
-# Use Open Orchestrator to track progress
-owt status feature/refactor
-
-# Use Open Orchestrator to link to GitHub PR
-owt pr link feature/refactor --pr 123
-```
-
-**Why This Combination Works:**
-- ✅ **Agent Teams** handle *intra-branch* coordination (multiple agents, one codebase)
-- ✅ **Open Orchestrator** handles *cross-branch* orchestration (multiple worktrees, isolated environments)
-- ✅ Use Agent Teams when you need agents to debate, review, or collaborate on the same code
-- ✅ Use Open Orchestrator when you need complete isolation between different features/experiments
-- ✅ Combine both for maximum parallelism: agent swarms working across multiple isolated branches
-
-### Example Workflow
-
-**Scenario:** You're working on a frontend feature but need to quickly test API changes in parallel.
-
-```bash
-# In your main terminal (working on frontend)
-$ cd my-project
-
-# Create a worktree for API work (auto-creates tmux + AI session)
-$ owt create feature/api-refactor
-✅ Created worktree: feature/api-refactor
-✅ tmux session: owt-api-refactor
-✅ Claude Code started in pane 0
-
-# Send a command to the API worktree's AI session
-$ owt send api-refactor "Review the authentication endpoints and suggest improvements"
-📤 Sent to api-refactor (pane 0)
-
-# Check what all AI sessions are doing
-$ owt status
-┌─────────────────┬──────────┬───────────────────────────┬─────────────┐
-│ Worktree        │ Status   │ Current Task              │ Last Active │
-├─────────────────┼──────────┼───────────────────────────┼─────────────┤
-│ main            │ working  │ Frontend auth UI          │ 2m ago      │
-│ api-refactor    │ working  │ Reviewing auth endpoints  │ just now    │
-│ feature/cleanup │ idle     │ -                         │ 3h ago      │
-└─────────────────┴──────────┴───────────────────────────┴─────────────┘
-
-# Continue working in your main terminal
-# AI in api-refactor is working independently
-# You'll see status updates when you check again
-
-# Later: Get results from the API worktree
-$ owt switch api-refactor --tmux
-# [Now attached to api-refactor session, see Claude's analysis]
-```
-
-### Send/Receive Notification Pattern
-
-The `owt send` command creates a **fire-and-forget notification system** between worktrees:
-
-#### Sending Commands
-
-```bash
-# Basic send
-$ owt send <worktree-name> "command or instruction"
-
-# Send to specific tmux pane
-$ owt send api-refactor "run tests" --pane 1
-
-# Send without auto-entering (for multi-line prep)
-$ owt send frontend "implement login form" --no-enter
-
-# Send without logging to status history
-$ owt send cleanup "check for stale code" --no-log
-```
-
-#### How It Works
-
-1. **Command Sent:** Your command is transmitted to the target worktree's tmux session or workspace pane
-2. **AI Receives:** If AI tool is active in that pane, it receives the instruction
-3. **Status Logged:** Command is logged in `~/.open-orchestrator/ai_status.json` (unless `--no-log`)
-4. **You Continue:** Return immediately to your current work
-5. **Check Later:** Use `owt status` to see progress
-
-#### Real-World Use Cases
-
-**Use Case 1: Parallel Code Review**
-```bash
-# You're fixing bugs, but want AI to review another branch
-$ owt create feature/review-auth
-$ owt send review-auth "Review the authentication code for security issues"
-# Continue fixing bugs while AI reviews independently
-```
-
-**Use Case 2: Background Testing**
-```bash
-# Start long-running tests in another worktree
-$ owt send test-branch "Run full integration test suite"
-$ owt status test-branch  # Check later if tests passed
-```
-
-**Use Case 3: Research Tasks**
-```bash
-# Ask AI to research while you implement
-$ owt send research "Find best practices for rate limiting in Express.js"
-# AI researches in background, you check results when ready
-```
-
-**Use Case 4: Multi-Branch Coordination**
-```bash
-# Coordinate work across multiple features
-$ owt send frontend "Implement login UI using design system"
-$ owt send backend "Add OAuth endpoints with JWT tokens"
-$ owt send docs "Document the new authentication flow"
-$ owt status --all  # See all AI agents working
-```
-
-### Status Tracking
-
-Track AI activity across all worktrees from a single terminal:
-
-```bash
-# View all worktree status
-$ owt status
-
-# View specific worktree status
-$ owt status api-refactor
-
-# Set custom status for a worktree
-$ owt status --set-task "Implementing auth flow" --set-status working
-
-# Add notes to a worktree
-$ owt status --notes "Waiting for API design approval"
-
-# Export status as JSON (for scripts/dashboards)
-$ owt status --json
-```
-
-**Status Fields:**
-- **Status:** `idle`, `working`, `blocked`, `waiting`, `completed`, `error`
-- **Current Task:** What the AI is working on
-- **Command History:** Recent commands sent to this worktree
-- **Token Usage:** Input/output tokens and estimated cost
-- **Last Active:** Timestamp of last activity
-
-### Live Dashboard
-
-Monitor all worktrees in real-time with a live terminal UI:
-
-```bash
-# Launch the dashboard (updates every 2 seconds)
-$ owt dashboard
-
-# Faster refresh rate
-$ owt dashboard -r 1
-
-# Compact mode (minimal UI)
-$ owt dashboard --compact
-
-# Hide token usage columns
-$ owt dashboard --no-tokens
-```
-
-The dashboard shows:
-- Real-time status indicators (● working, ○ idle, ■ blocked)
-- Current task for each worktree
-- Token usage and estimated costs
-- Command counts and last activity times
-
-### Token Tracking
-
-Track AI token usage and costs across worktrees:
-
-```bash
-# View token usage for all worktrees
-$ owt tokens show
-
-# View for specific worktree
-$ owt tokens show feature/api
-
-# Manually update token usage (when parsing Claude output)
-$ owt tokens update feature/api --input 1000 --output 500
-
-# Reset token usage
-$ owt tokens reset feature/api
-```
-
-Token tracking includes:
-- Input and output token counts
-- Cache read/write tokens
-- Estimated cost (based on Claude Opus pricing)
-
-### GitHub PR Integration
-
-Link worktrees to GitHub PRs for better tracking:
-
-```bash
-# Link a worktree to a PR
-$ owt pr link feature/auth --pr 123
-
-# View PR status
-$ owt pr status feature/auth
-
-# List all worktrees with linked PRs
-$ owt pr list
-
-# Refresh PR info from GitHub
-$ owt pr refresh feature/auth
-
-# Clean up worktrees with merged PRs
-$ owt pr cleanup
-```
-
-PRs are auto-detected from branch names matching patterns like `feature/123-description`.
-
-### Status Change Hooks
-
-Trigger actions when AI status changes:
-
-```bash
-# List configured hooks
-$ owt hooks list
-
-# Add a new hook (interactive)
-$ owt hooks add
-
-# Test a hook
-$ owt hooks test <hook-id>
-
-# View hook execution history
-$ owt hooks history
-```
-
-Hook types:
-- **Shell commands:** Run any command on status change
-- **Notifications:** Desktop notifications (macOS/Linux)
-- **Webhooks:** POST to URLs (Slack, Discord, etc.)
-- **Logging:** Log status changes to file
-
-### Shell Completion
-
-Install tab completion for your shell:
-
-```bash
-# Show installation instructions
-$ owt completion install
-
-# Bash: Add to ~/.bashrc
-eval "$(owt completion bash)"
-
-# Zsh: Add to ~/.zshrc
-eval "$(owt completion zsh)"
-
-# Fish: Save to completions
-owt completion fish > ~/.config/fish/completions/owt.fish
-```
-
-### Claude Code Skill Installation
-
-Install the Open Orchestrator skill for Claude Code to get intelligent command suggestions:
-
-```bash
-# Install skill (creates symlink - recommended)
-$ owt skill install
-✓ Created ~/.claude/skills/open-orchestrator/
-✓ Linked SKILL.md → /path/to/open-orchestrator/src/open_orchestrator/skills/open-orchestrator/SKILL.md
-✓ Skill installed successfully!
-
-# Or install as copy (independent file)
-$ owt skill install --copy
-
-# Check installation status
-$ owt skill status
-Open Orchestrator Skill
-  Status:   Installed (symlink)
-  Source:   /path/to/package/skills/open-orchestrator/SKILL.md
-  Target:   ~/.claude/skills/open-orchestrator/SKILL.md
-  Up-to-date: ✓
-
-# Uninstall
-$ owt skill uninstall
-```
-
-The skill provides Claude Code with context about Open Orchestrator commands, enabling it to suggest appropriate `owt` commands when you mention worktrees, parallel development, or AI orchestration.
-
-### No-tmux Mode
-
-For simpler setups without tmux:
-
-```bash
-# Start AI tool as background process
-$ owt process start feature/api
-
-# List running processes
-$ owt process list
-
-# View process logs
-$ owt process logs feature/api
-
-# Stop a process
-$ owt process stop feature/api
-```
-
-Processes are tracked via PID files and logs are saved to `~/.cache/open-orchestrator/logs/`.
-
-### Template-Based Development
-
-Use templates to standardize workflows and reduce setup time:
-
-```bash
-# List available templates
-$ owt template list
-Available Templates:
-  bugfix         - Quick bug fixes with minimal setup
-  feature        - New feature development with plan mode
-  research       - Research and exploration tasks
-  security-audit - Security reviews and audits
-  ...
-
-# Show template details
-$ owt template show bugfix
-Template: bugfix
-Description: Quick bug fixes with minimal setup
-Base Branch: main
-AI Tool: claude-haiku (cost-optimized)
-Plan Mode: No
-Auto Commands: None
-
-# Create worktree from template
-$ owt create bugfix/fix-auth-error --template bugfix
-✅ Applied template: bugfix
-✅ AI Tool: claude-haiku (optimized for quick fixes)
-✅ Base Branch: main
-✅ Created worktree: bugfix/fix-auth-error
-
-# Create with custom template from .worktreerc
-$ owt create feature/tdd-login --template tdd-feature
-✅ Applied template: tdd-feature
-✅ Auto Commands: npm run test:watch
-✅ AI Instructions loaded
-✅ Created worktree with 3-pane layout
-```
-
-**Benefits:**
-- ✅ Consistent workflows across team
-- ✅ Automatic AI tool selection (haiku for bugs, opus for security)
-- ✅ Pre-configured layouts and commands
-- ✅ Faster worktree creation
-
-### Health Monitoring
-
-Monitor worktree health and catch issues early:
-
-```bash
-# Check specific worktree health
-$ owt health feature/api
-Health Report: feature/api
-Status: ⚠️  Needs Attention
-
-Issues Found:
-  ⚠️  WARNING: High Token Usage
-      Current: 150,000 tokens ($12.75)
-      Recommendation: Consider switching to claude-sonnet
-      Savings: $10.20 (80% reduction)
-
-  ⚠️  WARNING: Stuck Task
-      Task has been "working" for 45 minutes
-      Last Activity: 45m ago
-      Recommendation: Check if AI is blocked, restart session
-
-# Check all worktrees
-$ owt health --all
-Health Summary (3 worktrees checked)
-  Healthy: 1
-  Warnings: 2
-  Critical: 0
-
-Worktrees needing attention:
-  feature/api    - High token usage, stuck task
-  feature/refactor - Idle too long (3 hours)
-
-# Filter by severity
-$ owt health --all --min-severity critical
-No critical issues found ✓
-```
-
-**Issue Types Detected:**
-- 🔴 **CRITICAL:** Stuck tasks (>30min), repeated errors, very high cost
-- ⚠️  **WARNING:** High token usage, idle too long, blocked state
-- ℹ️  **INFO:** Stale worktree, optimization suggestions
-
-### Cost Optimization
-
-Track and optimize AI tool costs:
-
-```bash
-# Compare costs for current usage
-$ owt cost feature/api
-Cost Comparison for feature/api
-Current Usage: 150,000 input / 50,000 output tokens
-
-AI Tool         Cost      vs Current    Savings
-claude-opus     $12.75    (current)     -
-claude-sonnet   $2.55     -$10.20       80% ↓
-claude-haiku    $0.10     -$12.65       99% ↓
-gpt-4o          $3.75     -$9.00        71% ↓
-gpt-4o-mini     $0.05     -$12.70       99% ↓
-
-💡 Recommendation: Switch to claude-sonnet for 80% cost savings
-   Command: owt create <branch> --ai-tool claude-sonnet
-
-# Auto-optimize AI tool selection
-$ owt create feature/simple-fix --auto-optimize --task "Fix typo in README"
-🔍 Analyzing task complexity...
-💡 Selected: claude-haiku (low complexity, $0.99/day estimated)
-✅ Created worktree with cost-optimized AI tool
-
-$ owt create feature/security --auto-optimize --task "Audit authentication flow for vulnerabilities"
-🔍 Analyzing task complexity...
-💡 Selected: claude-opus (high complexity, security keywords)
-✅ Created worktree with appropriate AI tool
-
-# Compare costs across all worktrees
-$ owt cost --all
-Total Cost Analysis (3 worktrees)
-Total Spend: $25.40
-Potential Savings: $18.60 (73%)
-
-Worktree         Current Tool    Cost     Recommended    Savings
-feature/api      claude-opus     $12.75   claude-sonnet  $10.20
-feature/docs     claude-opus     $8.45    claude-haiku   $8.35
-bugfix/typo      claude          $4.20    claude-haiku   $4.15
-```
-
-**Cost Optimization Features:**
-- ✅ Real-time cost tracking across all AI tools
-- ✅ Smart AI tool recommendations based on task complexity
-- ✅ Auto-optimization with `--auto-optimize` flag
-- ✅ Compare costs for different AI tools
-- ✅ Identify potential savings
-
-### Benefits
-
-✅ **Stay in Flow:** No context switching - send tasks and continue working
-✅ **Parallel Execution:** Multiple AI sessions work simultaneously
-✅ **Visibility:** Always know what each AI is doing via `owt status`
-✅ **Async Coordination:** Fire-and-forget task delegation
-✅ **Audit Trail:** Full command history logged for each worktree
-✅ **Cost Control:** Track spending, optimize AI tool selection
-✅ **Health Monitoring:** Catch stuck tasks and issues early
-✅ **Template Workflows:** Standardize team practices
-
-## Autonomous Agent Mode
-
-**EXPERIMENTAL:** Autonomous agents can work independently on tasks without user interaction by automatically handling workspace trust prompts and other interactive inputs.
-
-### What is Autonomous Mode?
-
-Autonomous mode allows AI tools (Claude Code, OpenCode, Droid) to work completely independently on tasks:
-- ✅ **Auto-approves workspace trust prompts**
-- ✅ **Automatically executes commands without waiting for Enter**
-- ✅ **Runs in background** - no terminal attachment needed
-- ✅ **Health monitoring** - detects stuck or blocked agents
-- ✅ **Auto-recovery** - attempts to recover from common issues
-- ✅ **Full logging** - everything is logged for review
-
-### Quick Start
-
-```bash
-# Start an autonomous agent for a worktree
-owt agent start feature/new-ui "Implement dark mode toggle"
-
-# Monitor all autonomous agents
-owt agent status
-
-# View logs for a specific agent
-owt agent logs feature/new-ui -f
-
-# Check agent health
-owt agent health feature/new-ui
-
-# Stop an agent
-owt agent stop feature/new-ui
-```
-
-### Autonomous `send` Command
-
-Use `--autonomous` with the `send` command for one-off autonomous execution:
-
-```bash
-# Standard send (requires user interaction in tmux)
-owt send feature/api "implement user authentication"
-
-# Autonomous send (works independently)
-owt send feature/api "implement user authentication" --autonomous
-
-# With different AI tool
-owt send feature/api "implement auth" --autonomous --ai-tool opencode
-```
-
-### Agent Commands Reference
-
-| Command | Description |
-|---------|-------------|
-| `owt agent start <worktree> "<task>"` | Start autonomous agent for a worktree |
-| `owt agent stop <worktree>` | Stop running autonomous agent |
-| `owt agent status` | Show status of all autonomous agents |
-| `owt agent logs <worktree> [-f]` | View agent logs (use -f to follow) |
-| `owt agent health [worktree]` | Check agent health and detect issues |
-
-### How It Works
-
-1. **Process Spawning:** Uses `pexpect` to spawn the AI tool process
-2. **Prompt Detection:** Watches for common prompts (workspace trust, ready state)
-3. **Auto-Response:** Automatically responds to detected prompts
-4. **Task Execution:** Sends the task and monitors execution
-5. **Health Monitoring:** Periodically checks for stuck/blocked states
-6. **Auto-Recovery:** Attempts Ctrl+C + retry on common issues
-
-### Health Monitoring
-
-Autonomous agents are continuously monitored for:
-- **Stuck tasks** - No output for extended period
-- **Error loops** - Repeated error patterns
-- **Blocked state** - Agent requesting help or clarification
-- **Resource issues** - High CPU/memory usage
-- **Unexpected termination** - Process crashes
-
-```bash
-# Check all agents
-owt agent health
-
-# Check specific agent
-owt agent health feature/new-ui
-
-# JSON output for scripting
-owt agent health --json
-```
-
-### Limitations & Known Issues
-
-⚠️ **Current Limitations:**
-- Claude Code's interactive prompts may change between versions
-- Complex multi-step workflows may require human intervention
-- Cost tracking is passive (agent can rack up costs unmonitored)
-- No built-in approval for destructive operations (git force-push, rm -rf)
-
-⚠️ **Use with caution when:**
-- Working with production code or main branch
-- Agent has write access to sensitive files
-- Task involves external APIs or services
-- Cost is a concern (monitor token usage actively)
-
-### Best Practices
-
-1. **Start small:** Test with simple tasks first
-2. **Monitor actively:** Use `owt agent status` and `owt agent logs -f`
-3. **Set boundaries:** Use templates with restricted permissions
-4. **Review work:** Always review agent's changes before committing
-5. **Use health checks:** Run `owt agent health` regularly
-6. **Budget limits:** Track token usage with `owt tokens show`
-
-### Example Workflows
-
-**Parallel Feature Development:**
-```bash
-# Create multiple worktrees
-owt create feature/auth
-owt create feature/ui
-owt create feature/api
-
-# Start autonomous agents for each
-owt agent start feature/auth "Implement JWT authentication"
-owt agent start feature/ui "Build login component"
-owt agent start feature/api "Create user registration endpoint"
-
-# Monitor all agents
-owt agent status
-
-# Check health every 5 minutes
-watch -n 300 'owt agent health --json | jq .'
-```
-
-**Automated Testing:**
-```bash
-# Agent runs tests and reports results
-owt agent start feature/new-feature "Run all tests and fix any failures"
-
-# Follow the logs
-owt agent logs feature/new-feature -f
-
-# Review results
-owt agent status
-```
-
-**Multi-step Refactoring:**
-```bash
-# Agent works through refactoring plan
-owt agent start refactor/cleanup "Read REFACTOR_PLAN.md and implement step 1"
-
-# Once complete, continue to next step
-owt send refactor/cleanup "Implement step 2 from REFACTOR_PLAN.md" --autonomous
+owt send auth-jwt "Now add refresh token support"
+owt send api-refactor "Focus on the /users endpoint first"
 ```
 
 ## Development
 
-### Setup development environment
-
 ```bash
-# Clone and install with dev dependencies
-git clone https://github.com/gitpcl/openorchestrator.git
-cd open-orchestrator
-uv pip install -e ".[dev]"
-
-# Or use make
-make install-uv
+uv pip install -e .
+uv run pytest
+uv run ruff check src/
+uv run mypy src/
 ```
 
-### Running Tests
+## Claude Code Integration
 
-The project includes 290+ tests with 90%+ coverage. Use the Makefile for common tasks:
+Use these slash commands in Claude Code sessions:
 
-```bash
-# Run all tests with coverage
-make test
+- `/wt-create` — Quick worktree creation
+- `/wt-list` — List all worktrees
+- `/wt-status` — Check AI activity
+- `/wt-cleanup` — Clean stale worktrees
 
-# Run tests excluding slow tests
-make test-fast
-
-# Run tests and open HTML coverage report
-make test-cov
-
-# Run linting
-make lint
-
-# Format code
-make format
-
-# Clean up test artifacts
-make clean
-```
-
-### Docker Testing
-
-For isolated, reproducible testing:
-
-```bash
-# Run tests in Docker container
-make test-docker
-
-# Interactive Docker shell for debugging
-make test-docker-interactive
-```
-
-### Test Markers
-
-```bash
-# Run only tests requiring GitHub CLI
-pytest -m gh_cli
-
-# Run only tmux-dependent tests
-pytest -m tmux
-
-# Exclude slow tests
-pytest -m "not slow"
-```
-
-See [TESTING.md](TESTING.md) for comprehensive testing documentation.
-
-### Project Structure
+## Architecture
 
 ```
-open-orchestrator/
-├── src/open_orchestrator/
-│   ├── __init__.py
-│   ├── cli.py                     # Main CLI entry point
-│   ├── config.py                  # Configuration management
-│   ├── core/
-│   │   ├── worktree.py            # Git worktree operations
-│   │   ├── project_detector.py    # Project type detection
-│   │   ├── environment.py         # Dependency, .env & CLAUDE.md setup
-│   │   ├── tmux_manager.py        # tmux session management
-│   │   ├── tmux_cli.py            # tmux CLI commands
-│   │   ├── cleanup.py             # Worktree cleanup/maintenance
-│   │   ├── sync.py                # Upstream sync operations
-│   │   ├── status.py              # AI activity status tracking
-│   │   ├── hooks.py               # Status change hooks
-│   │   ├── session.py             # Claude session management
-│   │   ├── pr_linker.py           # GitHub PR integration
-│   │   ├── process_manager.py     # Non-tmux process management
-│   │   ├── dashboard.py           # Live TUI dashboard
-│   │   └── skill_installer.py     # Claude Code skill installation
-│   ├── skills/
-│   │   └── open-orchestrator/
-│   │       └── SKILL.md           # Claude Code skill definition
-│   ├── models/
-│   │   ├── worktree_info.py       # Worktree info models
-│   │   ├── project_config.py      # Project configuration models
-│   │   ├── maintenance.py         # Cleanup & sync models
-│   │   ├── status.py              # AI status & token usage models
-│   │   ├── hooks.py               # Hook configuration models
-│   │   ├── session.py             # Session data models
-│   │   └── pr_info.py             # PR info models
-│   └── utils/
-│       └── io.py                  # Safe file I/O utilities
-├── tests/
-│   ├── conftest.py                # Shared fixtures (30+ fixtures)
-│   ├── test_cli.py                # CLI integration tests
-│   ├── test_cleanup.py            # CleanupService tests
-│   ├── test_dashboard.py          # Dashboard TUI tests
-│   ├── test_environment.py        # Environment setup tests
-│   ├── test_hooks.py              # HookService tests
-│   ├── test_pr_linker.py          # PRLinker tests
-│   ├── test_process_manager.py    # ProcessManager tests
-│   ├── test_session.py            # SessionManager tests
-│   ├── test_skill_installer.py    # SkillInstaller tests
-│   ├── test_status.py             # StatusTracker tests
-│   ├── test_sync.py               # SyncService tests
-│   ├── test_tmux_manager.py       # TmuxManager tests
-│   └── test_worktree.py           # WorktreeManager tests
-├── Makefile                       # Common development tasks
-├── Dockerfile.test                # Docker test environment
-├── docker-compose.test.yml        # Docker compose for testing
-├── TESTING.md                     # Comprehensive testing guide
-├── scripts/
-│   └── context-injector.py        # Claude Code context hook
-├── .claude/
-│   ├── CLAUDE.md                  # Project instructions for Claude Code
-│   ├── commands/                  # Claude Code slash commands
-│   └── settings.json              # Permissions configuration
-├── pyproject.toml
-└── .worktreerc.example
+src/open_orchestrator/         (~5,600 LOC)
+├── cli.py                     # 10 CLI commands (click)
+├── config.py                  # Hierarchical config (TOML)
+├── core/
+│   ├── switchboard.py         # Curses-based card grid UI
+│   ├── worktree.py            # Git worktree CRUD
+│   ├── tmux_manager.py        # tmux session management
+│   ├── merge.py               # Two-phase merge logic
+│   ├── environment.py         # Deps, .env, CLAUDE.md setup
+│   ├── status.py              # AI activity tracking
+│   ├── cleanup.py             # Stale worktree removal
+│   ├── sync.py                # Upstream sync
+│   ├── branch_namer.py        # Task → branch name
+│   ├── project_detector.py    # Auto-detect project type
+│   ├── pane_actions.py        # Create/remove orchestration
+│   └── agent_detector.py      # Detect installed AI tools
+├── models/                    # Pydantic data models
+├── popup/                     # tmux popup picker
+├── skills/                    # Claude Code skill definition
+└── utils/                     # Safe file I/O
 ```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Built for use with [Claude Code](https://claude.ai/claude-code)
-- Inspired by the need for better parallel development workflows
+MIT
