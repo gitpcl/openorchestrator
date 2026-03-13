@@ -11,7 +11,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 ## Features
 
 - **10 commands** — focused CLI surface, no bloat
-- **Switchboard UI** — curses-based card grid with status lights, instant navigation
+- **Switchboard UI** — curses-based card grid in a persistent tmux session with Alt+s/Alt+c navigation
 - **One-command setup** — `owt new "task"` does everything: branch → worktree → deps → .env → tmux → AI tool
 - **Two-phase merge** — `owt merge` catches conflicts early, then auto-cleans worktree + session
 - **Full teardown** — `owt delete` kills tmux session + removes worktree + cleans status
@@ -46,17 +46,16 @@ uv pip install -e .
 ## Quick Start
 
 ```bash
+# Launch the switchboard (persistent tmux session)
+owt
+
 # Create a worktree with AI agent (one command does everything)
 owt new "Add user authentication with JWT"
 
-# Launch the switchboard to see all active agents
-owt
-
-# Jump to an agent's session
-owt switch auth-jwt
-
-# Send a message to an agent
+# From inside an agent session, press Alt+s to return to the switchboard
+# Or use CLI to interact:
 owt send auth-jwt "Fix the failing tests"
+owt switch auth-jwt    # Jump to that session
 
 # Merge and clean up when done
 owt merge auth-jwt
@@ -79,7 +78,7 @@ owt merge auth-jwt
 
 ## The Switchboard
 
-Run `owt` with no arguments to launch the switchboard — your command center:
+Run `owt` with no arguments to launch the switchboard — your command center. It runs in a persistent tmux session (`owt-switchboard`), so it stays alive when you patch into an agent session.
 
 ```
   SWITCHBOARD                                    4 lines  ●3 active ○1
@@ -103,14 +102,24 @@ Run `owt` with no arguments to launch the switchboard — your command center:
 
 **Status lights:** ● working, ○ idle, ⚠ blocked, ✓ done
 
-**Keys:**
+**Switchboard keys:**
 - **Arrow keys** — navigate between cards
-- **Enter** — patch into that agent's tmux session
+- **Enter** — patch into that agent's tmux session (switchboard stays alive)
 - **s** — send a message to the selected agent
 - **n** — create a new worktree + agent
 - **d** — delete the selected worktree (with confirmation)
 - **m** — merge the selected worktree
-- **q** — quit
+- **q** — quit back to terminal
+
+**Global tmux keybindings (work from any agent session):**
+- **Alt+s** — switch back to the switchboard
+- **Alt+c** — create a new worktree (opens popup)
+
+**Navigation flow:**
+
+```
+owt → switchboard → Enter → agent session → Alt+s → switchboard → q → terminal
+```
 
 ## Workflow Templates
 
