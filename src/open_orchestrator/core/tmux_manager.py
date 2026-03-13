@@ -446,3 +446,4 @@ class TmuxManager:
             ("set-option", "-t", session_name,
              "pane-border-format", border_fmt),
         )
+

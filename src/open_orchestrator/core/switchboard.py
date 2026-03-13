@@ -6,12 +6,18 @@ all active worktrees as cards with status lights, and provides keyboard
 shortcuts to navigate, patch into sessions, send messages, and manage
 worktrees — all from one screen.
 
+The switchboard runs in its own tmux session ("owt-switchboard"). When
+you patch into an agent session (Enter), the switchboard stays alive.
+Alt+s from any agent session switches back to the switchboard. Press q
+to exit completely back to the terminal.
+
 Metaphor: Like a telephone switchboard operator managing multiple lines.
 """
 
 from __future__ import annotations
 
 import curses
+import os
 import subprocess
 from dataclasses import dataclass
 
@@ -32,6 +38,7 @@ STATUS_LIGHTS: dict[str, tuple[str, int]] = {
 
 CARD_WIDTH = 30
 CARD_HEIGHT = 6
+SWITCHBOARD_SESSION = "owt-switchboard"
 
 
 @dataclass
@@ -185,6 +192,18 @@ def _prompt_input(win: curses.window, prompt: str) -> str | None:
         curses.curs_set(0)
 
 
+def _reinit_curses(stdscr: curses.window) -> curses.window:
+    """Re-initialize curses after shelling out."""
+    stdscr = curses.initscr()
+    curses.noecho()
+    curses.cbreak()
+    stdscr.keypad(True)
+    curses.curs_set(0)
+    stdscr.nodelay(True)
+    stdscr.timeout(2000)
+    return stdscr
+
+
 def _run_switchboard(stdscr: curses.window) -> None:
     """Main switchboard loop."""
     curses.curs_set(0)
@@ -257,15 +276,15 @@ def _run_switchboard(stdscr: curses.window) -> None:
         elif key == curses.KEY_LEFT:
             selected = max(selected - 1, 0)
         elif key == ord("\n") and cards:
-            # Patch in: switch to tmux session
+            # Patch in: switch tmux client to the agent's session
+            # The switchboard session stays alive — Alt+s comes back here
             card = cards[selected]
-            if card.tmux_session:
-                curses.endwin()
-                if tmux.is_inside_tmux():
-                    subprocess.run(["tmux", "switch-client", "-t", card.tmux_session], check=False)
-                else:
-                    subprocess.run(["tmux", "attach-session", "-t", card.tmux_session], check=False)
-                return
+            if card.tmux_session and tmux.session_exists(card.tmux_session):
+                subprocess.run(
+                    ["tmux", "switch-client", "-t", card.tmux_session],
+                    check=False,
+                )
+                # Don't return — keep the switchboard running so Alt+s can come back
         elif key == ord("s") and cards:
             # Send message to agent
             card = cards[selected]
@@ -281,14 +300,7 @@ def _run_switchboard(stdscr: curses.window) -> None:
             if task:
                 curses.endwin()
                 subprocess.run(["owt", "new", task], check=False)
-                # Re-enter curses
-                stdscr = curses.initscr()
-                curses.noecho()
-                curses.cbreak()
-                stdscr.keypad(True)
-                curses.curs_set(0)
-                stdscr.nodelay(True)
-                stdscr.timeout(2000)
+                stdscr = _reinit_curses(stdscr)
         elif key == ord("d") and cards:
             # Drop (delete) worktree + status
             card = cards[selected]
@@ -306,13 +318,7 @@ def _run_switchboard(stdscr: curses.window) -> None:
                             tmux.kill_session(card.tmux_session)
                         except Exception:
                             pass
-                stdscr = curses.initscr()
-                curses.noecho()
-                curses.cbreak()
-                stdscr.keypad(True)
-                curses.curs_set(0)
-                stdscr.nodelay(True)
-                stdscr.timeout(2000)
+                stdscr = _reinit_curses(stdscr)
                 selected = min(selected, max(0, num_cards - 2))
         elif key == ord("m") and cards:
             # Merge worktree
@@ -321,18 +327,94 @@ def _run_switchboard(stdscr: curses.window) -> None:
             if confirm and confirm.lower() == "y":
                 curses.endwin()
                 subprocess.run(["owt", "merge", card.name], check=False)
-                stdscr = curses.initscr()
-                curses.noecho()
-                curses.cbreak()
-                stdscr.keypad(True)
-                curses.curs_set(0)
-                stdscr.nodelay(True)
-                stdscr.timeout(2000)
+                stdscr = _reinit_curses(stdscr)
                 selected = min(selected, max(0, num_cards - 2))
         elif key == ord("q"):
             return
 
 
+def _is_inside_switchboard_session() -> bool:
+    """Check if we're already running inside the switchboard tmux session."""
+    if "TMUX" not in os.environ:
+        return False
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#S"],
+            capture_output=True, text=True, check=True,
+        )
+        return result.stdout.strip() == SWITCHBOARD_SESSION
+    except subprocess.CalledProcessError:
+        return False
+
+
+def _install_switchboard_keys() -> None:
+    """Install global tmux keybindings for switchboard navigation.
+
+    Alt+s: switch back to the switchboard session
+    Alt+c: create a new worktree (runs owt new in a popup)
+    """
+    # Alt+s: switch to the switchboard session
+    subprocess.run(
+        ["tmux", "bind-key", "-n", "M-s",
+         "switch-client", "-t", SWITCHBOARD_SESSION],
+        check=False, capture_output=True,
+    )
+
+    # Alt+c: create new worktree via popup (tmux >= 3.2) or new window
+    major, minor = TmuxManager.get_tmux_version()
+    if (major, minor) >= (3, 2):
+        subprocess.run(
+            ["tmux", "bind-key", "-n", "M-c",
+             "display-popup", "-E", "-w", "80%", "-h", "50%", "owt new"],
+            check=False, capture_output=True,
+        )
+    else:
+        subprocess.run(
+            ["tmux", "bind-key", "-n", "M-c",
+             "new-window", "-n", "new-worktree", "owt new"],
+            check=False, capture_output=True,
+        )
+
+
 def launch_switchboard() -> None:
-    """Launch the switchboard UI."""
-    curses.wrapper(_run_switchboard)
+    """Launch the switchboard UI.
+
+    The switchboard runs in its own tmux session. This allows:
+    - Enter to switch to an agent session (switchboard stays alive)
+    - Alt+s from any agent session to switch back to the switchboard
+    - q to exit completely (kills the session, returns to terminal)
+
+    If already inside the switchboard session, runs the curses app directly.
+    If outside tmux, creates the session and attaches.
+    If inside another tmux session, switches to the switchboard session.
+    """
+    if _is_inside_switchboard_session():
+        # We're already in the switchboard session — run curses directly
+        curses.wrapper(_run_switchboard)
+        return
+
+    tmux = TmuxManager()
+
+    # Create the switchboard session if it doesn't exist
+    if not tmux.session_exists(SWITCHBOARD_SESSION):
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", SWITCHBOARD_SESSION,
+             "-n", "switchboard", "owt"],
+            check=False,
+        )
+
+    # Install Alt+s / Alt+c keybindings
+    _install_switchboard_keys()
+
+    if tmux.is_inside_tmux():
+        # Switch to the switchboard session
+        subprocess.run(
+            ["tmux", "switch-client", "-t", SWITCHBOARD_SESSION],
+            check=False,
+        )
+    else:
+        # Attach to the switchboard session from bare terminal
+        subprocess.run(
+            ["tmux", "attach-session", "-t", SWITCHBOARD_SESSION],
+            check=False,
+        )
