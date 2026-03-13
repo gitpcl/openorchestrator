@@ -94,17 +94,15 @@ def _draw_card(win: curses.window, y: int, x: int, card: Card, selected: bool, c
     if y + CARD_HEIGHT > max_y or x + CARD_WIDTH > max_x:
         return
 
-    attr = curses.A_BOLD if selected else 0
+    border_attr = curses.A_BOLD | curses.A_REVERSE if selected else 0
+    title_attr = curses.A_BOLD | curses.A_REVERSE if selected else curses.A_BOLD
 
     # Top border
-    if selected:
-        win.addstr(y, x, "\u250c" + "\u2500" * (CARD_WIDTH - 2) + "\u2510", attr | curses.A_BOLD)
-    else:
-        win.addstr(y, x, "\u250c" + "\u2500" * (CARD_WIDTH - 2) + "\u2510", attr)
+    win.addstr(y, x, "\u250c" + "\u2500" * (CARD_WIDTH - 2) + "\u2510", border_attr)
 
     # Card title line
     name_trunc = card.name[:CARD_WIDTH - 6]
-    win.addstr(y, x + 2, f" {name_trunc} ", attr | curses.A_BOLD)
+    win.addstr(y, x + 2, f" {name_trunc} ", title_attr)
 
     # Status line
     status_key = card.status.value if isinstance(card.status, AIActivityStatus) else str(card.status)
@@ -138,7 +136,7 @@ def _draw_card(win: curses.window, y: int, x: int, card: Card, selected: bool, c
     win.addstr(y + 4, x + CARD_WIDTH - 1, "\u2502")
 
     # Bottom border
-    win.addstr(y + 5, x, "\u2514" + "\u2500" * (CARD_WIDTH - 2) + "\u2518", attr)
+    win.addstr(y + 5, x, "\u2514" + "\u2500" * (CARD_WIDTH - 2) + "\u2518", border_attr)
 
 
 def _draw_header(win: curses.window, cards: list[Card]) -> None:
@@ -152,8 +150,9 @@ def _draw_header(win: curses.window, cards: list[Card]) -> None:
     title = "SWITCHBOARD"
     stats = f"{total} lines  \u25cf{active} active \u25cb{idle}"
 
-    # Draw header
+    # Draw header — pad to full width so A_REVERSE fills the line
     header = f"  {title:<30} {stats:>{max_x - 34}}"
+    header = header.ljust(max_x - 1)
     win.addstr(0, 0, header[:max_x - 1], curses.A_BOLD | curses.A_REVERSE)
 
 
@@ -161,6 +160,7 @@ def _draw_footer(win: curses.window) -> None:
     """Draw the footer with key bindings."""
     max_y, max_x = win.getmaxyx()
     footer = "  [\u2191\u2193\u2190\u2192] navigate  [Enter] patch in  [s] send msg  [n] new  [d] drop  [m] merge  [q] quit"
+    footer = footer.ljust(max_x - 1)
     try:
         win.addstr(max_y - 1, 0, footer[:max_x - 1], curses.A_REVERSE)
     except curses.error:
@@ -188,6 +188,7 @@ def _prompt_input(win: curses.window, prompt: str) -> str | None:
 def _run_switchboard(stdscr: curses.window) -> None:
     """Main switchboard loop."""
     curses.curs_set(0)
+    stdscr.keypad(True)
     stdscr.nodelay(True)
     stdscr.timeout(2000)  # Refresh every 2s
 
@@ -289,12 +290,22 @@ def _run_switchboard(stdscr: curses.window) -> None:
                 stdscr.nodelay(True)
                 stdscr.timeout(2000)
         elif key == ord("d") and cards:
-            # Drop (delete) worktree
+            # Drop (delete) worktree + status
             card = cards[selected]
             confirm = _prompt_input(stdscr, f"Delete '{card.name}'? (y/N): ")
             if confirm and confirm.lower() == "y":
                 curses.endwin()
-                subprocess.run(["owt", "delete", card.name, "--yes"], check=False)
+                # Try owt delete (handles worktree + tmux + status)
+                result = subprocess.run(["owt", "delete", card.name, "--yes"], check=False, capture_output=True)
+                if result.returncode != 0:
+                    # Worktree may not exist — clean up status entry directly
+                    tracker.remove_status(card.name)
+                    # Also try killing tmux session
+                    if card.tmux_session:
+                        try:
+                            tmux.kill_session(card.tmux_session)
+                        except Exception:
+                            pass
                 stdscr = curses.initscr()
                 curses.noecho()
                 curses.cbreak()
