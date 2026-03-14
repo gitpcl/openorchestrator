@@ -201,11 +201,12 @@ def _draw_card(
     flashing = tick < card.flash_until
     flash_attr = curses.A_REVERSE if flashing else 0
 
-    border_attr = (curses.A_BOLD | curses.A_REVERSE) if selected else flash_attr
+    top_attr = (curses.A_BOLD | curses.A_REVERSE) if selected else flash_attr
+    bottom_attr = flash_attr
     title_attr = (curses.A_BOLD | curses.A_REVERSE) if selected else (curses.A_BOLD | flash_attr)
 
     # Top border
-    win.addstr(y, x, "\u250c" + "\u2500" * (CARD_WIDTH - 2) + "\u2510", border_attr)
+    win.addstr(y, x, "\u250c" + "\u2500" * (CARD_WIDTH - 2) + "\u2510", top_attr)
 
     # Card title line
     name_trunc = card.name[:CARD_WIDTH - 6]
@@ -245,7 +246,7 @@ def _draw_card(
     win.addstr(y + 4, x + CARD_WIDTH - 1, "\u2502")
 
     # Bottom border
-    win.addstr(y + 5, x, "\u2514" + "\u2500" * (CARD_WIDTH - 2) + "\u2518", border_attr)
+    win.addstr(y + 5, x, "\u2514" + "\u2500" * (CARD_WIDTH - 2) + "\u2518", bottom_attr)
 
 
 def _draw_header(win: curses.window, cards: list[Card]) -> None:
