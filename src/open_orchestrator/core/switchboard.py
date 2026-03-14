@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime
 
 from open_orchestrator.core.status import StatusTracker
 from open_orchestrator.core.tmux_manager import TmuxManager
@@ -40,6 +41,23 @@ STATUS_LIGHTS: dict[str, tuple[str, int]] = {
 CARD_WIDTH = 30
 CARD_HEIGHT = 6
 SWITCHBOARD_SESSION = "owt-switchboard"
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧"
+TICK_MS = 200
+HEAVY_EVERY = 10  # _build_cards() runs every HEAVY_EVERY ticks (2s)
+RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED}
+
+# Pre-compiled regex patterns for pane status detection
+_BLOCKED_RE = re.compile(
+    r"Allow\s|\(y/N\)|\(Y/n\)|approve|deny|permit|Do you want to|Press Enter to",
+    re.IGNORECASE,
+)
+_PROMPT_RE = re.compile(
+    r"^>\s*$|^❯|\$\s*$|What would you like|How can I help",
+    re.IGNORECASE,
+)
+_WORKING_RE = re.compile(
+    r"^[" + re.escape(SPINNER_FRAMES) + r"]|Thinking\.\.\.|^\s*\d+\s+[│┃|]",
+)
 
 
 @dataclass
@@ -53,14 +71,13 @@ class Card:
     task: str | None
     elapsed: str
     tmux_session: str | None
+    flash_until: int = 0  # tick number until which to show A_REVERSE flash
 
 
 def _format_elapsed(status: WorktreeAIStatus) -> str:
     """Format time elapsed since last update."""
     if not status.updated_at:
         return ""
-    from datetime import datetime
-
     delta = datetime.now() - status.updated_at
     total_seconds = int(delta.total_seconds())
 
@@ -79,6 +96,12 @@ def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
 
     Looks for prompt indicators that signal the agent is waiting for input
     or blocked on a permission/confirmation prompt.
+
+    Detection strategy:
+    - BLOCKED: permission/confirmation prompts (highest priority)
+    - WAITING: idle prompt (❯ or >) visible, optionally confirmed by status bar
+    - WORKING: active output indicators (spinner, streaming)
+    - None: inconclusive — caller keeps existing status
     """
     if not tmux_session:
         return None
@@ -107,52 +130,18 @@ def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
 
     tail_text = "\n".join(reversed(tail))
 
-    # Patterns that indicate the agent is waiting for user input
-    # Claude Code: shows ">" prompt, or "❯" prompt when idle
-    # Also: "What would you like to do?" / input prompts
-    waiting_patterns = [
-        r"^>\s*$",                           # Claude Code empty prompt
-        r"^❯\s*$",                           # Alternative prompt
-        r"\$\s*$",                            # Shell prompt (agent exited)
-        r"What would you like",              # Claude asking for input
-        r"How can I help",                   # Claude greeting
-    ]
+    if _BLOCKED_RE.search(tail_text):
+        return AIActivityStatus.BLOCKED
 
-    # Patterns checked against the full tail text (not just last line)
-    # Claude Code's idle state has status bar lines BELOW the prompt:
-    #   ❯ █
-    #   → project git:(branch) Model [ctx: N%]
-    #   ›› bypass permissions on (shift+tab to cycle)
-    waiting_tail_patterns = [
-        r"→\s+.+\[ctx:\s*\d+%\]",           # Claude Code project status bar
-        r"››\s+.+permissions",               # Claude Code permissions mode line
-        r"shift\+tab to cycle",              # Claude Code permission toggle hint
-    ]
+    # Waiting: idle prompt (❯ or >) must be visible in tail lines.
+    # The status bar below the prompt is always visible (even when working)
+    # so it cannot be used alone as evidence of idle.
+    if any(_PROMPT_RE.search(line) for line in tail):
+        return AIActivityStatus.WAITING
 
-    # Patterns that indicate blocked on permission/confirmation
-    blocked_patterns = [
-        r"Allow\s",                          # Permission prompt
-        r"\(y/N\)",                           # Yes/No confirmation
-        r"\(Y/n\)",                           # Yes/No confirmation
-        r"approve|deny|permit",              # Permission language
-        r"Do you want to",                   # Confirmation prompt
-        r"Press Enter to",                   # Waiting for keypress
-    ]
-
-    last_line = tail[0]  # Most recent non-empty line
-
-    for pattern in blocked_patterns:
-        if re.search(pattern, tail_text, re.IGNORECASE):
-            return AIActivityStatus.BLOCKED
-
-    for pattern in waiting_patterns:
-        if re.search(pattern, last_line, re.IGNORECASE):
-            return AIActivityStatus.WAITING
-
-    # Check full tail text for Claude Code status bar patterns
-    for pattern in waiting_tail_patterns:
-        if re.search(pattern, tail_text, re.IGNORECASE):
-            return AIActivityStatus.WAITING
+    # Working: active output indicators in most recent line
+    if _WORKING_RE.search(tail[0]):
+        return AIActivityStatus.WORKING
 
     return None
 
@@ -169,12 +158,11 @@ def _build_cards(tracker: StatusTracker) -> list[Card]:
 
     cards = []
     for s in statuses:
-        # Detect live pane status when the stored status says WORKING
-        if s.activity_status == AIActivityStatus.WORKING:
+        if s.activity_status in RECHECKABLE_STATUSES:
             detected = _detect_pane_status(s.tmux_session)
             if detected and detected != s.activity_status:
                 s.activity_status = detected
-                s.updated_at = __import__("datetime").datetime.now()
+                s.updated_at = datetime.now()
                 tracker.set_status(s)
 
         cards.append(Card(
@@ -190,7 +178,10 @@ def _build_cards(tracker: StatusTracker) -> list[Card]:
     return cards
 
 
-def _draw_card(win: curses.window, y: int, x: int, card: Card, selected: bool, color_pairs: dict[str, int]) -> None:
+def _draw_card(
+    win: curses.window, y: int, x: int, card: Card,
+    selected: bool, color_pairs: dict[str, int], tick: int = 0,
+) -> None:
     """Draw a single card at the given position."""
     max_y, max_x = win.getmaxyx()
 
@@ -198,8 +189,11 @@ def _draw_card(win: curses.window, y: int, x: int, card: Card, selected: bool, c
     if y + CARD_HEIGHT > max_y or x + CARD_WIDTH > max_x:
         return
 
-    border_attr = curses.A_BOLD | curses.A_REVERSE if selected else 0
-    title_attr = curses.A_BOLD | curses.A_REVERSE if selected else curses.A_BOLD
+    flashing = tick < card.flash_until
+    flash_attr = curses.A_REVERSE if flashing else 0
+
+    border_attr = (curses.A_BOLD | curses.A_REVERSE) if selected else flash_attr
+    title_attr = (curses.A_BOLD | curses.A_REVERSE) if selected else (curses.A_BOLD | flash_attr)
 
     # Top border
     win.addstr(y, x, "\u250c" + "\u2500" * (CARD_WIDTH - 2) + "\u2510", border_attr)
@@ -208,9 +202,11 @@ def _draw_card(win: curses.window, y: int, x: int, card: Card, selected: bool, c
     name_trunc = card.name[:CARD_WIDTH - 6]
     win.addstr(y, x + 2, f" {name_trunc} ", title_attr)
 
-    # Status line
-    status_key = card.status.value if isinstance(card.status, AIActivityStatus) else str(card.status)
+    # Status line — use spinner for working agents
+    status_key = card.status.value
     light_char, _ = STATUS_LIGHTS.get(status_key, ("?", curses.COLOR_WHITE))
+    if card.status == AIActivityStatus.WORKING:
+        light_char = SPINNER_FRAMES[tick % len(SPINNER_FRAMES)]
     pair = color_pairs.get(status_key, 0)
     status_label = status_key.upper()
     elapsed_str = f"{card.elapsed:>6}" if card.elapsed else ""
@@ -281,6 +277,9 @@ def _prompt_input(win: curses.window, prompt: str) -> str | None:
     max_y, max_x = win.getmaxyx()
     curses.echo()
     curses.curs_set(1)
+    # Disable timeout so getstr() blocks until Enter
+    win.timeout(-1)
+    win.nodelay(False)
     try:
         win.addstr(max_y - 1, 0, " " * (max_x - 1))
         win.addstr(max_y - 1, 0, prompt[:max_x - 1])
@@ -292,6 +291,9 @@ def _prompt_input(win: curses.window, prompt: str) -> str | None:
     finally:
         curses.noecho()
         curses.curs_set(0)
+        # Restore fast tick for animations
+        win.nodelay(True)
+        win.timeout(TICK_MS)
 
 
 def _reinit_curses(stdscr: curses.window) -> curses.window:
@@ -302,7 +304,7 @@ def _reinit_curses(stdscr: curses.window) -> curses.window:
     stdscr.keypad(True)
     curses.curs_set(0)
     stdscr.nodelay(True)
-    stdscr.timeout(2000)
+    stdscr.timeout(TICK_MS)
     return stdscr
 
 
@@ -311,7 +313,7 @@ def _run_switchboard(stdscr: curses.window) -> None:
     curses.curs_set(0)
     stdscr.keypad(True)
     stdscr.nodelay(True)
-    stdscr.timeout(2000)  # Refresh every 2s
+    stdscr.timeout(TICK_MS)
 
     # Initialize color pairs
     curses.start_color()
@@ -324,12 +326,35 @@ def _run_switchboard(stdscr: curses.window) -> None:
     tracker = StatusTracker()
     tmux = TmuxManager()
     selected = 0
+    tick = 0
+    cards: list[Card] = []
+    prev_statuses: dict[str, AIActivityStatus] = {}
+    cached_statuses: dict[str, WorktreeAIStatus] = {}  # from last heavy refresh
 
     while True:
+        # Heavy refresh (tmux pane capture) only every HEAVY_EVERY ticks
+        if tick % HEAVY_EVERY == 0:
+            cards = _build_cards(tracker)
+
+            # Cache status objects for light-tick elapsed updates
+            cached_statuses = {
+                s.worktree_name: s
+                for s in tracker.get_all_statuses()
+            }
+
+            # Detect status transitions → set flash_until; prune stale entries
+            current_names = {card.name for card in cards}
+            for name in list(prev_statuses):
+                if name not in current_names:
+                    del prev_statuses[name]
+            for card in cards:
+                prev = prev_statuses.get(card.name)
+                if prev is not None and prev != card.status:
+                    card.flash_until = tick + 3  # flash for ~600ms (3 ticks)
+                prev_statuses[card.name] = card.status
+
         stdscr.erase()
         max_y, max_x = stdscr.getmaxyx()
-
-        cards = _build_cards(tracker)
 
         _draw_header(stdscr, cards)
 
@@ -342,6 +367,12 @@ def _run_switchboard(stdscr: curses.window) -> None:
             start_y = 2
             start_x = 1
 
+            # Re-compute elapsed times on every tick (uses cached status, no I/O)
+            for card in cards:
+                wt_status = cached_statuses.get(card.name)
+                if wt_status:
+                    card.elapsed = _format_elapsed(wt_status)
+
             for i, card in enumerate(cards):
                 row = i // cols
                 col = i % cols
@@ -349,10 +380,11 @@ def _run_switchboard(stdscr: curses.window) -> None:
                 x = start_x + col * (CARD_WIDTH + 2)
 
                 if y + CARD_HEIGHT < max_y - 1:
-                    _draw_card(stdscr, y, x, card, selected == i, color_pairs)
+                    _draw_card(stdscr, y, x, card, selected == i, color_pairs, tick)
 
         _draw_footer(stdscr)
         stdscr.refresh()
+        tick += 1
 
         # Handle input
         try:
