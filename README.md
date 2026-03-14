@@ -10,17 +10,21 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Features
 
-- **11 commands** — focused CLI surface, no bloat
-- **Switchboard UI** — curses-based card grid in a persistent tmux session with global Alt-key navigation
+- **15 commands** — focused CLI surface, no bloat
+- **Switchboard UI** — curses-based card grid with status lights, diff stats, file overlap warnings, and detail panels
+- **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
+- **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops: create → work → ship → next
+- **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
+- **Merge Queue** — `owt queue` shows optimal merge order; `owt queue --ship` ships all completed work intelligently
+- **Context Bridge** — `owt note "msg"` shares context across all agent sessions via CLAUDE.md injection
+- **Headless Mode** — `owt new "task" --headless` for CI/CD; `owt wait` polls until agent finishes
 - **One-command setup** — `owt new "task"` does everything: branch → worktree → deps → .env → tmux → AI tool
 - **Ship in one shot** — `owt ship` auto-commits, merges to main, and tears down worktree + session
-- **Two-phase merge** — `owt merge` catches conflicts early, then auto-cleans worktree + session
+- **Two-phase merge** — `owt merge` catches conflicts early with file overlap warnings, then auto-cleans
 - **Full teardown** — `owt delete` kills tmux session + removes worktree + cleans status
-- **Skip-permissions by default** — agents run with full autonomy (no permission prompts)
 - **Live status detection** — switchboard detects when agents are waiting for input or blocked
 - **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
 - **Project detection** — auto-detects Python, Node.js, Rust, Go, PHP and installs deps
-- **Environment setup** — copies `.env` files and `CLAUDE.md` with path adjustments
 - **6 dependencies** — click, pydantic, rich, toml, gitpython, libtmux
 
 ## Installation
@@ -71,12 +75,20 @@ owt ship auth-jwt
 |---------|-------|-------------|
 | `owt` | | **Launch the Switchboard** — card grid with status lights |
 | `owt new "task"` | `owt n` | Create worktree + tmux + deps + AI agent |
+| `owt new "task" --headless` | | Create worktree without tmux (CI/script use) |
 | `owt list` | `owt ls` | List worktrees with status |
 | `owt switch <name>` | `owt s` | Jump to a worktree's tmux session |
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
-| `owt merge <name>` | `owt m` | Two-phase merge + cleanup |
+| `owt send --all "msg"` | | Broadcast to ALL worktrees |
+| `owt send --working "msg"` | | Broadcast to WORKING worktrees only |
+| `owt merge <name>` | `owt m` | Two-phase merge + conflict guard + cleanup |
 | `owt ship <name>` | | Commit + merge + delete in one shot |
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux + status |
+| `owt queue` | | Show optimal merge order for completed worktrees |
+| `owt queue --ship` | | Ship all completed worktrees in optimal order |
+| `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML file |
+| `owt wait <name>` | | Poll until agent finishes (for CI/scripts) |
+| `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync with upstream |
 | `owt cleanup [--force]` | | Remove stale worktrees |
 | `owt version` | | Show version |
@@ -86,23 +98,23 @@ owt ship auth-jwt
 Run `owt` with no arguments to launch the switchboard — your command center. It runs in a persistent tmux session (`owt-switchboard`), so it stays alive when you patch into an agent session.
 
 ```
-  SWITCHBOARD                                    4 lines  ●3 active ○1
+  SWITCHBOARD                          4 lines  ●3 active  ⚠1 waiting  !1 overlap
 
   ┌─ auth-jwt ──────────────┐   ┌─ fix-login ──────────────┐
   │ ● WORKING        12m    │   │ ○ IDLE              3h    │
   │ feat/auth-jwt           │   │ fix/login-redirect        │
-  │ claude                  │   │ claude                    │
+  │ claude        +142 -37  │   │ claude                    │
   │ Implementing JWT auth   │   │ —                         │
   └─────────────────────────┘   └───────────────────────────┘
 
   ┌─ api-refactor ──────────┐   ┌─ db-migration ────────────┐
   │ ● WORKING        45m    │   │ ⚠ BLOCKED           5m    │
   │ refactor/api-v2         │   │ feat/db-migration         │
-  │ opencode                │   │ claude                    │
-  │ Refactoring endpoints   │   │ Waiting for input         │
+  │ opencode       +89 -12  │   │ claude          +23 -5    │
+  │ [! 2 overlap]           │   │ Waiting for input         │
   └─────────────────────────┘   └───────────────────────────┘
 
-  [↑↓←→] navigate  [Enter] patch in  [s] send  [n] new  [S] ship  [d] drop  [m] merge  [q] quit
+  [arrows] nav [Enter] patch [s] send [a] all [n] new [S] ship [f] files [i] info [q] quit
 ```
 
 **Status lights:** ● working, ○ idle, ⚠ blocked, ✓ done
@@ -111,10 +123,13 @@ Run `owt` with no arguments to launch the switchboard — your command center. I
 - **Arrow keys** — navigate between cards
 - **Enter** — patch into that agent's tmux session (switchboard stays alive)
 - **s** — send a message to the selected agent
+- **a** — broadcast a message to ALL agents
 - **n** — create a new worktree + agent
 - **S** — ship the selected worktree (commit + merge + delete)
 - **d** — delete the selected worktree (with confirmation)
 - **m** — merge the selected worktree
+- **f** — show file overlap detail for the selected card
+- **i** — show detail panel (commits, diff stats, overlaps)
 - **q** — quit back to terminal
 
 **Global tmux keybindings (work from any agent session):**
@@ -198,6 +213,57 @@ owt new "Build Stripe integration"
 owt new "Write payment tests"
 owt new "Add payment docs"
 # -> Three agents working in parallel, visible in switchboard
+# -> Conflict Guard warns if agents touch the same files
+```
+
+### Overnight Autopilot (Batch Mode)
+```toml
+# tasks.toml
+[batch]
+max_concurrent = 3
+auto_ship = true
+
+[[tasks]]
+description = "Add user authentication with JWT"
+
+[[tasks]]
+description = "Write API documentation"
+
+[[tasks]]
+description = "Add input validation to all endpoints"
+```
+```bash
+owt batch tasks.toml --auto-ship
+# -> Creates worktrees, starts agents, monitors status
+# -> Auto-ships completed work, starts next task
+```
+
+### Broadcasting Instructions
+```bash
+owt send --all "Run tests and fix any failures"
+owt send --working "Wrap up and commit your changes"
+# Or press 'a' in the switchboard to broadcast
+```
+
+### Sharing Context Across Agents
+```bash
+owt note "The users table now has a verified_at column"
+owt note "API endpoints moved from /api/v1 to /api/v2"
+# -> Injected into each worktree's CLAUDE.md
+```
+
+### Smart Merge Order
+```bash
+owt queue              # Show optimal merge order
+owt queue --ship       # Ship all completed worktrees, smallest first
+owt queue --ship --yes # No confirmation
+```
+
+### CI/CD Headless Mode
+```bash
+owt new "Run security audit" --headless
+owt wait security-audit --timeout 1200
+# -> Polls until agent finishes, exits 0 on success
 ```
 
 ### Bug Investigation + Fix
@@ -234,16 +300,18 @@ Use these slash commands in Claude Code sessions:
 ## Architecture
 
 ```
-src/open_orchestrator/         (~5,600 LOC)
-├── cli.py                     # 11 CLI commands (click)
+src/open_orchestrator/         (~7,100 LOC)
+├── cli.py                     # 15 CLI commands (click)
 ├── config.py                  # Hierarchical config (TOML)
 ├── core/
-│   ├── switchboard.py         # Curses-based card grid UI
+│   ├── switchboard.py         # Curses card grid UI (conflict guard, detail panels, broadcast)
 │   ├── worktree.py            # Git worktree CRUD
 │   ├── tmux_manager.py        # tmux session management
-│   ├── merge.py               # Two-phase merge logic
-│   ├── environment.py         # Deps, .env, CLAUDE.md setup
+│   ├── merge.py               # Two-phase merge + merge queue + conflict guard
+│   ├── batch.py               # Autopilot loop orchestration (Karpathy-style)
+│   ├── environment.py         # Deps, .env, CLAUDE.md, shared notes injection
 │   ├── status.py              # AI activity tracking
+│   ├── hooks.py               # AI tool hook installer (status push)
 │   ├── cleanup.py             # Stale worktree removal
 │   ├── sync.py                # Upstream sync
 │   ├── branch_namer.py        # Task → branch name

@@ -4,6 +4,7 @@ Handles merging a worktree branch back into its base branch with
 conflict detection and optional auto-cleanup.
 """
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -12,6 +13,9 @@ from git import Repo
 from git.exc import GitCommandError
 
 from open_orchestrator.core.worktree import WorktreeManager, WorktreeNotFoundError
+from open_orchestrator.models.status import AIActivityStatus
+
+logger = logging.getLogger(__name__)
 
 
 class MergeStatus(str, Enum):
@@ -123,6 +127,38 @@ class MergeManager:
 
         return changed + staged + list(untracked)
 
+    def get_modified_files(self, branch: str, base: str) -> list[str]:
+        """Get files modified on branch vs base."""
+        try:
+            output = self.repo.git.diff("--name-only", f"{base}...{branch}")
+            return [f for f in output.strip().split("\n") if f]
+        except GitCommandError:
+            return []
+
+    def check_file_overlaps(self, worktree_name: str, base_branch: str | None = None) -> dict[str, list[str]]:
+        """Check if this worktree's modified files overlap with other worktrees.
+
+        Returns:
+            Dict mapping overlapping file paths to list of other worktree names.
+        """
+        from open_orchestrator.core.status import StatusTracker
+
+        worktree = self.wt_manager.get(worktree_name)
+        target = base_branch or self.get_base_branch(worktree.branch)
+        my_files = set(self.get_modified_files(worktree.branch, target))
+        if not my_files:
+            return {}
+
+        tracker = StatusTracker()
+        overlaps: dict[str, list[str]] = {}
+        for s in tracker.get_all_statuses():
+            if s.worktree_name == worktree_name:
+                continue
+            other_files = set(s.modified_files)
+            for f in my_files & other_files:
+                overlaps.setdefault(f, []).append(s.worktree_name)
+        return overlaps
+
     def count_commits_ahead(self, branch: str, base: str) -> int:
         """Count commits on branch that are not on base.
 
@@ -138,6 +174,37 @@ class MergeManager:
             return int(output.strip())
         except GitCommandError:
             return 0
+
+    def plan_merge_order(self, base_branch: str | None = None) -> list[tuple[str, int, int]]:
+        """Plan optimal merge order for all completed/waiting worktrees.
+
+        Strategy: merge smallest changes first to minimize rebase churn.
+
+        Returns:
+            List of (worktree_name, commits_ahead, overlap_count)
+            sorted by commits_ahead ascending (smallest first).
+        """
+        from open_orchestrator.core.status import StatusTracker
+
+        tracker = StatusTracker()
+        statuses = tracker.get_all_statuses()
+
+        candidates: list[tuple[str, int, int]] = []
+        for s in statuses:
+            if s.activity_status not in (AIActivityStatus.COMPLETED, AIActivityStatus.WAITING):
+                continue
+            try:
+                target = base_branch or self.get_base_branch(s.branch)
+                ahead = self.count_commits_ahead(s.branch, target)
+                overlaps = len(self.check_file_overlaps(s.worktree_name, target))
+                candidates.append((s.worktree_name, ahead, overlaps))
+            except Exception:
+                logger.debug("Skipping %s in merge queue", s.worktree_name)
+                continue
+
+        # Sort: fewest commits first, then fewest overlaps
+        candidates.sort(key=lambda x: (x[1], x[2]))
+        return candidates
 
     def merge(
         self,
@@ -197,7 +264,7 @@ class MergeManager:
         # Phase 1: Merge base into feature branch (in the worktree)
         wt_repo = Repo(worktree.path)
         try:
-            wt_repo.git.fetch("origin", target_branch)
+            wt_repo.git.fetch("origin", target_branch, kill_after_timeout=30)
         except GitCommandError:
             pass  # Fetch failure is non-fatal; we'll try with local refs
 

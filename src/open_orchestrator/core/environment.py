@@ -493,10 +493,60 @@ def sync_claude_md(
     return copied_files
 
 
+def inject_shared_notes(
+    worktree_path: str | Path,
+    notes: list[str],
+) -> None:
+    """Inject shared notes into a worktree's CLAUDE.md.
+
+    Adds or updates a "## Shared Notes (OWT)" section at the end of
+    the worktree's .claude/CLAUDE.md with cross-cutting context from
+    other agents.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        notes: List of note strings to inject.
+    """
+    worktree_path = Path(worktree_path).resolve()
+    claude_md = worktree_path / ".claude" / "CLAUDE.md"
+
+    if not claude_md.exists():
+        return
+
+    content = claude_md.read_text()
+    marker_start = "<!-- OWT-SHARED-NOTES-START -->"
+    marker_end = "<!-- OWT-SHARED-NOTES-END -->"
+
+    # Build notes section
+    if notes:
+        notes_block = f"\n{marker_start}\n## Shared Notes (OWT)\n\n"
+        for note in notes:
+            notes_block += f"- {note}\n"
+        notes_block += f"\n{marker_end}\n"
+    else:
+        notes_block = ""
+
+    # Replace existing section or append
+    if marker_start in content:
+        import re as _re
+        content = _re.sub(
+            f"\n?{_re.escape(marker_start)}.*?{_re.escape(marker_end)}\n?",
+            notes_block,
+            content,
+            flags=_re.DOTALL,
+        )
+    elif notes_block:
+        content = content.rstrip() + "\n" + notes_block
+
+    claude_md.write_text(content)
+    logger.info(f"Injected {len(notes)} shared note(s) into {claude_md}")
+
+
 __all__ = [
     "EnvironmentSetup",
     "EnvironmentSetupError",
     "DependencyInstallError",
     "EnvFileError",
     "sync_claude_md",
+    "inject_shared_notes",
 ]

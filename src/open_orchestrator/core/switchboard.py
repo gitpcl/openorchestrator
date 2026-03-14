@@ -76,6 +76,9 @@ class Card:
     elapsed: str
     tmux_session: str | None
     flash_until: int = 0  # tick number until which to show A_REVERSE flash
+    overlap_count: int = 0  # number of files overlapping with other worktrees
+    overlap_names: list[str] | None = None  # worktree names with overlap
+    diff_stat: str = ""  # e.g. "+142 -37"
 
 
 def _format_elapsed(status: WorktreeAIStatus) -> str:
@@ -148,17 +151,80 @@ def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
     return AIActivityStatus.WORKING
 
 
-def _build_cards(tracker: StatusTracker) -> list[Card]:
+def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
+    """Get modified files AND diff stat in a single git call.
+
+    Uses `git diff --numstat` which yields both file names and line counts.
+    Returns (modified_files, diff_stat_str).
+    """
+    try:
+        for base in ("main", "master", "develop"):
+            result = subprocess.run(
+                ["git", "diff", "--numstat", f"{base}...{branch}"],
+                capture_output=True, text=True, cwd=worktree_path, timeout=5,
+            )
+            if result.returncode == 0:
+                files: list[str] = []
+                total_ins = 0
+                total_dels = 0
+                for line in result.stdout.strip().split("\n"):
+                    if not line:
+                        continue
+                    parts = line.split("\t", 2)
+                    if len(parts) >= 3:
+                        ins, dels, name = parts
+                        files.append(name)
+                        if ins != "-":
+                            total_ins += int(ins)
+                        if dels != "-":
+                            total_dels += int(dels)
+                stat_parts = []
+                if total_ins:
+                    stat_parts.append(f"+{total_ins}")
+                if total_dels:
+                    stat_parts.append(f"-{total_dels}")
+                return files, " ".join(stat_parts)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return [], ""
+
+
+def _compute_overlaps(
+    cards: list[Card], file_map: dict[str, list[str]],
+) -> None:
+    """Compute pairwise file overlaps and annotate cards."""
+    for i, card in enumerate(cards):
+        my_files = set(file_map.get(card.name, []))
+        if not my_files:
+            continue
+        overlap_names = []
+        overlap_files: set[str] = set()
+        for j, other in enumerate(cards):
+            if i == j:
+                continue
+            other_files = set(file_map.get(other.name, []))
+            common = my_files & other_files
+            if common:
+                overlap_names.append(other.name)
+                overlap_files |= common
+        card.overlap_count = len(overlap_files)
+        card.overlap_names = overlap_names if overlap_names else None
+
+
+def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str]]]:
     """Build card list from current status data.
 
     On each refresh, captures tmux pane content to detect whether
     agents are actually working, waiting for input, or blocked on
     a permission prompt — then updates the persisted status.
+
+    Returns (cards, file_map) where file_map maps worktree names to modified files.
     """
     tracker.reload()
     statuses = tracker.get_all_statuses()
 
     cards = []
+    file_map: dict[str, list[str]] = {}
     now = datetime.now()
     for s in statuses:
         # If status was recently updated (by hooks), trust it and skip pane scraping.
@@ -174,6 +240,13 @@ def _build_cards(tracker: StatusTracker) -> list[Card]:
                 s.updated_at = now
                 tracker.set_status(s)
 
+        # Compute modified files + diff stats (single git call)
+        mod_files, diff_stat = _get_diff_info(s.worktree_path, s.branch)
+        if mod_files != s.modified_files:
+            s.modified_files = mod_files
+            tracker.set_status(s)
+        file_map[s.worktree_name] = mod_files
+
         cards.append(Card(
             name=s.worktree_name,
             status=s.activity_status,
@@ -182,9 +255,11 @@ def _build_cards(tracker: StatusTracker) -> list[Card]:
             task=s.current_task,
             elapsed=_format_elapsed(s),
             tmux_session=s.tmux_session,
+            diff_stat=diff_stat,
         ))
 
-    return cards
+    _compute_overlaps(cards, file_map)
+    return cards, file_map
 
 
 def _draw_card(
@@ -233,16 +308,29 @@ def _draw_card(
     win.addstr(y + 2, x + 2, branch_trunc)
     win.addstr(y + 2, x + CARD_WIDTH - 1, "\u2502")
 
-    # AI tool line
+    # AI tool + diff stat line
     win.addstr(y + 3, x, "\u2502" + " " * (CARD_WIDTH - 2) + "\u2502")
-    win.addstr(y + 3, x + 2, card.ai_tool[:CARD_WIDTH - 4])
+    tool_label = card.ai_tool[:12]
+    win.addstr(y + 3, x + 2, tool_label)
+    if card.diff_stat:
+        stat_x = x + CARD_WIDTH - len(card.diff_stat) - 2
+        if stat_x > x + len(tool_label) + 2:
+            win.addstr(y + 3, stat_x, card.diff_stat, curses.A_DIM)
     win.addstr(y + 3, x + CARD_WIDTH - 1, "\u2502")
 
-    # Task line
-    task_str = card.task or "\u2014"
-    task_trunc = task_str[:CARD_WIDTH - 4]
+    # Task line (with overlap warning)
     win.addstr(y + 4, x, "\u2502" + " " * (CARD_WIDTH - 2) + "\u2502")
-    win.addstr(y + 4, x + 2, task_trunc)
+    if card.overlap_count > 0:
+        overlap_tag = f"[! {card.overlap_count} overlap]"
+        overlap_pair = color_pairs.get("blocked", 0)
+        win.addstr(y + 4, x + 2, overlap_tag, curses.color_pair(overlap_pair) | curses.A_BOLD)
+        remaining = CARD_WIDTH - 4 - len(overlap_tag) - 1
+        if remaining > 0 and card.task:
+            win.addstr(y + 4, x + 2 + len(overlap_tag) + 1, card.task[:remaining])
+    else:
+        task_str = card.task or "\u2014"
+        task_trunc = task_str[:CARD_WIDTH - 4]
+        win.addstr(y + 4, x + 2, task_trunc)
     win.addstr(y + 4, x + CARD_WIDTH - 1, "\u2502")
 
     # Bottom border
@@ -257,12 +345,15 @@ def _draw_header(win: curses.window, cards: list[Card]) -> None:
     waiting = sum(1 for c in cards if c.status in (AIActivityStatus.WAITING, AIActivityStatus.BLOCKED))
     total = len(cards)
     idle = total - active - waiting
+    overlaps = sum(1 for c in cards if c.overlap_count > 0)
 
     title = "SWITCHBOARD"
     parts = [f"{total} lines", f"\u25cf{active} active"]
     if waiting:
         parts.append(f"\u26a0{waiting} waiting")
     parts.append(f"\u25cb{idle}")
+    if overlaps:
+        parts.append(f"!{overlaps} overlap")
     stats = "  ".join(parts)
 
     # Draw header — pad to full width so A_REVERSE fills the line
@@ -274,7 +365,8 @@ def _draw_header(win: curses.window, cards: list[Card]) -> None:
 def _draw_footer(win: curses.window) -> None:
     """Draw the footer with key bindings."""
     max_y, max_x = win.getmaxyx()
-    footer = "  [\u2191\u2193\u2190\u2192] navigate  [Enter] patch in  [s] send  [n] new  [S] ship  [d] drop  [m] merge  [q] quit"
+    keys = "[arrows] nav [Enter] patch [s] send [a] all [n] new [S] ship [f] files [i] info [q] quit"
+    footer = f"  {keys}"
     footer = footer.ljust(max_x - 1)
     try:
         win.addstr(max_y - 1, 0, footer[:max_x - 1], curses.A_REVERSE)
@@ -306,6 +398,88 @@ def _prompt_input(win: curses.window, prompt: str) -> str | None:
         win.timeout(TICK_MS)
 
 
+def _show_modal(
+    win: curses.window, title: str, lines: list[str], width: int = 60,
+) -> None:
+    """Draw a centered modal panel and wait for any key to dismiss."""
+    max_y, max_x = win.getmaxyx()
+    panel_w = min(width, max_x - 4)
+    panel_h = min(len(lines) + 4, max_y - 4)
+    sy = (max_y - panel_h) // 2
+    sx = (max_x - panel_w) // 2
+
+    win.attron(curses.A_REVERSE)
+    for row in range(panel_h):
+        win.addstr(sy + row, sx, " " * panel_w)
+    win.attroff(curses.A_REVERSE)
+
+    win.addstr(sy, sx + 1, title[:panel_w - 2], curses.A_BOLD | curses.A_REVERSE)
+    for i, line in enumerate(lines):
+        if i + 2 >= panel_h - 1:
+            break
+        win.addstr(sy + 2 + i, sx + 1, line[:panel_w - 2], curses.A_REVERSE)
+
+    win.addstr(sy + panel_h - 1, sx + 1, " Press any key to close ", curses.A_REVERSE | curses.A_DIM)
+    win.refresh()
+    win.timeout(-1)
+    win.getch()
+    win.nodelay(True)
+    win.timeout(TICK_MS)
+
+
+def _show_overlap_detail(
+    win: curses.window, card: Card, file_map: dict[str, list[str]],
+) -> None:
+    """Show file overlap detail using precomputed file_map."""
+    my_files = set(file_map.get(card.name, []))
+    overlap_files: dict[str, list[str]] = {}
+    for other_name, other_files_list in file_map.items():
+        if other_name == card.name:
+            continue
+        for f in my_files & set(other_files_list):
+            overlap_files.setdefault(f, []).append(other_name)
+
+    lines = []
+    for f_path, wt_names in sorted(overlap_files.items()):
+        lines.append(f"  {f_path} \u2190 {', '.join(wt_names)}")
+
+    _show_modal(win, f" Overlap: {card.name} ({card.overlap_count} files) ", lines)
+
+
+def _show_detail_panel(win: curses.window, card: Card, tracker: StatusTracker) -> None:
+    """Show detail panel with git stats, commits, and last AI message."""
+    status = tracker.get_status(card.name)
+    wt_path = status.worktree_path if status else ""
+
+    commits: list[str] = []
+    if wt_path:
+        try:
+            result = subprocess.run(
+                ["git", "log", "--oneline", "-5"],
+                capture_output=True, text=True, cwd=wt_path, timeout=5,
+            )
+            if result.returncode == 0:
+                commits = [line for line in result.stdout.strip().split("\n") if line]
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+    lines = [
+        f"  Branch: {card.branch}",
+        f"  Status: {card.status.value}  Elapsed: {card.elapsed}",
+        f"  AI: {card.ai_tool}  Diff: {card.diff_stat or 'n/a'}",
+        f"  Task: {card.task or chr(8212)}",
+        "",
+        "  Recent commits:",
+    ]
+    for c in commits[:5]:
+        lines.append(f"    {c}")
+    if card.overlap_count > 0:
+        lines.append("")
+        lines.append(f"  \u26a0 {card.overlap_count} file(s) overlap with: {', '.join(card.overlap_names or [])}")
+
+    _show_modal(win, f" Detail: {card.name} ", lines, width=70)
+
+
 def _reinit_curses(stdscr: curses.window) -> curses.window:
     """Re-initialize curses after shelling out."""
     stdscr = curses.initscr()
@@ -316,6 +490,27 @@ def _reinit_curses(stdscr: curses.window) -> curses.window:
     stdscr.nodelay(True)
     stdscr.timeout(TICK_MS)
     return stdscr
+
+
+SHELL_TIMEOUT = 120  # seconds — max time for owt ship/merge/delete/new
+
+
+def _shell_out(
+    stdscr: curses.window, cmd: list[str], timeout: int = SHELL_TIMEOUT,
+) -> curses.window:
+    """Shell out to a command, handling timeout and Ctrl+C gracefully.
+
+    Always returns a re-initialized curses window, even on failure.
+    """
+    curses.endwin()
+    print(f"  (Ctrl+C to cancel, {timeout}s timeout)\n")
+    try:
+        subprocess.run(cmd, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print(f"\n  Timed out after {timeout}s. Returning to switchboard.")
+    except KeyboardInterrupt:
+        print("\n  Cancelled. Returning to switchboard.")
+    return _reinit_curses(stdscr)
 
 
 def _run_switchboard(stdscr: curses.window) -> None:
@@ -340,11 +535,12 @@ def _run_switchboard(stdscr: curses.window) -> None:
     cards: list[Card] = []
     prev_statuses: dict[str, AIActivityStatus] = {}
     cached_statuses: dict[str, WorktreeAIStatus] = {}  # from last heavy refresh
+    cached_file_map: dict[str, list[str]] = {}
 
     while True:
         # Heavy refresh (tmux pane capture) only every HEAVY_EVERY ticks
         if tick % HEAVY_EVERY == 0:
-            cards = _build_cards(tracker)
+            cards, cached_file_map = _build_cards(tracker)
 
             # Cache status objects for light-tick elapsed updates
             cached_statuses = {
@@ -442,46 +638,56 @@ def _run_switchboard(stdscr: curses.window) -> None:
             # New worktree
             task = _prompt_input(stdscr, "Task description: ")
             if task:
-                curses.endwin()
-                subprocess.run(["owt", "new", task], check=False)
-                stdscr = _reinit_curses(stdscr)
+                stdscr = _shell_out(stdscr, ["owt", "new", task])
         elif key == ord("d") and cards:
             # Drop (delete) worktree + status
             card = cards[selected]
             confirm = _prompt_input(stdscr, f"Delete '{card.name}'? (y/N): ")
             if confirm and confirm.lower() == "y":
-                curses.endwin()
-                # Try owt delete (handles worktree + tmux + status)
-                result = subprocess.run(["owt", "delete", card.name, "--yes"], check=False, capture_output=True)
-                if result.returncode != 0:
-                    # Worktree may not exist — clean up status entry directly
+                stdscr = _shell_out(stdscr, ["owt", "delete", card.name, "--yes"])
+                # Fallback cleanup if owt delete failed
+                if tracker.get_status(card.name):
                     tracker.remove_status(card.name)
-                    # Also try killing tmux session
                     if card.tmux_session:
                         try:
                             tmux.kill_session(card.tmux_session)
                         except Exception:
                             pass
-                stdscr = _reinit_curses(stdscr)
                 selected = min(selected, max(0, num_cards - 2))
         elif key == ord("S") and cards:
             # Ship: commit + merge + delete (one-shot completion)
             card = cards[selected]
             confirm = _prompt_input(stdscr, f"Ship '{card.name}'? (commit+merge+delete) (y/N): ")
             if confirm and confirm.lower() == "y":
-                curses.endwin()
-                subprocess.run(["owt", "ship", card.name, "--yes"], check=False)
-                stdscr = _reinit_curses(stdscr)
+                stdscr = _shell_out(stdscr, ["owt", "ship", card.name, "--yes"])
                 selected = min(selected, max(0, num_cards - 2))
         elif key == ord("m") and cards:
             # Merge worktree
             card = cards[selected]
             confirm = _prompt_input(stdscr, f"Merge '{card.name}'? (y/N): ")
             if confirm and confirm.lower() == "y":
-                curses.endwin()
-                subprocess.run(["owt", "merge", card.name], check=False)
-                stdscr = _reinit_curses(stdscr)
+                stdscr = _shell_out(stdscr, ["owt", "merge", card.name])
                 selected = min(selected, max(0, num_cards - 2))
+        elif key == ord("f") and cards:
+            # Show file overlap detail for selected card
+            card = cards[selected]
+            if card.overlap_count > 0 and card.overlap_names:
+                _show_overlap_detail(stdscr, card, cached_file_map)
+        elif key == ord("i") and cards:
+            # Show detail panel for selected card
+            card = cards[selected]
+            _show_detail_panel(stdscr, card, tracker)
+        elif key == ord("a") and cards:
+            # Broadcast message to all agents
+            msg = _prompt_input(stdscr, "Broadcast to all: ")
+            if msg:
+                for card in cards:
+                    if card.tmux_session:
+                        try:
+                            tmux.send_keys_to_pane(card.tmux_session, msg)
+                            tracker.record_command(card.name, msg)
+                        except Exception:
+                            pass
         elif key == ord("q"):
             return
 

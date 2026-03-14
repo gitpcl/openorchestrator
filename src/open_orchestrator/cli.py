@@ -68,6 +68,7 @@ def main(ctx: click.Context) -> None:
 @click.option("-a", "--attach", is_flag=True, help="Attach to tmux session after creation.")
 @click.option("--prefix", help="Override auto-detected branch prefix (e.g., feat, fix).")
 @click.option("-y", "--yes", is_flag=True, help="Skip branch name confirmation.")
+@click.option("--headless", is_flag=True, help="Create worktree without tmux session (CI/script use).")
 def new_worktree(
     description: tuple[str, ...],
     base_branch: str | None,
@@ -78,6 +79,7 @@ def new_worktree(
     attach: bool,
     prefix: str | None,
     yes: bool,
+    headless: bool,
 ) -> None:
     """Create a worktree + tmux session + deps + AI agent. One command.
 
@@ -202,26 +204,31 @@ def new_worktree(
     if hooks_installed:
         console.print(f"[green]Hooks installed:[/green] {ai_tool_enum.value} → owt status")
 
-    # 4. Create tmux session + start AI tool
+    # 4. Create tmux session + start AI tool (skip in headless mode)
     tmux_manager = TmuxManager()
-    try:
-        session_info = tmux_manager.create_worktree_session(
-            worktree_name=worktree.name,
-            worktree_path=str(worktree.path),
-            ai_tool=ai_tool_enum,
-            plan_mode=plan_mode,
-        )
-        console.print(f"[green]tmux session:[/green] {session_info.session_name}")
-    except TmuxSessionExistsError:
-        session_name = tmux_manager.generate_session_name(worktree.name)
-        console.print(f"[yellow]tmux session already exists:[/yellow] {session_name}")
-        session_info = tmux_manager.get_session_for_worktree(worktree.name)
-    except TmuxError as e:
-        console.print(f"[yellow]tmux warning: {e}[/yellow]")
-        session_info = None
+    session_info = None
+    session_name = None
+    if not headless:
+        try:
+            session_info = tmux_manager.create_worktree_session(
+                worktree_name=worktree.name,
+                worktree_path=str(worktree.path),
+                ai_tool=ai_tool_enum,
+                plan_mode=plan_mode,
+            )
+            console.print(f"[green]tmux session:[/green] {session_info.session_name}")
+        except TmuxSessionExistsError:
+            session_name = tmux_manager.generate_session_name(worktree.name)
+            console.print(f"[yellow]tmux session already exists:[/yellow] {session_name}")
+            session_info = tmux_manager.get_session_for_worktree(worktree.name)
+        except TmuxError as e:
+            console.print(f"[yellow]tmux warning: {e}[/yellow]")
+
+        session_name = session_info.session_name if session_info else session_name
+    else:
+        console.print("[dim]Headless mode — no tmux session created[/dim]")
 
     # 5. Initialize status tracking
-    session_name = session_info.session_name if session_info else None
     try:
         tracker = StatusTracker()
         tracker.initialize_status(
@@ -351,17 +358,46 @@ def switch_worktree(identifier: str) -> None:
 # ─── owt send ───────────────────────────────────────────────────────────────
 
 @main.command("send")
-@click.argument("identifier")
+@click.argument("identifier", required=False)
 @click.argument("message", nargs=-1, required=True)
 @click.option("--pane", "pane_index", type=int, default=0, help="Target pane index.")
-def send_to_worktree(identifier: str, message: tuple[str, ...], pane_index: int) -> None:
+@click.option("--all", "send_all", is_flag=True, help="Send to ALL worktrees.")
+@click.option("--working", "send_working", is_flag=True, help="Send only to WORKING worktrees.")
+def send_to_worktree(
+    identifier: str | None, message: tuple[str, ...], pane_index: int,
+    send_all: bool, send_working: bool,
+) -> None:
     """Send a command/message to a worktree's AI agent.
 
     Examples:
         owt send auth-jwt "Fix the failing tests"
-        owt send my-feature "Let's try a different approach"
+        owt send --all "Run tests"
+        owt send --working "Wrap up and commit"
     """
     msg = " ".join(message)
+    tmux = TmuxManager()
+    tracker = StatusTracker()
+
+    if send_all or send_working:
+        # Broadcast mode
+        statuses = tracker.get_all_statuses()
+        if send_working:
+            statuses = [s for s in statuses if s.activity_status == AIActivityStatus.WORKING]
+
+        sent = 0
+        for s in statuses:
+            if s.tmux_session and tmux.session_exists(s.tmux_session):
+                try:
+                    tmux.send_keys_to_pane(s.tmux_session, msg, pane_index=pane_index)
+                    tracker.record_command(s.worktree_name, msg)
+                    sent += 1
+                except TmuxError:
+                    console.print(f"[yellow]Failed to send to {s.worktree_name}[/yellow]")
+        console.print(f"[green]Broadcast to {sent} worktree(s):[/green] {msg[:80]}")
+        return
+
+    if not identifier:
+        raise click.ClickException("Specify a worktree name, or use --all / --working")
 
     wt_manager = get_worktree_manager()
     try:
@@ -369,7 +405,6 @@ def send_to_worktree(identifier: str, message: tuple[str, ...], pane_index: int)
     except WorktreeNotFoundError as e:
         raise click.ClickException(str(e)) from e
 
-    tmux = TmuxManager()
     session_name = tmux.generate_session_name(worktree.name)
 
     if not tmux.session_exists(session_name):
@@ -381,9 +416,7 @@ def send_to_worktree(identifier: str, message: tuple[str, ...], pane_index: int)
     except TmuxError as e:
         raise click.ClickException(str(e)) from e
 
-    # Update status
     try:
-        tracker = StatusTracker()
         tracker.record_command(worktree.name, msg)
     except Exception:
         pass
@@ -423,6 +456,15 @@ def merge_worktree(worktree_name: str, base_branch: str | None, keep: bool, yes:
             raise click.ClickException(str(e)) from e
 
     commits_ahead = merge_manager.count_commits_ahead(worktree.branch, target)
+
+    # Conflict Guard: warn about file overlaps
+    overlaps = merge_manager.check_file_overlaps(worktree_name, target)
+    if overlaps:
+        console.print(f"\n[yellow]⚠ File overlap warning:[/yellow] {len(overlaps)} file(s) modified by other worktrees:")
+        for f_path, wt_names in list(overlaps.items())[:5]:
+            console.print(f"  [yellow]{f_path}[/yellow] ← {', '.join(wt_names)}")
+        if len(overlaps) > 5:
+            console.print(f"  ... and {len(overlaps) - 5} more")
 
     if not yes:
         console.print("\n[bold]Merge plan:[/bold]")
@@ -769,6 +811,254 @@ def cleanup_worktrees(force: bool, days: int, json_output: bool) -> None:
                 tracker.remove_status(name)
             except Exception:
                 pass
+
+
+# ─── owt wait ──────────────────────────────────────────────────────────────
+
+@main.command("wait")
+@click.argument("worktree_name")
+@click.option("--timeout", type=int, default=600, help="Max wait time in seconds (default 600).")
+@click.option("--poll", type=int, default=10, help="Poll interval in seconds.")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
+def wait_for_worktree(worktree_name: str, timeout: int, poll: int, json_output: bool) -> None:
+    """Wait for a worktree's agent to finish (reach WAITING/COMPLETED).
+
+    Polls status until the agent is done or timeout is reached.
+    Useful for CI/CD pipelines and scripted workflows.
+
+    Examples:
+        owt wait auth-jwt
+        owt wait my-feature --timeout 1200
+        owt wait my-feature --json
+    """
+    tracker = StatusTracker()
+    elapsed = 0
+    terminal_states = {AIActivityStatus.WAITING, AIActivityStatus.COMPLETED, AIActivityStatus.ERROR}
+
+    while elapsed < timeout:
+        tracker.reload()
+        status = tracker.get_status(worktree_name)
+        if not status:
+            raise click.ClickException(f"No status found for '{worktree_name}'")
+
+        if status.activity_status in terminal_states:
+            if json_output:
+                console.print(json.dumps({
+                    "worktree": worktree_name,
+                    "status": status.activity_status.value,
+                    "elapsed": elapsed,
+                    "task": status.current_task,
+                }, indent=2))
+            else:
+                console.print(f"[green]{worktree_name}:[/green] {status.activity_status.value} ({elapsed}s)")
+            if status.activity_status == AIActivityStatus.ERROR:
+                raise SystemExit(1)
+            return
+
+        if not json_output:
+            console.print(f"[dim]{worktree_name}: {status.activity_status.value} ({elapsed}s / {timeout}s)[/dim]", end="\r")
+
+        time.sleep(poll)
+        elapsed += poll
+
+    last_status = status.activity_status.value if status else "unknown"
+    raise click.ClickException(f"Timeout after {timeout}s — {worktree_name} still {last_status}")
+
+
+# ─── owt batch ─────────────────────────────────────────────────────────────
+
+@main.command("batch")
+@click.argument("tasks_file", type=click.Path(exists=True))
+@click.option("--auto-ship", is_flag=True, help="Auto-ship completed tasks.")
+@click.option("--max-concurrent", type=int, default=3, help="Max parallel tasks.")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
+def batch_run(tasks_file: str, auto_ship: bool, max_concurrent: int, json_output: bool) -> None:
+    """Run a batch of tasks from a TOML file.
+
+    Karpathy-style autopilot: creates worktrees, starts agents,
+    monitors progress, and optionally auto-ships completed work.
+
+    TOML format:
+        [batch]
+        max_concurrent = 3
+
+        [[tasks]]
+        description = "Add user authentication"
+
+        [[tasks]]
+        description = "Fix login redirect bug"
+
+    Examples:
+        owt batch tasks.toml
+        owt batch tasks.toml --auto-ship
+    """
+    from open_orchestrator.core.batch import BatchResult, BatchRunner, BatchStatus, load_batch_config
+
+    config = load_batch_config(tasks_file)
+    if auto_ship:
+        config.auto_ship = True
+    if max_concurrent:
+        config.max_concurrent = max_concurrent
+
+    console.print(f"[bold]Batch: {len(config.tasks)} task(s), max {config.max_concurrent} concurrent[/bold]")
+
+    wt_manager = get_worktree_manager()
+    runner = BatchRunner(config, str(wt_manager.git_root))
+
+    def on_status(results: list[BatchResult]) -> None:
+        if json_output:
+            return
+        counts: dict[str, int] = {}
+        for r in results:
+            counts[r.status.value] = counts.get(r.status.value, 0) + 1
+        parts = [f"{v} {k}" for k, v in sorted(counts.items())]
+        console.print(f"  [dim]{' | '.join(parts)}[/dim]")
+
+    try:
+        results = runner.run(on_status=on_status)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Batch interrupted. Worktrees left running.[/yellow]")
+        return
+
+    if json_output:
+        output = [
+            {"task": r.task.description, "worktree": r.worktree_name,
+             "status": r.status.value, "error": r.error}
+            for r in results
+        ]
+        console.print(json.dumps(output, indent=2))
+    else:
+        shipped = sum(1 for r in results if r.status == BatchStatus.SHIPPED)
+        completed = sum(1 for r in results if r.status == BatchStatus.COMPLETED)
+        failed = sum(1 for r in results if r.status == BatchStatus.FAILED)
+        console.print(f"\n[bold]Batch complete:[/bold] {shipped} shipped, {completed} done, {failed} failed")
+        for r in results:
+            icon = {BatchStatus.SHIPPED: "[green]✓[/green]", BatchStatus.COMPLETED: "[cyan]●[/cyan]",
+                    BatchStatus.FAILED: "[red]✗[/red]"}.get(r.status, "[dim]?[/dim]")
+            err = f" — {r.error}" if r.error else ""
+            console.print(f"  {icon} {r.task.description[:60]}{err}")
+
+
+# ─── owt queue ─────────────────────────────────────────────────────────────
+
+@main.command("queue")
+@click.option("--base", "base_branch", help="Target branch for merge.")
+@click.option("--ship", "auto_ship", is_flag=True, help="Ship all completed worktrees in optimal order.")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
+def merge_queue(base_branch: str | None, auto_ship: bool, yes: bool) -> None:
+    """Show optimal merge order for completed worktrees.
+
+    Analyzes commit counts and file overlaps to determine the best
+    merge sequence — smallest changes first to minimize conflicts.
+
+    Examples:
+        owt queue                 # Show merge order
+        owt queue --ship          # Ship all in order
+        owt queue --ship --yes    # Ship all without confirmation
+    """
+    from open_orchestrator.core.merge import MergeManager
+
+    try:
+        merge_manager = MergeManager()
+    except Exception as e:
+        raise click.ClickException(str(e)) from e
+
+    order = merge_manager.plan_merge_order(base_branch)
+
+    if not order:
+        console.print("[dim]No completed/waiting worktrees ready to merge.[/dim]")
+        return
+
+    table = Table(title="Merge Queue", show_header=True, header_style="bold")
+    table.add_column("#", width=3)
+    table.add_column("Worktree")
+    table.add_column("Commits", justify="right")
+    table.add_column("Overlaps", justify="right")
+
+    for i, (name, commits, overlaps) in enumerate(order, 1):
+        overlap_str = f"[yellow]⚠ {overlaps}[/yellow]" if overlaps else "[green]0[/green]"
+        table.add_row(str(i), name, str(commits), overlap_str)
+
+    console.print(table)
+
+    if auto_ship:
+        if not yes:
+            if not click.confirm(f"\nShip {len(order)} worktree(s) in this order?"):
+                console.print("[yellow]Aborted.[/yellow]")
+                return
+
+        from open_orchestrator.core.merge import MergeConflictError, MergeStatus
+
+        for name, _, _ in order:
+            console.print(f"\n[bold]Shipping {name}...[/bold]")
+            try:
+                result = merge_manager.merge(
+                    worktree_name=name,
+                    base_branch=base_branch,
+                    delete_worktree=True,
+                )
+                if result.status == MergeStatus.SUCCESS:
+                    # Clean up tmux + status
+                    tmux = TmuxManager()
+                    session_name = tmux.generate_session_name(name)
+                    try:
+                        if tmux.session_exists(session_name):
+                            tmux.kill_session(session_name)
+                    except TmuxError:
+                        pass
+                    StatusTracker().remove_status(name)
+                    console.print(f"  [green]✓ Shipped {name}[/green]")
+                else:
+                    console.print(f"  [yellow]{result.message}[/yellow]")
+            except MergeConflictError as e:
+                console.print(f"  [red]✗ Conflicts in {name}: {e}[/red]")
+                console.print("  [dim]Skipping remaining — resolve conflicts first.[/dim]")
+                break
+            except Exception as e:
+                console.print(f"  [red]✗ Error: {e}[/red]")
+                break
+
+
+# ─── owt note ──────────────────────────────────────────────────────────────
+
+@main.command("note")
+@click.argument("message", nargs=-1, required=True)
+@click.option("--clear", is_flag=True, help="Clear all shared notes.")
+def shared_note(message: tuple[str, ...], clear: bool) -> None:
+    """Share context across all active agent sessions.
+
+    Notes are injected into each worktree's CLAUDE.md so agents
+    stay aware of cross-cutting changes.
+
+    Examples:
+        owt note "The users table now has a verified_at column"
+        owt note "API endpoint changed from /api/v1 to /api/v2"
+        owt note --clear
+    """
+    from open_orchestrator.core.environment import inject_shared_notes
+
+    tracker = StatusTracker()
+    tracker.reload()
+
+    if clear:
+        tracker.clear_shared_notes()
+        console.print("[green]Shared notes cleared.[/green]")
+        return
+
+    note_text = " ".join(message)
+    tracker.add_shared_note(note_text)
+
+    # Inject into all active worktrees' CLAUDE.md
+    notes = tracker.get_shared_notes()
+    injected = 0
+    for s in tracker.get_all_statuses():
+        try:
+            inject_shared_notes(s.worktree_path, notes)
+            injected += 1
+        except Exception:
+            pass
+
+    console.print(f"[green]Note shared with {injected} worktree(s):[/green] {note_text[:80]}")
 
 
 # ─── owt hook (internal) ───────────────────────────────────────────────────

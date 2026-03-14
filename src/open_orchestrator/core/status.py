@@ -217,6 +217,20 @@ class StatusTracker:
         self._store.set_status(status)
         self._save_store()
 
+    def get_shared_notes(self) -> list[str]:
+        """Get all shared notes."""
+        return list(self._store.shared_notes)
+
+    def add_shared_note(self, note: str) -> None:
+        """Add a shared note."""
+        self._store.shared_notes.append(note)
+        self._save_store()
+
+    def clear_shared_notes(self) -> None:
+        """Clear all shared notes."""
+        self._store.shared_notes = []
+        self._save_store()
+
     def get_summary(self, worktree_names: list[str] | None = None) -> StatusSummary:
         """Generate a summary of AI tool status across worktrees."""
         all_statuses = self._store.get_all_statuses()

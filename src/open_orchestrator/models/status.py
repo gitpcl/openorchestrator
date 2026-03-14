@@ -36,6 +36,7 @@ class WorktreeAIStatus(BaseModel):
     current_task: str | None = Field(default=None, description="Description of current task AI is working on")
     last_task_update: datetime | None = Field(default=None, description="When the task was last updated")
     notes: str | None = Field(default=None, description="Additional notes or context")
+    modified_files: list[str] = Field(default_factory=list, description="Files modified vs base branch")
     created_at: datetime = Field(default_factory=datetime.now, description="When this status record was created")
     updated_at: datetime = Field(default_factory=datetime.now, description="When this status was last updated")
 
@@ -78,6 +79,7 @@ class StatusStore(BaseModel):
     version: str = Field(default="2.0", description="Storage format version")
     updated_at: datetime = Field(default_factory=datetime.now, description="When the store was last updated")
     statuses: dict[str, WorktreeAIStatus] = Field(default_factory=dict, description="Map of worktree name to status")
+    shared_notes: list[str] = Field(default_factory=list, description="Notes shared across all worktrees")
 
     def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Get status for a specific worktree."""
