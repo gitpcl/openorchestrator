@@ -1,82 +1,93 @@
-# Open Orchestrator Demo Recording
-# VHS (Charm) tape file for recording the hero workflow demonstration
-#
-# Install VHS: brew install charmbracelet/tap/vhs
+# Open Orchestrator Demo — fully mocked for clean recording
 # Run: vhs assets/demo.tape
-#
-# This tape demonstrates:
-# 1. Launching the TUI with `owt`
-# 2. Creating first worktree (feature/auth) with 'n'
-# 3. Creating second worktree (feature/api) with 'n'
-# 4. Switching to Dashboard view with Tab
-# 5. Showing parallel agents with live status updates
 
-# Output configuration
 Output assets/demo.gif
 Set FontSize 14
 Set Width 1200
-Set Height 800
-Set Theme "Catppuccin Mocha"
-Set Framerate 12
+Set Height 700
+Set Framerate 15
 Set TypingSpeed 50ms
 Set Padding 20
-
-# Window title
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# Recording starts
+# Unified dark palette — matches Textual dark theme
+Set Theme { "name": "OWT", "black": "#26233a", "red": "#eb6f92", "green": "#e0def4", "yellow": "#e0def4", "blue": "#9ccfd8", "magenta": "#c4a7e7", "cyan": "#9ccfd8", "white": "#e0def4", "brightBlack": "#6e6a86", "brightRed": "#eb6f92", "brightGreen": "#e0def4", "brightYellow": "#e0def4", "brightBlue": "#9ccfd8", "brightMagenta": "#c4a7e7", "brightCyan": "#9ccfd8", "brightWhite": "#e0def4", "background": "#191724", "foreground": "#e0def4", "selectionBackground": "#26233a", "cursorColor": "#e0def4" }
+
+# Hidden setup: alias owt to mock script
 Hide
-Type "cd $(pwd)"
+Type@0 "cd /Users/pedrolopes/dev/projects/open-orchestrator"
 Enter
-Sleep 500ms
+Sleep 300ms
+Type@0 "alias owt='python3 assets/demo_mock_owt.py'"
+Enter
+Sleep 300ms
+Type@0 "clear"
+Enter
+Sleep 300ms
 Show
 
-# Step 1: Launch the TUI
-Type "owt"
-Sleep 1s
+# ── Show commands ───────────────────────────────────────────────────────────
+Type "owt --help"
+Sleep 300ms
 Enter
-Sleep 2s
-
-# Show the TUI main screen with worktree list
-# Wait for UI to render
-Sleep 1500ms
-
-# Step 2: Create first worktree (feature/auth)
-Type "n"
-Sleep 1s
-# In real TUI, a dialog would appear - simulate input
-Type "feature/auth"
-Enter
-Sleep 2s
-
-# Step 3: Create second worktree (feature/api)
-Type "n"
-Sleep 1s
-Type "feature/api"
-Enter
-Sleep 2s
-
-# Step 4: Navigate and show the worktree list
-# Use j/k to navigate between worktrees
-Type "j"
-Sleep 500ms
-Type "j"
-Sleep 500ms
-Type "k"
-Sleep 500ms
-
-# Step 5: Switch to Dashboard view (Tab key)
-# Note: This assumes Tab cycles views in the TUI
-Tab
-Sleep 2s
-
-# Show live status updates happening
 Sleep 3s
 
-# Final pause before exit
+# ── Create worktrees ────────────────────────────────────────────────────────
+Type "owt new Add user authentication with JWT"
+Sleep 300ms
+Enter
 Sleep 2s
 
-# Exit with 'q'
+Type "owt new Write API documentation"
+Sleep 300ms
+Enter
+Sleep 2s
+
+Type "owt new Add integration tests for payments"
+Sleep 300ms
+Enter
+Sleep 2s
+
+# ── List worktrees ──────────────────────────────────────────────────────────
+Type "owt list"
+Sleep 300ms
+Enter
+Sleep 3s
+
+# ── Send to agents ──────────────────────────────────────────────────────────
+Type 'owt send add-user-auth-jwt "Focus on refresh tokens"'
+Sleep 300ms
+Enter
+Sleep 1.5s
+
+Type 'owt send --all "Run tests before committing"'
+Sleep 300ms
+Enter
+Sleep 2s
+
+# ── Launch Switchboard ──────────────────────────────────────────────────────
+Type "owt"
+Sleep 300ms
+Enter
+Sleep 3s
+
+# Navigate between cards
+Right
+Sleep 800ms
+Right
+Sleep 800ms
+Right
+Sleep 800ms
+Left
+Sleep 800ms
+Left
+Sleep 800ms
+Left
+Sleep 800ms
+
+Sleep 2s
+
+# Quit
 Type "q"
 Sleep 1s
