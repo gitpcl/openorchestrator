@@ -195,7 +195,14 @@ def new_worktree(
     except EnvironmentSetupError as e:
         console.print(f"[yellow]Environment setup warning: {e}[/yellow]")
 
-    # 3. Create tmux session + start AI tool
+    # 3. Install AI tool hooks for status reporting
+    from open_orchestrator.core.hooks import install_hooks
+
+    hooks_installed = install_hooks(worktree.path, worktree.name, ai_tool_enum)
+    if hooks_installed:
+        console.print(f"[green]Hooks installed:[/green] {ai_tool_enum.value} → owt status")
+
+    # 4. Create tmux session + start AI tool
     tmux_manager = TmuxManager()
     try:
         session_info = tmux_manager.create_worktree_session(
@@ -213,7 +220,7 @@ def new_worktree(
         console.print(f"[yellow]tmux warning: {e}[/yellow]")
         session_info = None
 
-    # 4. Initialize status tracking
+    # 5. Initialize status tracking
     session_name = session_info.session_name if session_info else None
     try:
         tracker = StatusTracker()
@@ -227,7 +234,7 @@ def new_worktree(
     except Exception:
         pass
 
-    # 5. Send task description as initial prompt
+    # 6. Send task description as initial prompt
     if task_description and session_name:
         time.sleep(2)
         try:
@@ -238,14 +245,14 @@ def new_worktree(
         except Exception as e:
             console.print(f"[yellow]Could not send prompt: {e}[/yellow]")
 
-    # 6. Send template instructions
+    # 7. Send template instructions
     if tmpl_instructions and session_name:
         try:
             tmux_manager.send_keys_to_pane(session_name=session_name, keys=tmpl_instructions)
         except Exception:
             pass
 
-    # 7. Attach if requested
+    # 8. Attach if requested
     if attach and session_name:
         if tmux_manager.is_inside_tmux():
             tmux_manager.switch_client(session_name)
@@ -762,6 +769,37 @@ def cleanup_worktrees(force: bool, days: int, json_output: bool) -> None:
                 tracker.remove_status(name)
             except Exception:
                 pass
+
+
+# ─── owt hook (internal) ───────────────────────────────────────────────────
+
+@main.command("hook", hidden=True)
+@click.option("--event", required=True, type=click.Choice(["working", "waiting", "blocked"]))
+@click.option("--worktree", required=True)
+def hook_event(event: str, worktree: str) -> None:
+    """Handle AI tool hook events (internal use by installed hooks).
+
+    This command is called by hooks installed in .claude/settings.local.json
+    or .factory/settings.json. It updates the worktree's status in the
+    shared status store so the switchboard reflects real-time state.
+    """
+    from datetime import datetime
+
+    status_map = {
+        "working": AIActivityStatus.WORKING,
+        "waiting": AIActivityStatus.WAITING,
+        "blocked": AIActivityStatus.BLOCKED,
+    }
+
+    try:
+        tracker = StatusTracker()
+        wt_status = tracker.get_status(worktree)
+        if wt_status:
+            wt_status.activity_status = status_map[event]
+            wt_status.updated_at = datetime.now()
+            tracker.set_status(wt_status)
+    except Exception:
+        pass  # Hooks must never block the AI tool
 
 
 # ─── owt version ────────────────────────────────────────────────────────────

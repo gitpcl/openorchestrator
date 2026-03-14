@@ -44,19 +44,23 @@ SWITCHBOARD_SESSION = "owt-switchboard"
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧"
 TICK_MS = 200
 HEAVY_EVERY = 10  # _build_cards() runs every HEAVY_EVERY ticks (2s)
-RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED}
+RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED, AIActivityStatus.IDLE}
+HOOK_FRESHNESS_SECONDS = 10  # Trust hook-set status if updated within this window
 
 # Pre-compiled regex patterns for pane status detection
 _BLOCKED_RE = re.compile(
-    r"Allow\s|\(y/N\)|\(Y/n\)|approve|deny|permit|Do you want to|Press Enter to",
+    r"Allow\s|\(y/N\)|\(Y/n\)|approve|deny|Do you want to|Press Enter to",
+    re.IGNORECASE,
+)
+# Lines to skip — Claude Code status bar is always visible and contains
+# words like "permissions" that would false-trigger BLOCKED detection.
+_STATUS_BAR_RE = re.compile(
+    r"ctx:\s*\d+%|bypass permissions|shift\+tab|permissions\s+on",
     re.IGNORECASE,
 )
 _PROMPT_RE = re.compile(
-    r"^>\s*$|^❯|\$\s*$|What would you like|How can I help",
+    r"^>\s*$|^❯\s*$|What would you like|How can I help",
     re.IGNORECASE,
-)
-_WORKING_RE = re.compile(
-    r"^[" + re.escape(SPINNER_FRAMES) + r"]|Thinking\.\.\.|^\s*\d+\s+[│┃|]",
 )
 
 
@@ -128,22 +132,20 @@ def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
     if not tail:
         return None
 
-    tail_text = "\n".join(reversed(tail))
+    # Filter out Claude Code status bar lines before analysis
+    content_lines = [line for line in tail if not _STATUS_BAR_RE.search(line)]
+    content_text = "\n".join(reversed(content_lines)) if content_lines else ""
 
-    if _BLOCKED_RE.search(tail_text):
+    if content_text and _BLOCKED_RE.search(content_text):
         return AIActivityStatus.BLOCKED
 
-    # Waiting: idle prompt (❯ or >) must be visible in tail lines.
-    # The status bar below the prompt is always visible (even when working)
-    # so it cannot be used alone as evidence of idle.
-    if any(_PROMPT_RE.search(line) for line in tail):
-        return AIActivityStatus.WAITING
+    # If idle prompt (❯) is visible → WAITING. Otherwise → WORKING.
+    for line in content_lines[:5]:
+        if _PROMPT_RE.search(line):
+            return AIActivityStatus.WAITING
 
-    # Working: active output indicators in most recent line
-    if _WORKING_RE.search(tail[0]):
-        return AIActivityStatus.WORKING
-
-    return None
+    # No prompt visible — agent is doing something
+    return AIActivityStatus.WORKING
 
 
 def _build_cards(tracker: StatusTracker) -> list[Card]:
@@ -157,12 +159,19 @@ def _build_cards(tracker: StatusTracker) -> list[Card]:
     statuses = tracker.get_all_statuses()
 
     cards = []
+    now = datetime.now()
     for s in statuses:
-        if s.activity_status in RECHECKABLE_STATUSES:
+        # If status was recently updated (by hooks), trust it and skip pane scraping.
+        # Hooks push real-time status; pane scraping is the fallback for tools without hooks.
+        recently_updated = (
+            s.updated_at
+            and (now - s.updated_at).total_seconds() < HOOK_FRESHNESS_SECONDS
+        )
+        if not recently_updated and s.activity_status in RECHECKABLE_STATUSES:
             detected = _detect_pane_status(s.tmux_session)
             if detected and detected != s.activity_status:
                 s.activity_status = detected
-                s.updated_at = datetime.now()
+                s.updated_at = now
                 tracker.set_status(s)
 
         cards.append(Card(
