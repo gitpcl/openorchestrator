@@ -1,11 +1,11 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI agent orchestration with curses switchboard UI. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot (owt ship), (8) Running batch autopilot tasks (owt batch), (9) Viewing optimal merge order (owt queue), (10) Sharing context across agents (owt note), (11) Headless CI/CD mode (owt new --headless, owt wait), (12) Orchestrating AI tools across branches (auto-detects claude, opencode, droid). Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt batch, owt queue, owt note, owt wait, auto-detect agents, conflict guard, autopilot."
+description: "Git worktree + AI agent orchestration with Textual switchboard UI. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot (owt ship), (8) Running batch autopilot tasks (owt batch), (9) Viewing optimal merge order (owt queue), (10) Sharing context across agents (owt note), (11) Headless CI/CD mode (owt new --headless, owt wait), (12) Orchestrating AI tools across branches (auto-detects claude, opencode, droid). Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt batch, owt queue, owt note, owt wait, auto-detect agents, conflict guard, autopilot."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
-Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **curses-based switchboard UI**. The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, installs deps, and starts the AI tool in a tmux session. Run `owt` with no arguments to launch the switchboard — a card grid showing all active agents with status lights, diff stats, and file overlap warnings.
+Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **Textual-based switchboard UI**. The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, installs deps, and starts the AI tool in a tmux session. Run `owt` with no arguments to launch the switchboard — a card grid showing all active agents with status lights, diff stats, and file overlap warnings.
 
 ## Commands (15 total)
 
@@ -168,4 +168,4 @@ Auto-detects: Python (uv/poetry/pip), Node.js (bun/pnpm/yarn/npm), Rust (cargo),
 
 ## Dependencies
 
-6 production deps: click, pydantic, rich, toml, gitpython, libtmux.
+7 production deps: click, pydantic, rich, textual, toml, gitpython, libtmux.

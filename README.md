@@ -1,6 +1,6 @@
 # Open Orchestrator
 
-A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a curses-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid.
+A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a Textual-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid.
 
 ## Overview
 
@@ -11,7 +11,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 ## Features
 
 - **15 commands** — focused CLI surface, no bloat
-- **Switchboard UI** — curses-based card grid with status lights, diff stats, file overlap warnings, and detail panels
+- **Switchboard UI** — Textual-based card grid with status lights, diff stats, file overlap warnings, and detail panels
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops: create → work → ship → next
 - **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
@@ -25,7 +25,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Live status detection** — switchboard detects when agents are waiting for input or blocked
 - **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
 - **Project detection** — auto-detects Python, Node.js, Rust, Go, PHP and installs deps
-- **6 dependencies** — click, pydantic, rich, toml, gitpython, libtmux
+- **7 dependencies** — click, pydantic, rich, textual, toml, gitpython, libtmux
 
 ## Installation
 
@@ -304,13 +304,13 @@ src/open_orchestrator/         (~7,100 LOC)
 ├── cli.py                     # 15 CLI commands (click)
 ├── config.py                  # Hierarchical config (TOML)
 ├── core/
-│   ├── switchboard.py         # Curses card grid UI (conflict guard, detail panels, broadcast)
+│   ├── switchboard.py         # Textual card grid UI (async polling, modal screens, broadcast)
 │   ├── worktree.py            # Git worktree CRUD
 │   ├── tmux_manager.py        # tmux session management
 │   ├── merge.py               # Two-phase merge + merge queue + conflict guard
 │   ├── batch.py               # Autopilot loop orchestration (Karpathy-style)
 │   ├── environment.py         # Deps, .env, CLAUDE.md, shared notes injection
-│   ├── status.py              # AI activity tracking
+│   ├── status.py              # AI activity tracking (SQLite + WAL)
 │   ├── hooks.py               # AI tool hook installer (status push)
 │   ├── cleanup.py             # Stale worktree removal
 │   ├── sync.py                # Upstream sync
