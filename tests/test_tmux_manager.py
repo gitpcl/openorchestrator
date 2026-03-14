@@ -464,9 +464,9 @@ class TestAIToolSupport:
 
     def test_ai_tool_get_command(self):
         """Test command retrieval for each tool."""
-        assert AITool.get_command(AITool.CLAUDE) == "claude"
+        assert AITool.get_command(AITool.CLAUDE) == "claude --dangerously-skip-permissions"
         assert AITool.get_command(AITool.OPENCODE) == "opencode"
-        assert AITool.get_command(AITool.DROID) == "droid"
+        assert AITool.get_command(AITool.DROID) == "droid --skip-permissions-unsafe"
 
     def test_session_config_default_ai_tool(self, temp_dir: Path):
         """Test default AI tool is Claude."""
@@ -525,7 +525,7 @@ class TestAIToolSupport:
         manager.create_session(config)
 
         # Verify droid command was sent
-        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with("droid", enter=True)
+        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with("droid --skip-permissions-unsafe", enter=True)
 
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_no_ai_tool_when_disabled(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):

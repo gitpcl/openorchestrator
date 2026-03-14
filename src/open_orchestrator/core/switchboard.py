@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import curses
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 
@@ -73,13 +74,93 @@ def _format_elapsed(status: WorktreeAIStatus) -> str:
     return f"{hours // 24}d"
 
 
+def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
+    """Detect agent status by capturing tmux pane content.
+
+    Looks for prompt indicators that signal the agent is waiting for input
+    or blocked on a permission/confirmation prompt.
+    """
+    if not tmux_session:
+        return None
+    try:
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", tmux_session, "-p", "-J"],
+            capture_output=True, text=True, check=True, timeout=2,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+    lines = result.stdout.rstrip("\n").split("\n")
+    if not lines:
+        return None
+
+    # Get last non-empty lines for analysis
+    tail = []
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped:
+            tail.append(stripped)
+        if len(tail) >= 8:
+            break
+    if not tail:
+        return None
+
+    tail_text = "\n".join(reversed(tail))
+
+    # Patterns that indicate the agent is waiting for user input
+    # Claude Code: shows ">" prompt, or "❯" prompt when idle
+    # Also: "What would you like to do?" / input prompts
+    waiting_patterns = [
+        r"^>\s*$",                           # Claude Code empty prompt
+        r"^❯\s*$",                           # Alternative prompt
+        r"\$\s*$",                            # Shell prompt (agent exited)
+        r"What would you like",              # Claude asking for input
+        r"How can I help",                   # Claude greeting
+    ]
+
+    # Patterns that indicate blocked on permission/confirmation
+    blocked_patterns = [
+        r"Allow\s",                          # Permission prompt
+        r"\(y/N\)",                           # Yes/No confirmation
+        r"\(Y/n\)",                           # Yes/No confirmation
+        r"approve|deny|permit",              # Permission language
+        r"Do you want to",                   # Confirmation prompt
+        r"Press Enter to",                   # Waiting for keypress
+    ]
+
+    last_line = tail[0]  # Most recent non-empty line
+
+    for pattern in blocked_patterns:
+        if re.search(pattern, tail_text, re.IGNORECASE):
+            return AIActivityStatus.BLOCKED
+
+    for pattern in waiting_patterns:
+        if re.search(pattern, last_line, re.IGNORECASE):
+            return AIActivityStatus.WAITING
+
+    return None
+
+
 def _build_cards(tracker: StatusTracker) -> list[Card]:
-    """Build card list from current status data."""
+    """Build card list from current status data.
+
+    On each refresh, captures tmux pane content to detect whether
+    agents are actually working, waiting for input, or blocked on
+    a permission prompt — then updates the persisted status.
+    """
     tracker.reload()
     statuses = tracker.get_all_statuses()
 
     cards = []
     for s in statuses:
+        # Detect live pane status when the stored status says WORKING
+        if s.activity_status == AIActivityStatus.WORKING:
+            detected = _detect_pane_status(s.tmux_session)
+            if detected and detected != s.activity_status:
+                s.activity_status = detected
+                s.updated_at = __import__("datetime").datetime.now()
+                tracker.set_status(s)
+
         cards.append(Card(
             name=s.worktree_name,
             status=s.activity_status,
@@ -151,11 +232,16 @@ def _draw_header(win: curses.window, cards: list[Card]) -> None:
     max_x = win.getmaxyx()[1]
 
     active = sum(1 for c in cards if c.status == AIActivityStatus.WORKING)
+    waiting = sum(1 for c in cards if c.status in (AIActivityStatus.WAITING, AIActivityStatus.BLOCKED))
     total = len(cards)
-    idle = total - active
+    idle = total - active - waiting
 
     title = "SWITCHBOARD"
-    stats = f"{total} lines  \u25cf{active} active \u25cb{idle}"
+    parts = [f"{total} lines", f"\u25cf{active} active"]
+    if waiting:
+        parts.append(f"\u26a0{waiting} waiting")
+    parts.append(f"\u25cb{idle}")
+    stats = "  ".join(parts)
 
     # Draw header — pad to full width so A_REVERSE fills the line
     header = f"  {title:<30} {stats:>{max_x - 34}}"
@@ -166,7 +252,7 @@ def _draw_header(win: curses.window, cards: list[Card]) -> None:
 def _draw_footer(win: curses.window) -> None:
     """Draw the footer with key bindings."""
     max_y, max_x = win.getmaxyx()
-    footer = "  [\u2191\u2193\u2190\u2192] navigate  [Enter] patch in  [s] send msg  [n] new  [d] drop  [m] merge  [q] quit"
+    footer = "  [\u2191\u2193\u2190\u2192] navigate  [Enter] patch in  [s] send  [n] new  [S] ship  [d] drop  [m] merge  [q] quit"
     footer = footer.ljust(max_x - 1)
     try:
         win.addstr(max_y - 1, 0, footer[:max_x - 1], curses.A_REVERSE)
@@ -320,6 +406,15 @@ def _run_switchboard(stdscr: curses.window) -> None:
                             pass
                 stdscr = _reinit_curses(stdscr)
                 selected = min(selected, max(0, num_cards - 2))
+        elif key == ord("S") and cards:
+            # Ship: commit + merge + delete (one-shot completion)
+            card = cards[selected]
+            confirm = _prompt_input(stdscr, f"Ship '{card.name}'? (commit+merge+delete) (y/N): ")
+            if confirm and confirm.lower() == "y":
+                curses.endwin()
+                subprocess.run(["owt", "ship", card.name, "--yes"], check=False)
+                stdscr = _reinit_curses(stdscr)
+                selected = min(selected, max(0, num_cards - 2))
         elif key == ord("m") and cards:
             # Merge worktree
             card = cards[selected]
@@ -347,15 +442,26 @@ def _is_inside_switchboard_session() -> bool:
         return False
 
 
+def _resolve_worktree_from_session(session_name: str) -> str | None:
+    """Given a tmux session name like 'owt-foo', return the worktree name 'foo'."""
+    prefix = "owt-"
+    if session_name.startswith(prefix):
+        return session_name[len(prefix):]
+    return None
+
+
 def _install_switchboard_keys() -> None:
     """Install global tmux keybindings for switchboard navigation.
 
-    Alt+s: switch back to the switchboard session
+    Alt+b: switch back to the switchboard session
     Alt+c: create a new worktree (runs owt new in a popup)
+    Alt+s: ship current worktree (commit + merge + delete)
+    Alt+m: merge current worktree
+    Alt+d: delete current worktree
     """
-    # Alt+s: switch to the switchboard session
+    # Alt+b: switch to the switchboard (b = board)
     subprocess.run(
-        ["tmux", "bind-key", "-n", "M-s",
+        ["tmux", "bind-key", "-n", "M-b",
          "switch-client", "-t", SWITCHBOARD_SESSION],
         check=False, capture_output=True,
     )
@@ -374,6 +480,82 @@ def _install_switchboard_keys() -> None:
              "new-window", "-n", "new-worktree", "owt new"],
             check=False, capture_output=True,
         )
+
+    # Alt+s: ship the current worktree (commit + merge + delete)
+    # Derives worktree name from the current tmux session name (owt-<name>)
+    ship_script = (
+        "wt_name=$(tmux display-message -p '#S' | sed 's/^owt-//'); "
+        "if [ -n \"$wt_name\" ] && [ \"$wt_name\" != 'owt-switchboard' ]; then "
+        "  tmux switch-client -t owt-switchboard; "
+        "  owt ship \"$wt_name\" --yes; "
+        "fi"
+    )
+    if (major, minor) >= (3, 2):
+        subprocess.run(
+            ["tmux", "bind-key", "-n", "M-s",
+             "display-popup", "-E", "-w", "80%", "-h", "50%",
+             f"bash -c {_shell_quote(ship_script)}"],
+            check=False, capture_output=True,
+        )
+    else:
+        subprocess.run(
+            ["tmux", "bind-key", "-n", "M-s",
+             "new-window", "-n", "ship",
+             f"bash -c {_shell_quote(ship_script)}"],
+            check=False, capture_output=True,
+        )
+
+    # Alt+m: merge the current worktree
+    merge_script = (
+        "wt_name=$(tmux display-message -p '#S' | sed 's/^owt-//'); "
+        "if [ -n \"$wt_name\" ] && [ \"$wt_name\" != 'owt-switchboard' ]; then "
+        "  tmux switch-client -t owt-switchboard; "
+        "  owt merge \"$wt_name\"; "
+        "fi"
+    )
+    if (major, minor) >= (3, 2):
+        subprocess.run(
+            ["tmux", "bind-key", "-n", "M-m",
+             "display-popup", "-E", "-w", "80%", "-h", "50%",
+             f"bash -c {_shell_quote(merge_script)}"],
+            check=False, capture_output=True,
+        )
+    else:
+        subprocess.run(
+            ["tmux", "bind-key", "-n", "M-m",
+             "new-window", "-n", "merge",
+             f"bash -c {_shell_quote(merge_script)}"],
+            check=False, capture_output=True,
+        )
+
+    # Alt+d: delete the current worktree
+    delete_script = (
+        "wt_name=$(tmux display-message -p '#S' | sed 's/^owt-//'); "
+        "if [ -n \"$wt_name\" ] && [ \"$wt_name\" != 'owt-switchboard' ]; then "
+        "  tmux switch-client -t owt-switchboard; "
+        "  owt delete \"$wt_name\" --yes; "
+        "fi"
+    )
+    if (major, minor) >= (3, 2):
+        subprocess.run(
+            ["tmux", "bind-key", "-n", "M-d",
+             "display-popup", "-E", "-w", "80%", "-h", "50%",
+             f"bash -c {_shell_quote(delete_script)}"],
+            check=False, capture_output=True,
+        )
+    else:
+        subprocess.run(
+            ["tmux", "bind-key", "-n", "M-d",
+             "new-window", "-n", "delete",
+             f"bash -c {_shell_quote(delete_script)}"],
+            check=False, capture_output=True,
+        )
+
+
+def _shell_quote(s: str) -> str:
+    """Quote a string for shell embedding in tmux commands."""
+    import shlex
+    return shlex.quote(s)
 
 
 def launch_switchboard() -> None:

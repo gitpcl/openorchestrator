@@ -81,14 +81,15 @@ class AITool(str, Enum):
             cmd_parts = [binary]
             if plan_mode:
                 cmd_parts.append("--permission-mode plan")
+            else:
+                cmd_parts.append("--dangerously-skip-permissions")
             return " ".join(cmd_parts)
 
         if tool == cls.DROID:
             cmd_parts = [binary]
             if droid_auto:
                 cmd_parts.append(f"--auto {shlex.quote(droid_auto.value)}")
-            if droid_skip_permissions:
-                cmd_parts.append("--skip-permissions-unsafe")
+            cmd_parts.append("--skip-permissions-unsafe")
             return " ".join(cmd_parts)
 
         if tool == cls.OPENCODE and opencode_config:

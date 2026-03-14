@@ -2,7 +2,7 @@
 
 Git Worktree + AI agent orchestration tool for parallel development workflows with curses-based switchboard UI.
 
-## Commands (10 total)
+## Commands (11 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -12,6 +12,7 @@ Git Worktree + AI agent orchestration tool for parallel development workflows wi
 | `owt switch <name>` | `owt s` | Jump to a worktree's tmux session |
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
 | `owt merge <name>` | `owt m` | Two-phase merge + auto-cleanup worktree + tmux session |
+| `owt ship <name>` | | Commit + merge + delete in one shot |
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux session + status |
 | `owt sync [--all]` | | Sync worktree(s) with upstream |
 | `owt cleanup [--force]` | | Remove stale worktrees (dry-run by default) |

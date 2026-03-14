@@ -10,11 +10,14 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Features
 
-- **10 commands** — focused CLI surface, no bloat
-- **Switchboard UI** — curses-based card grid in a persistent tmux session with Alt+s/Alt+c navigation
+- **11 commands** — focused CLI surface, no bloat
+- **Switchboard UI** — curses-based card grid in a persistent tmux session with global Alt-key navigation
 - **One-command setup** — `owt new "task"` does everything: branch → worktree → deps → .env → tmux → AI tool
+- **Ship in one shot** — `owt ship` auto-commits, merges to main, and tears down worktree + session
 - **Two-phase merge** — `owt merge` catches conflicts early, then auto-cleans worktree + session
 - **Full teardown** — `owt delete` kills tmux session + removes worktree + cleans status
+- **Skip-permissions by default** — agents run with full autonomy (no permission prompts)
+- **Live status detection** — switchboard detects when agents are waiting for input or blocked
 - **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
 - **Project detection** — auto-detects Python, Node.js, Rust, Go, PHP and installs deps
 - **Environment setup** — copies `.env` files and `CLAUDE.md` with path adjustments
@@ -52,13 +55,14 @@ owt
 # Create a worktree with AI agent (one command does everything)
 owt new "Add user authentication with JWT"
 
-# From inside an agent session, press Alt+s to return to the switchboard
+# From inside an agent session, press Alt+b to return to the switchboard
 # Or use CLI to interact:
 owt send auth-jwt "Fix the failing tests"
 owt switch auth-jwt    # Jump to that session
 
-# Merge and clean up when done
-owt merge auth-jwt
+# Ship when done (commit + merge + delete in one shot)
+owt ship auth-jwt
+# Or press Alt+s from inside the agent session
 ```
 
 ## Commands
@@ -71,6 +75,7 @@ owt merge auth-jwt
 | `owt switch <name>` | `owt s` | Jump to a worktree's tmux session |
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
 | `owt merge <name>` | `owt m` | Two-phase merge + cleanup |
+| `owt ship <name>` | | Commit + merge + delete in one shot |
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux + status |
 | `owt sync [--all]` | | Sync with upstream |
 | `owt cleanup [--force]` | | Remove stale worktrees |
@@ -97,7 +102,7 @@ Run `owt` with no arguments to launch the switchboard — your command center. I
   │ Refactoring endpoints   │   │ Waiting for input         │
   └─────────────────────────┘   └───────────────────────────┘
 
-  [↑↓←→] navigate  [Enter] patch in  [s] send  [n] new  [d] drop  [m] merge  [q] quit
+  [↑↓←→] navigate  [Enter] patch in  [s] send  [n] new  [S] ship  [d] drop  [m] merge  [q] quit
 ```
 
 **Status lights:** ● working, ○ idle, ⚠ blocked, ✓ done
@@ -107,18 +112,22 @@ Run `owt` with no arguments to launch the switchboard — your command center. I
 - **Enter** — patch into that agent's tmux session (switchboard stays alive)
 - **s** — send a message to the selected agent
 - **n** — create a new worktree + agent
+- **S** — ship the selected worktree (commit + merge + delete)
 - **d** — delete the selected worktree (with confirmation)
 - **m** — merge the selected worktree
 - **q** — quit back to terminal
 
 **Global tmux keybindings (work from any agent session):**
-- **Alt+s** — switch back to the switchboard
+- **Alt+b** — switch back to the switchboard
+- **Alt+s** — ship current worktree (commit + merge + delete)
+- **Alt+m** — merge current worktree
+- **Alt+d** — delete current worktree
 - **Alt+c** — create a new worktree (opens popup)
 
 **Navigation flow:**
 
 ```
-owt → switchboard → Enter → agent session → Alt+s → switchboard → q → terminal
+owt → switchboard → Enter → agent session → Alt+b → switchboard → q → terminal
 ```
 
 ## Workflow Templates
@@ -160,9 +169,9 @@ Open Orchestrator auto-detects installed AI tools and offers a picker when multi
 
 | Tool | Binary | Notes |
 |------|--------|-------|
-| Claude Code | `claude` | Default, supports plan mode |
+| Claude Code | `claude` | Default, `--dangerously-skip-permissions` by default |
 | OpenCode | `opencode` | Go-based |
-| Droid | `droid` | Supports autonomy levels |
+| Droid | `droid` | `--skip-permissions-unsafe` by default |
 
 ```bash
 owt new "task" --ai-tool claude --plan-mode
@@ -227,7 +236,7 @@ Use these slash commands in Claude Code sessions:
 
 ```
 src/open_orchestrator/         (~5,600 LOC)
-├── cli.py                     # 10 CLI commands (click)
+├── cli.py                     # 11 CLI commands (click)
 ├── config.py                  # Hierarchical config (TOML)
 ├── core/
 │   ├── switchboard.py         # Curses-based card grid UI

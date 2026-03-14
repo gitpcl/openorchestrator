@@ -1,13 +1,13 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI agent orchestration with curses switchboard UI. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Merging worktree branches with two-phase merge (owt merge), (6) Deleting worktrees atomically (owt delete), (7) Orchestrating AI tools across branches (auto-detects claude, opencode, droid), (8) Cleaning up stale worktrees, (9) Syncing worktrees with upstream. Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt delete, owt switch, owt send, auto-detect agents."
+description: "Git worktree + AI agent orchestration with curses switchboard UI. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Merging worktree branches with two-phase merge (owt merge), (6) Shipping worktrees in one shot — commit+merge+delete (owt ship), (7) Deleting worktrees atomically (owt delete), (8) Orchestrating AI tools across branches (auto-detects claude, opencode, droid), (9) Cleaning up stale worktrees, (10) Syncing worktrees with upstream. Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, auto-detect agents."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
 Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **curses-based switchboard UI**. The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, installs deps, and starts the AI tool in a tmux session. Run `owt` with no arguments to launch the switchboard — a card grid showing all active agents with status lights.
 
-## Commands (10 total)
+## Commands (11 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -17,6 +17,7 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt switch <name>` | `owt s` | Jump to a worktree's tmux session |
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
 | `owt merge <name>` | `owt m` | Two-phase merge + auto-cleanup worktree + tmux session |
+| `owt ship <name>` | | Commit + merge + delete in one shot |
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux session + status |
 | `owt sync [--all]` | | Sync worktree(s) with upstream |
 | `owt cleanup [--force]` | | Remove stale worktrees (dry-run by default) |
@@ -36,7 +37,7 @@ Run `owt` to launch the switchboard — your command center for multi-agent orch
   | Implementing JWT auth   |   | -                         |
   +-------------------------+   +---------------------------+
 
-  [arrows] navigate  [Enter] patch in  [s] send  [n] new  [d] drop  [q] quit
+  [arrows] navigate  [Enter] patch in  [s] send  [n] new  [S] ship  [d] drop  [m] merge  [q] quit
 ```
 
 **Switchboard keys:**
@@ -44,15 +45,19 @@ Run `owt` to launch the switchboard — your command center for multi-agent orch
 - `Enter`: patch into that agent's tmux session (switchboard stays alive)
 - `s`: send a message to the selected agent
 - `n`: create a new worktree + agent
+- `S`: ship the selected worktree (commit + merge + delete)
 - `d`: delete the selected worktree
 - `m`: merge the selected worktree
 - `q`: quit back to terminal
 
 **Global tmux keybindings (work from any agent session):**
-- `Alt+s`: switch back to the switchboard
+- `Alt+b`: switch back to the switchboard
+- `Alt+s`: ship current worktree (commit + merge + delete)
+- `Alt+m`: merge current worktree
+- `Alt+d`: delete current worktree
 - `Alt+c`: create a new worktree (opens popup)
 
-**Navigation flow:** `owt` → switchboard → `Enter` → agent → `Alt+s` → switchboard → `q` → terminal
+**Navigation flow:** `owt` → switchboard → `Enter` → agent → `Alt+b` → switchboard → `q` → terminal
 
 ## Core Workflow
 
@@ -78,7 +83,7 @@ owt list      # Quick text table for scripts/pipes
 ### 3. Interact with Agents
 ```bash
 # From the switchboard: press Enter to patch into an agent session
-# From any agent session: press Alt+s to return to the switchboard
+# From any agent session: press Alt+b to return to the switchboard
 # Or use CLI:
 owt send auth-jwt "Fix the failing tests"
 owt switch auth-jwt    # Jump to that tmux session
@@ -86,7 +91,9 @@ owt switch auth-jwt    # Jump to that tmux session
 
 ### 4. Complete Work
 ```bash
-owt merge auth-jwt     # Two-phase merge + auto-cleanup
+owt ship auth-jwt      # Commit + merge + delete in one shot
+# Or from inside the agent session: press Alt+s to ship
+owt merge auth-jwt     # Two-phase merge + auto-cleanup (no auto-commit)
 owt delete fix-login   # Delete worktree + session + status
 owt cleanup            # Remove stale worktrees (dry-run)
 owt cleanup --force    # Actually delete stale worktrees

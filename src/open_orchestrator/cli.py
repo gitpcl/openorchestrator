@@ -471,6 +471,123 @@ def merge_worktree(worktree_name: str, base_branch: str | None, keep: bool, yes:
         console.print(f"\n[red]{result.message}[/red]")
 
 
+# ─── owt ship ──────────────────────────────────────────────────────────────
+
+@main.command("ship")
+@click.argument("worktree_name")
+@click.option("--base", "base_branch", help="Target branch to merge into.")
+@click.option("-m", "--message", "commit_message", help="Commit message for uncommitted changes.")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
+def ship_worktree(worktree_name: str, base_branch: str | None, commit_message: str | None, yes: bool) -> None:
+    """Commit, merge, and clean up a worktree in one shot.
+
+    Auto-commits any uncommitted changes, merges the branch into
+    its base (main/master), then tears down the worktree + tmux
+    session + status tracking.
+
+    Examples:
+        owt ship auth-jwt
+        owt ship my-feature --base develop
+        owt ship my-feature -m "feat: add auth flow"
+    """
+    from git import Repo
+
+    from open_orchestrator.core.merge import MergeConflictError, MergeError, MergeManager, MergeStatus
+
+    wt_manager = get_worktree_manager()
+    try:
+        worktree = wt_manager.get(worktree_name)
+    except WorktreeNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+
+    if worktree.is_main:
+        raise click.ClickException("Cannot ship the main worktree")
+
+    try:
+        merge_manager = MergeManager()
+    except Exception as e:
+        raise click.ClickException(str(e)) from e
+
+    target = base_branch
+    if not target:
+        try:
+            target = merge_manager.get_base_branch(worktree.branch)
+        except MergeError as e:
+            raise click.ClickException(str(e)) from e
+
+    # Check for uncommitted changes
+    dirty_files = merge_manager.check_uncommitted_changes(worktree_name)
+
+    if not yes:
+        console.print("\n[bold]Ship plan:[/bold]")
+        if dirty_files:
+            console.print(f"  1. Commit {len(dirty_files)} uncommitted file(s)")
+        else:
+            console.print("  1. [dim]No uncommitted changes[/dim]")
+        commits_ahead = merge_manager.count_commits_ahead(worktree.branch, target)
+        console.print(f"  2. Merge {worktree.branch} → {target} ({commits_ahead + (1 if dirty_files else 0)} commit(s))")
+        console.print("  3. Delete worktree + tmux session")
+        if not click.confirm("\nProceed?"):
+            console.print("[yellow]Aborted.[/yellow]")
+            return
+
+    # Step 1: Auto-commit if dirty
+    if dirty_files:
+        wt_repo = Repo(worktree.path)
+        wt_repo.git.add("-A")
+        msg = commit_message or f"feat: {worktree.branch.split('/')[-1].replace('-', ' ')}"
+        wt_repo.git.commit("-m", msg)
+        console.print(f"[green]Committed:[/green] {msg}")
+
+    # Step 2: Kill tmux session BEFORE merge (avoids issues with agent holding locks)
+    tmux = TmuxManager()
+    session_name = tmux.generate_session_name(worktree.name)
+    try:
+        if tmux.session_exists(session_name):
+            tmux.kill_session(session_name)
+            console.print(f"[green]Killed tmux session:[/green] {session_name}")
+    except TmuxError as e:
+        console.print(f"[yellow]tmux warning: {e}[/yellow]")
+
+    # Step 3: Merge
+    try:
+        with console.status("[bold blue]Merging..."):
+            result = merge_manager.merge(
+                worktree_name=worktree_name,
+                base_branch=base_branch,
+                delete_worktree=True,
+            )
+    except MergeConflictError as e:
+        console.print(f"\n[red]Merge conflicts:[/red] {e}")
+        for conflict in e.conflicts:
+            console.print(f"  [yellow]C[/yellow] {conflict}")
+        console.print(f"\n[dim]Resolve in: {worktree.path}[/dim]")
+        raise SystemExit(1)
+    except MergeError as e:
+        raise click.ClickException(str(e)) from e
+
+    if result.status == MergeStatus.SUCCESS:
+        console.print(
+            f"\n[bold green]Shipped![/bold green] {result.source_branch} → {result.target_branch}"
+            f" ({result.commits_merged} commits)"
+        )
+    elif result.status == MergeStatus.ALREADY_MERGED:
+        console.print(f"\n[yellow]{result.message}[/yellow]")
+        # Still clean up worktree if already merged
+        try:
+            wt_manager.delete(worktree_name, force=True)
+        except WorktreeError:
+            pass
+
+    # Step 4: Clean up status
+    try:
+        StatusTracker().remove_status(worktree.name)
+    except Exception:
+        pass
+
+    console.print("  [green]Cleaned up worktree + session + status[/green]")
+
+
 # ─── owt delete ─────────────────────────────────────────────────────────────
 
 @main.command("delete")

@@ -158,7 +158,11 @@ class StatusTracker:
         if not wt_status:
             return None
 
-        if wt_status.activity_status == AIActivityStatus.IDLE:
+        if wt_status.activity_status in (
+            AIActivityStatus.IDLE,
+            AIActivityStatus.WAITING,
+            AIActivityStatus.BLOCKED,
+        ):
             wt_status.activity_status = AIActivityStatus.WORKING
 
         wt_status.updated_at = datetime.now()
