@@ -48,6 +48,7 @@ HEAVY_EVERY = 10  # _build_cards() runs every HEAVY_EVERY ticks (2s)
 RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED, AIActivityStatus.IDLE}
 HOOK_FRESHNESS_SECONDS = 10  # Trust hook-set status if updated within this window
 HOOK_CAPABLE_TOOLS = {AITool.CLAUDE.value, AITool.DROID.value}  # Scraper must not downgrade WORKING → WAITING
+HOOK_TRUST_MAX_SECONDS = 300  # After 5 min with no hook update, let scraper recover stale WORKING
 
 # Pre-compiled regex patterns for pane status detection
 # Must match actual permission prompts, NOT agent thinking text like "Allow me to..."
@@ -242,11 +243,14 @@ def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str
             s.updated_at
             and (now - s.updated_at).total_seconds() < HOOK_FRESHNESS_SECONDS
         )
-        # For hook-capable tools in WORKING state, skip pane scraping entirely —
+        # For hook-capable tools in WORKING state, skip pane scraping —
         # the Stop hook is the only reliable signal for WORKING → WAITING.
+        # But cap trust at HOOK_TRUST_MAX_SECONDS so a missed Stop hook recovers.
+        time_since_update = (now - s.updated_at).total_seconds() if s.updated_at else float("inf")
         hook_trusted = (
             s.ai_tool in HOOK_CAPABLE_TOOLS
             and s.activity_status == AIActivityStatus.WORKING
+            and time_since_update < HOOK_TRUST_MAX_SECONDS
         )
         if not recently_updated and not hook_trusted and s.activity_status in RECHECKABLE_STATUSES:
             detected = _detect_pane_status(s.tmux_session)
