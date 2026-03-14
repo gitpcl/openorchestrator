@@ -118,6 +118,17 @@ def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
         r"How can I help",                   # Claude greeting
     ]
 
+    # Patterns checked against the full tail text (not just last line)
+    # Claude Code's idle state has status bar lines BELOW the prompt:
+    #   ❯ █
+    #   → project git:(branch) Model [ctx: N%]
+    #   ›› bypass permissions on (shift+tab to cycle)
+    waiting_tail_patterns = [
+        r"→\s+.+\[ctx:\s*\d+%\]",           # Claude Code project status bar
+        r"››\s+.+permissions",               # Claude Code permissions mode line
+        r"shift\+tab to cycle",              # Claude Code permission toggle hint
+    ]
+
     # Patterns that indicate blocked on permission/confirmation
     blocked_patterns = [
         r"Allow\s",                          # Permission prompt
@@ -136,6 +147,11 @@ def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
 
     for pattern in waiting_patterns:
         if re.search(pattern, last_line, re.IGNORECASE):
+            return AIActivityStatus.WAITING
+
+    # Check full tail text for Claude Code status bar patterns
+    for pattern in waiting_tail_patterns:
+        if re.search(pattern, tail_text, re.IGNORECASE):
             return AIActivityStatus.WAITING
 
     return None
