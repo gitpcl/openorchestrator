@@ -18,7 +18,6 @@ from open_orchestrator.models.maintenance import (
 )
 from open_orchestrator.models.status import (
     AIActivityStatus,
-    StatusStore,
     StatusSummary,
     WorktreeAIStatus,
 )
@@ -31,7 +30,6 @@ __all__ = [
     "WorktreeSyncResult",
     "WorktreeUsageStats",
     "AIActivityStatus",
-    "StatusStore",
     "StatusSummary",
     "WorktreeAIStatus",
 ]

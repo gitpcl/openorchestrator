@@ -51,12 +51,12 @@ src/open_orchestrator/
 ├── core/
 │   ├── worktree.py     # Git worktree operations
 │   ├── tmux_manager.py # tmux session management (SINGLE + MAIN_VERTICAL layouts)
-│   ├── switchboard.py  # Curses-based card grid UI (conflict guard, detail panels, broadcast)
+│   ├── switchboard.py  # Textual-based card grid UI (async polling, modal screens, broadcast)
 │   ├── project_detector.py  # Project type detection
 │   ├── environment.py  # Dependency, .env & CLAUDE.md setup
 │   ├── cleanup.py      # Worktree cleanup service
 │   ├── sync.py         # Upstream sync service
-│   ├── status.py       # AI activity status tracking
+│   ├── status.py       # AI activity status tracking (SQLite + WAL)
 │   ├── branch_namer.py # Branch name generation from task descriptions
 │   ├── merge.py        # Two-phase merge logic + merge queue + conflict guard
 │   ├── batch.py        # Autopilot loop orchestration (Karpathy-style)
@@ -83,7 +83,7 @@ src/open_orchestrator/
 - Use `rich` for terminal output
 - Use `click` for CLI commands
 - Use `pydantic` for data models
-- Dependencies: click, pydantic, rich, toml, gitpython, libtmux (6 total)
+- Dependencies: click, pydantic, rich, textual, toml, gitpython, libtmux (7 total)
 
 ## Key Patterns
 

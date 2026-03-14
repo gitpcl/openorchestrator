@@ -1,13 +1,14 @@
 """
 Status tracking service for worktree AI tool sessions.
 
-This module provides functionality to:
-- Track what AI tools (Claude, OpenCode, Droid) are doing in each worktree
-- Record commands sent between worktrees
-- Generate status summaries across all worktrees
+SQLite backend — replaces the previous JSON + file-locking approach.
+WAL mode allows concurrent reads/writes from the switchboard and hooks.
 """
 
 import json
+import logging
+import os
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -15,11 +16,68 @@ from pathlib import Path
 from open_orchestrator.config import AITool
 from open_orchestrator.models.status import (
     AIActivityStatus,
-    StatusStore,
     StatusSummary,
     WorktreeAIStatus,
 )
-from open_orchestrator.utils.io import atomic_write_text, exclusive_file_lock, shared_file_lock
+
+logger = logging.getLogger(__name__)
+
+_SCHEMA_SQL = """\
+CREATE TABLE IF NOT EXISTS worktree_status (
+    worktree_name TEXT PRIMARY KEY,
+    worktree_path TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    tmux_session TEXT,
+    ai_tool TEXT DEFAULT 'claude',
+    activity_status TEXT DEFAULT 'idle',
+    current_task TEXT,
+    last_task_update TEXT,
+    notes TEXT,
+    modified_files TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS shared_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+
+def _dt_to_str(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    return dt.isoformat()
+
+
+def _str_to_dt(s: str | None) -> datetime | None:
+    if s is None:
+        return None
+    return datetime.fromisoformat(s)
+
+
+def _row_to_status(row: sqlite3.Row) -> WorktreeAIStatus:
+    return WorktreeAIStatus(
+        worktree_name=row["worktree_name"],
+        worktree_path=row["worktree_path"],
+        branch=row["branch"],
+        tmux_session=row["tmux_session"],
+        ai_tool=row["ai_tool"] or "claude",
+        activity_status=AIActivityStatus(row["activity_status"] or "unknown"),
+        current_task=row["current_task"],
+        last_task_update=_str_to_dt(row["last_task_update"]),
+        notes=row["notes"],
+        modified_files=json.loads(row["modified_files"] or "[]"),
+        created_at=_str_to_dt(row["created_at"]) or datetime.now(),
+        updated_at=_str_to_dt(row["updated_at"]) or datetime.now(),
+    )
 
 
 @dataclass
@@ -36,81 +94,126 @@ class StatusTracker:
     """
     Tracks and persists AI tool activity status for worktrees.
 
-    This service maintains a JSON store of what AI tools are doing
-    in each worktree, allowing the main worktree to see activity
-    across all parallel development sessions.
+    Uses SQLite with WAL mode for concurrent access from the switchboard
+    UI and hook-driven writes from multiple agents.
     """
 
-    DEFAULT_STATUS_FILENAME = "ai_status.json"
+    DEFAULT_STATUS_FILENAME = "status.db"
 
     def __init__(self, config: StatusConfig | None = None):
         self.config = config or StatusConfig()
         self._storage_path = self.config.storage_path or self._get_default_path()
-        self._store: StatusStore = StatusStore()
-        self._removed_keys: set[str] = set()
-        self._load_store()
+        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(
+            str(self._storage_path), isolation_level="DEFERRED"
+        )
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
+        self._ensure_schema()
+        self._migrate_json()
+        # Set restrictive permissions on the DB file
+        try:
+            os.chmod(self._storage_path, 0o600)
+        except (PermissionError, OSError):
+            pass
 
     def _get_default_path(self) -> Path:
         """Get default path for status storage in user's home directory."""
         return Path.home() / ".open-orchestrator" / self.DEFAULT_STATUS_FILENAME
 
-    def _load_store(self) -> None:
-        """Load status store from persistent storage."""
-        if self._storage_path.exists():
-            try:
-                with open(self._storage_path) as f:
-                    with shared_file_lock(f):
-                        data = json.load(f)
-                        self._store = StatusStore.model_validate(data)
-            except (OSError, json.JSONDecodeError, ValueError):
-                self._store = StatusStore()
-        else:
-            self._store = StatusStore()
+    def _ensure_schema(self) -> None:
+        """Create tables if they don't exist."""
+        self._conn.executescript(_SCHEMA_SQL)
+        self._conn.execute(
+            "INSERT OR IGNORE INTO metadata (key, value) VALUES ('version', '3.0')"
+        )
+        self._conn.commit()
 
-    def _save_store(self) -> None:
-        """Persist status store with exclusive lock to prevent lost updates."""
-        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path = self._storage_path.with_suffix(".lock")
+    def _migrate_json(self) -> None:
+        """Import data from legacy ai_status.json if it exists."""
+        from open_orchestrator.utils.io import safe_read_json
+
+        json_path = self._storage_path.parent / "ai_status.json"
+        if not json_path.exists():
+            return
         try:
-            with open(lock_path, "w") as lock_f:
-                with exclusive_file_lock(lock_f):
-                    # Re-read to merge concurrent changes
-                    if self._storage_path.exists():
-                        try:
-                            with open(self._storage_path) as f:
-                                disk_data = json.load(f)
-                                disk_store = StatusStore.model_validate(disk_data)
-                                for name, status in disk_store.statuses.items():
-                                    if name not in self._store.statuses and name not in self._removed_keys:
-                                        self._store.statuses[name] = status
-                        except (OSError, json.JSONDecodeError, ValueError):
-                            pass
-                    data = json.dumps(
-                        self._store.model_dump(mode="json"),
-                        indent=2,
-                        default=str,
-                    )
-                    atomic_write_text(self._storage_path, data, perms=0o600)
-        except OSError:
-            # Fallback: write without lock
-            data = json.dumps(
-                self._store.model_dump(mode="json"),
-                indent=2,
-                default=str,
-            )
-            atomic_write_text(self._storage_path, data, perms=0o600)
+            data = safe_read_json(json_path)
+            if data is None:
+                return
+            for name, s in data.get("statuses", {}).items():
+                status = WorktreeAIStatus(
+                    worktree_name=s.get("worktree_name", name),
+                    worktree_path=s.get("worktree_path", ""),
+                    branch=s.get("branch", ""),
+                    tmux_session=s.get("tmux_session"),
+                    ai_tool=s.get("ai_tool", "claude"),
+                    activity_status=AIActivityStatus(s.get("activity_status", "unknown")),
+                    current_task=s.get("current_task"),
+                    last_task_update=_str_to_dt(s.get("last_task_update")),
+                    notes=s.get("notes"),
+                    modified_files=s.get("modified_files", []),
+                    created_at=_str_to_dt(s.get("created_at")) or datetime.now(),
+                    updated_at=_str_to_dt(s.get("updated_at")) or datetime.now(),
+                )
+                self._upsert_status(status)
+            for note in data.get("shared_notes", []):
+                self.add_shared_note(note)
+            # Rename JSON to .bak
+            bak_path = json_path.with_suffix(".json.bak")
+            json_path.rename(bak_path)
+            logger.info("Migrated %s → SQLite, backup at %s", json_path, bak_path)
+        except (OSError, ValueError) as e:
+            logger.warning("Failed to migrate %s: %s", json_path, e)
+
+    def close(self) -> None:
+        """Close the database connection."""
+        self._conn.close()
 
     def reload(self) -> None:
-        """Re-read status store from disk."""
-        self._load_store()
+        """No-op: SQLite reads are always fresh."""
 
     def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Get status for a specific worktree."""
-        return self._store.get_status(worktree_name)
+        row = self._conn.execute(
+            "SELECT * FROM worktree_status WHERE worktree_name = ?",
+            (worktree_name,),
+        ).fetchone()
+        return _row_to_status(row) if row else None
 
     def get_all_statuses(self) -> list[WorktreeAIStatus]:
         """Get statuses for all tracked worktrees."""
-        return self._store.get_all_statuses()
+        rows = self._conn.execute("SELECT * FROM worktree_status").fetchall()
+        return [_row_to_status(r) for r in rows]
+
+    def _upsert_status(self, s: WorktreeAIStatus) -> None:
+        """Insert or replace a status row."""
+        self._conn.execute(
+            """INSERT OR REPLACE INTO worktree_status
+               (worktree_name, worktree_path, branch, tmux_session, ai_tool,
+                activity_status, current_task, last_task_update, notes,
+                modified_files, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                s.worktree_name,
+                s.worktree_path,
+                s.branch,
+                s.tmux_session,
+                s.ai_tool,
+                s.activity_status.value,
+                s.current_task,
+                _dt_to_str(s.last_task_update),
+                s.notes,
+                json.dumps(s.modified_files),
+                _dt_to_str(s.created_at),
+                _dt_to_str(s.updated_at),
+            ),
+        )
+        self._conn.commit()
+
+    def set_status(self, status: WorktreeAIStatus) -> None:
+        """Public API to persist a WorktreeAIStatus update."""
+        self._upsert_status(status)
 
     def initialize_status(
         self,
@@ -133,28 +236,26 @@ class StatusTracker:
             created_at=datetime.now(),
             updated_at=datetime.now(),
         )
-        self._store.set_status(status)
-        self._save_store()
+        self._upsert_status(status)
         return status
 
     def update_task(
         self, worktree_name: str, task: str, status: AIActivityStatus = AIActivityStatus.WORKING
     ) -> WorktreeAIStatus | None:
         """Update the current task for a worktree."""
-        wt_status = self._store.get_status(worktree_name)
+        wt_status = self.get_status(worktree_name)
         if not wt_status:
             return None
 
         wt_status.update_task(task, status)
-        self._store.set_status(wt_status)
-        self._save_store()
+        self._upsert_status(wt_status)
         return wt_status
 
     def record_command(
         self, target_worktree: str, command: str, source_worktree: str | None = None, pane_index: int = 0, window_index: int = 0
     ) -> WorktreeAIStatus | None:
         """Record a command sent to a worktree and mark it as working."""
-        wt_status = self._store.get_status(target_worktree)
+        wt_status = self.get_status(target_worktree)
         if not wt_status:
             return None
 
@@ -166,74 +267,72 @@ class StatusTracker:
             wt_status.activity_status = AIActivityStatus.WORKING
 
         wt_status.updated_at = datetime.now()
-        self._store.set_status(wt_status)
-        self._save_store()
+        self._upsert_status(wt_status)
         return wt_status
 
     def mark_completed(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Mark a worktree's current task as completed."""
-        wt_status = self._store.get_status(worktree_name)
+        wt_status = self.get_status(worktree_name)
         if not wt_status:
             return None
 
         wt_status.mark_completed()
-        self._store.set_status(wt_status)
-        self._save_store()
+        self._upsert_status(wt_status)
         return wt_status
 
     def mark_idle(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Mark a worktree as idle."""
-        wt_status = self._store.get_status(worktree_name)
+        wt_status = self.get_status(worktree_name)
         if not wt_status:
             return None
 
         wt_status.mark_idle()
-        self._store.set_status(wt_status)
-        self._save_store()
+        self._upsert_status(wt_status)
         return wt_status
 
     def set_notes(self, worktree_name: str, notes: str) -> WorktreeAIStatus | None:
         """Set notes for a worktree."""
-        wt_status = self._store.get_status(worktree_name)
+        wt_status = self.get_status(worktree_name)
         if not wt_status:
             return None
 
         wt_status.notes = notes
         wt_status.updated_at = datetime.now()
-        self._store.set_status(wt_status)
-        self._save_store()
+        self._upsert_status(wt_status)
         return wt_status
 
     def remove_status(self, worktree_name: str) -> bool:
         """Remove status tracking for a worktree."""
-        removed = self._store.remove_status(worktree_name)
-        if removed:
-            self._removed_keys.add(worktree_name)
-            self._save_store()
-        return removed
-
-    def set_status(self, status: WorktreeAIStatus) -> None:
-        """Public API to persist a WorktreeAIStatus update."""
-        self._store.set_status(status)
-        self._save_store()
+        cursor = self._conn.execute(
+            "DELETE FROM worktree_status WHERE worktree_name = ?",
+            (worktree_name,),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
 
     def get_shared_notes(self) -> list[str]:
         """Get all shared notes."""
-        return list(self._store.shared_notes)
+        rows = self._conn.execute(
+            "SELECT note FROM shared_notes ORDER BY id"
+        ).fetchall()
+        return [r["note"] for r in rows]
 
     def add_shared_note(self, note: str) -> None:
         """Add a shared note."""
-        self._store.shared_notes.append(note)
-        self._save_store()
+        self._conn.execute(
+            "INSERT INTO shared_notes (note, created_at) VALUES (?, ?)",
+            (note, datetime.now().isoformat()),
+        )
+        self._conn.commit()
 
     def clear_shared_notes(self) -> None:
         """Clear all shared notes."""
-        self._store.shared_notes = []
-        self._save_store()
+        self._conn.execute("DELETE FROM shared_notes")
+        self._conn.commit()
 
     def get_summary(self, worktree_names: list[str] | None = None) -> StatusSummary:
         """Generate a summary of AI tool status across worktrees."""
-        all_statuses = self._store.get_all_statuses()
+        all_statuses = self.get_all_statuses()
 
         if worktree_names:
             all_statuses = [s for s in all_statuses if s.worktree_name in worktree_names]
@@ -264,24 +363,17 @@ class StatusTracker:
     def cleanup_orphans(self, valid_worktree_names: list[str]) -> list[str]:
         """Remove status entries for worktrees that no longer exist."""
         removed = []
-        current_names = [s.worktree_name for s in self._store.get_all_statuses()]
-
-        for name in current_names:
-            if name not in valid_worktree_names:
-                self._store.remove_status(name)
-                self._removed_keys.add(name)
-                removed.append(name)
-
-        if removed:
-            self._save_store()
-
+        for s in self.get_all_statuses():
+            if s.worktree_name not in valid_worktree_names:
+                self.remove_status(s.worktree_name)
+                removed.append(s.worktree_name)
         return removed
 
     def get_current_worktree_name(self) -> str | None:
         """Get the worktree name for the current directory."""
         current_path = str(Path.cwd())
 
-        for status in self._store.get_all_statuses():
+        for status in self.get_all_statuses():
             if current_path.startswith(status.worktree_path):
                 return status.worktree_name
 

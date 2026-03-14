@@ -1,8 +1,9 @@
 """
-Tests for StatusTracker class and AI activity status tracking.
+Tests for StatusTracker class and AI activity status tracking (SQLite backend).
 """
 
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -15,10 +16,10 @@ from open_orchestrator.models.status import AIActivityStatus
 
 @pytest.fixture
 def status_file(temp_directory: Path) -> Path:
-    """Create a temporary status file path."""
-    status_path = temp_directory / ".open-orchestrator" / "ai_status.json"
-    status_path.parent.mkdir(parents=True, exist_ok=True)
-    return status_path
+    """Create a temporary status DB path."""
+    db_path = temp_directory / ".open-orchestrator" / "status.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return db_path
 
 
 @pytest.fixture
@@ -54,11 +55,12 @@ class TestStatusTrackerInit:
     def test_init_without_config(self) -> None:
         """Test StatusTracker initialization without config uses defaults."""
         tracker = StatusTracker()
-        default_path = Path.home() / ".open-orchestrator" / "ai_status.json"
+        default_path = Path.home() / ".open-orchestrator" / "status.db"
         assert tracker._storage_path == default_path
 
-    def test_load_existing_store(self, status_file: Path, status_config: StatusConfig) -> None:
-        """Test loading an existing status store from file."""
+    def test_migrate_existing_json(self, status_file: Path, status_config: StatusConfig) -> None:
+        """Test migrating an existing JSON status store into SQLite."""
+        json_path = status_file.parent / "ai_status.json"
         existing_data = {
             "statuses": {
                 "test-worktree": {
@@ -75,13 +77,17 @@ class TestStatusTrackerInit:
                 }
             }
         }
-        status_file.write_text(json.dumps(existing_data))
+        json_path.write_text(json.dumps(existing_data))
 
         tracker = StatusTracker(status_config)
         status = tracker.get_status("test-worktree")
         assert status is not None
         assert status.worktree_name == "test-worktree"
         assert status.activity_status == AIActivityStatus.WORKING
+
+        # JSON should be renamed to .bak
+        assert not json_path.exists()
+        assert json_path.with_suffix(".json.bak").exists()
 
 
 class TestInitializeStatus:
@@ -113,15 +119,22 @@ class TestInitializeStatus:
         assert status.ai_tool == "droid"
 
     def test_initialize_status_persists(self, status_tracker: StatusTracker, status_file: Path) -> None:
-        """Test initialized status is persisted to storage."""
+        """Test initialized status is persisted to SQLite."""
         status_tracker.initialize_status(
             worktree_name="persist-test",
             worktree_path="/path/to/persist",
             branch="feature/persist",
         )
         assert status_file.exists()
-        data = json.loads(status_file.read_text())
-        assert "persist-test" in data["statuses"]
+        # Verify directly in SQLite
+        conn = sqlite3.connect(str(status_file))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM worktree_status WHERE worktree_name = ?", ("persist-test",)
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["branch"] == "feature/persist"
 
 
 class TestUpdateTask:
@@ -271,8 +284,8 @@ class TestSetNotes:
         assert result is None
 
 
-class TestFilePersistence:
-    """Test file persistence and locking."""
+class TestSQLitePersistence:
+    """Test SQLite persistence and permissions."""
 
     def test_status_file_created_with_permissions(self, status_tracker: StatusTracker, status_file: Path) -> None:
         status_tracker.initialize_status("perm-test", "/path/to/perm", "branch")
@@ -287,9 +300,32 @@ class TestFilePersistence:
         tracker1 = StatusTracker(status_config)
         tracker1.initialize_status("reload-test", "/path/to/reload", "branch")
         tracker1.update_task("reload-test", "Task 1", AIActivityStatus.WORKING)
+        tracker1.close()
 
         tracker2 = StatusTracker(status_config)
         status = tracker2.get_status("reload-test")
         assert status is not None
         assert status.current_task == "Task 1"
         assert status.activity_status == AIActivityStatus.WORKING
+
+    def test_wal_mode_enabled(self, status_file: Path, status_config: StatusConfig) -> None:
+        """Verify WAL journal mode is active."""
+        tracker = StatusTracker(status_config)
+        tracker.initialize_status("wal-test", "/path/wal", "branch")
+        row = tracker._conn.execute("PRAGMA journal_mode").fetchone()
+        assert row[0] == "wal"
+
+
+class TestSharedNotes:
+    """Test shared notes functionality."""
+
+    def test_add_and_get_shared_notes(self, status_tracker: StatusTracker) -> None:
+        status_tracker.add_shared_note("Note 1")
+        status_tracker.add_shared_note("Note 2")
+        notes = status_tracker.get_shared_notes()
+        assert notes == ["Note 1", "Note 2"]
+
+    def test_clear_shared_notes(self, status_tracker: StatusTracker) -> None:
+        status_tracker.add_shared_note("To be cleared")
+        status_tracker.clear_shared_notes()
+        assert status_tracker.get_shared_notes() == []

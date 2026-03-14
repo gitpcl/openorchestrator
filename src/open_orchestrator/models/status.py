@@ -71,33 +71,3 @@ class StatusSummary(BaseModel):
     unknown_status: int = Field(default=0, ge=0, description="Number of worktrees with unknown status")
     most_recent_activity: datetime | None = Field(default=None, description="Most recent activity across all worktrees")
     statuses: list[WorktreeAIStatus] = Field(default_factory=list, description="Individual status for each worktree")
-
-
-class StatusStore(BaseModel):
-    """Persistent storage for worktree statuses."""
-
-    version: str = Field(default="2.0", description="Storage format version")
-    updated_at: datetime = Field(default_factory=datetime.now, description="When the store was last updated")
-    statuses: dict[str, WorktreeAIStatus] = Field(default_factory=dict, description="Map of worktree name to status")
-    shared_notes: list[str] = Field(default_factory=list, description="Notes shared across all worktrees")
-
-    def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
-        """Get status for a specific worktree."""
-        return self.statuses.get(worktree_name)
-
-    def set_status(self, status: WorktreeAIStatus) -> None:
-        """Set status for a worktree."""
-        self.statuses[status.worktree_name] = status
-        self.updated_at = datetime.now()
-
-    def remove_status(self, worktree_name: str) -> bool:
-        """Remove status for a worktree. Returns True if removed."""
-        if worktree_name in self.statuses:
-            del self.statuses[worktree_name]
-            self.updated_at = datetime.now()
-            return True
-        return False
-
-    def get_all_statuses(self) -> list[WorktreeAIStatus]:
-        """Get all worktree statuses."""
-        return list(self.statuses.values())

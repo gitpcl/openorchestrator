@@ -1,5 +1,5 @@
 """
-Switchboard: curses-based card grid for multi-agent orchestration.
+Switchboard: Textual-based card grid for multi-agent orchestration.
 
 The switchboard is the command center for Open Orchestrator. It displays
 all active worktrees as cards with status lights, and provides keyboard
@@ -16,27 +16,38 @@ Metaphor: Like a telephone switchboard operator managing multiple lines.
 
 from __future__ import annotations
 
-import curses
+import asyncio
+import collections.abc
 import os
 import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 
+from rich.columns import Columns
+from rich.panel import Panel
+from rich.text import Text
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Container
+from textual.screen import ModalScreen
+from textual.widgets import Button, Input, Label, Static
+
 from open_orchestrator.config import AITool
 from open_orchestrator.core.status import StatusTracker
 from open_orchestrator.core.tmux_manager import TmuxManager
+from open_orchestrator.core.worktree import WorktreeManager
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
-# Status light characters and colors
-STATUS_LIGHTS: dict[str, tuple[str, int]] = {
-    "working": ("\u25cf", curses.COLOR_GREEN),      # ● green
-    "idle": ("\u25cb", curses.COLOR_WHITE),          # ○ white
-    "blocked": ("\u26a0", curses.COLOR_YELLOW),      # ⚠ yellow
-    "waiting": ("\u26a0", curses.COLOR_YELLOW),      # ⚠ yellow
-    "completed": ("\u2713", curses.COLOR_CYAN),      # ✓ cyan
-    "error": ("\u25cf", curses.COLOR_RED),            # ● red
-    "unknown": ("?", curses.COLOR_WHITE),
+# Status light characters and colors (Rich markup)
+STATUS_LIGHTS: dict[str, tuple[str, str]] = {
+    "working": ("\u25cf", "green"),       # ● green
+    "idle": ("\u25cb", "white"),           # ○ white
+    "blocked": ("\u26a0", "yellow"),       # ⚠ yellow
+    "waiting": ("\u26a0", "yellow"),       # ⚠ yellow
+    "completed": ("\u2713", "cyan"),       # ✓ cyan
+    "error": ("\u25cf", "red"),            # ● red
+    "unknown": ("?", "white"),
 }
 
 CARD_WIDTH = 30
@@ -44,7 +55,7 @@ CARD_HEIGHT = 6
 SWITCHBOARD_SESSION = "owt-switchboard"
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧"
 TICK_MS = 200
-HEAVY_EVERY = 10  # _build_cards() runs every HEAVY_EVERY ticks (2s)
+HEAVY_EVERY = 10  # _build_cards runs every HEAVY_EVERY ticks (2s)
 RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED, AIActivityStatus.IDLE}
 HOOK_FRESHNESS_SECONDS = 10  # Trust hook-set status if updated within this window
 HOOK_CAPABLE_TOOLS = {AITool.CLAUDE.value, AITool.DROID.value}  # Scraper must not downgrade WORKING → WAITING
@@ -224,53 +235,105 @@ def _compute_overlaps(
         card.overlap_names = overlap_names if overlap_names else None
 
 
-def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str]]]:
-    """Build card list from current status data.
+async def _build_cards_async(
+    tracker: StatusTracker,
+    wt_manager: WorktreeManager | None = None,
+) -> tuple[list[Card], dict[str, list[str]]]:
+    """Build card list from git worktrees enriched with status data.
 
-    On each refresh, captures tmux pane content to detect whether
-    agents are actually working, waiting for input, or blocked on
-    a permission prompt — then updates the persisted status.
+    Uses git worktrees as the source of truth (same as ``owt list``),
+    enriched with status DB data for activity tracking. Runs tmux pane
+    captures and git diff calls concurrently via asyncio.to_thread.
 
     Returns (cards, file_map) where file_map maps worktree names to modified files.
     """
-    tracker.reload()
-    statuses = tracker.get_all_statuses()
+    # Git worktrees are the source of truth — same as `owt list`.
+    # Fall back to status DB entries if git is unavailable (e.g. in tests).
+    try:
+        if wt_manager is None:
+            wt_manager = WorktreeManager()
+        worktrees = [wt for wt in wt_manager.list_all() if not wt.is_main]
+    except Exception:
+        worktrees = []
 
-    cards = []
-    file_map: dict[str, list[str]] = {}
+    status_map = {s.worktree_name: s for s in tracker.get_all_statuses()}
+
+    if worktrees:
+        # Merge: git worktrees enriched with status DB
+        statuses: list[WorktreeAIStatus] = []
+        for wt in worktrees:
+            s = status_map.get(wt.name)
+            if s is None:
+                s = WorktreeAIStatus(
+                    worktree_name=wt.name,
+                    worktree_path=str(wt.path),
+                    branch=wt.branch,
+                    activity_status=AIActivityStatus.IDLE,
+                )
+            statuses.append(s)
+    else:
+        # Fallback: use status DB directly (test environments, no git repo)
+        statuses = list(status_map.values())
+
     now = datetime.now()
-    for s in statuses:
-        # If status was recently updated (by hooks), trust it and skip pane scraping.
-        # Hooks push real-time status; pane scraping is the fallback for tools without hooks.
+
+    # Schedule parallel I/O: pane detection + diff info
+    tasks: list[collections.abc.Awaitable[object]] = []
+    task_meta: list[tuple[str, int]] = []  # ("pane"|"diff", status_index)
+
+    for i, s in enumerate(statuses):
         recently_updated = (
             s.updated_at
             and (now - s.updated_at).total_seconds() < HOOK_FRESHNESS_SECONDS
         )
         if not recently_updated and s.activity_status in RECHECKABLE_STATUSES:
-            detection = _detect_pane_status(s.tmux_session)
-            if detection:
-                detected, high_confidence = detection
-                if detected != s.activity_status:
-                    # For hook-capable tools, block low-confidence WORKING → WAITING
-                    # (stale ❯ prompt during thinking). High-confidence signals like
-                    # "Interrupted" always pass through.
-                    time_since_update = (now - s.updated_at).total_seconds() if s.updated_at else float("inf")
-                    hook_guarded = (
-                        not high_confidence
-                        and s.ai_tool in HOOK_CAPABLE_TOOLS
-                        and s.activity_status == AIActivityStatus.WORKING
-                        and detected == AIActivityStatus.WAITING
-                        and time_since_update < HOOK_TRUST_MAX_SECONDS
-                    )
-                    if not hook_guarded:
-                        s.activity_status = detected
-                        s.updated_at = now
-                        tracker.set_status(s)
+            tasks.append(asyncio.to_thread(_detect_pane_status, s.tmux_session))
+            task_meta.append(("pane", i))
 
-        # Compute modified files + diff stats (single git call, skip if path gone)
-        diff_stat = ""
+    for i, s in enumerate(statuses):
         if os.path.isdir(s.worktree_path):
-            mod_files, diff_stat = _get_diff_info(s.worktree_path, s.branch)
+            tasks.append(asyncio.to_thread(_get_diff_info, s.worktree_path, s.branch))
+            task_meta.append(("diff", i))
+
+    results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
+
+    pane_results: dict[int, tuple[AIActivityStatus, bool] | None] = {}
+    diff_results: dict[int, tuple[list[str], str]] = {}
+    for (kind, idx), result in zip(task_meta, results):
+        if isinstance(result, BaseException):
+            continue
+        if kind == "pane":
+            pane_results[idx] = result  # type: ignore[assignment]
+        else:
+            diff_results[idx] = result  # type: ignore[assignment]
+
+    # Process results and build cards
+    cards = []
+    file_map: dict[str, list[str]] = {}
+
+    for i, s in enumerate(statuses):
+        # Apply pane detection
+        detection = pane_results.get(i)
+        if detection is not None:
+            detected, high_confidence = detection
+            if detected != s.activity_status:
+                time_since_update = (now - s.updated_at).total_seconds() if s.updated_at else float("inf")
+                hook_guarded = (
+                    not high_confidence
+                    and s.ai_tool in HOOK_CAPABLE_TOOLS
+                    and s.activity_status == AIActivityStatus.WORKING
+                    and detected == AIActivityStatus.WAITING
+                    and time_since_update < HOOK_TRUST_MAX_SECONDS
+                )
+                if not hook_guarded:
+                    s.activity_status = detected
+                    s.updated_at = now
+                    tracker.set_status(s)
+
+        # Apply diff results
+        diff_stat = ""
+        if i in diff_results:
+            mod_files, diff_stat = diff_results[i]
             if mod_files != s.modified_files:
                 s.modified_files = mod_files
                 tracker.set_status(s)
@@ -293,434 +356,572 @@ def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str
     return cards, file_map
 
 
-def _draw_card(
-    win: curses.window, y: int, x: int, card: Card,
-    selected: bool, color_pairs: dict[str, int], tick: int = 0,
-) -> None:
-    """Draw a single card at the given position."""
-    max_y, max_x = win.getmaxyx()
-
-    # Don't draw if out of bounds
-    if y + CARD_HEIGHT > max_y or x + CARD_WIDTH > max_x:
-        return
-
-    flashing = tick < card.flash_until
-    flash_attr = curses.A_REVERSE if flashing else 0
-
-    top_attr = (curses.A_BOLD | curses.A_REVERSE) if selected else flash_attr
-    bottom_attr = flash_attr
-    title_attr = (curses.A_BOLD | curses.A_REVERSE) if selected else (curses.A_BOLD | flash_attr)
-
-    # Top border
-    win.addstr(y, x, "\u250c" + "\u2500" * (CARD_WIDTH - 2) + "\u2510", top_attr)
-
-    # Card title line
-    name_trunc = card.name[:CARD_WIDTH - 6]
-    win.addstr(y, x + 2, f" {name_trunc} ", title_attr)
-
-    # Status line — use spinner for working agents
-    status_key = card.status.value
-    light_char, _ = STATUS_LIGHTS.get(status_key, ("?", curses.COLOR_WHITE))
-    if card.status == AIActivityStatus.WORKING:
-        light_char = SPINNER_FRAMES[tick % len(SPINNER_FRAMES)]
-    pair = color_pairs.get(status_key, 0)
-    status_label = status_key.upper()
-    elapsed_str = f"{card.elapsed:>6}" if card.elapsed else ""
-    win.addstr(y + 1, x, "\u2502" + " " * (CARD_WIDTH - 2) + "\u2502")
-    win.addstr(y + 1, x + 2, f"{light_char} ", curses.color_pair(pair) | curses.A_BOLD)
-    win.addstr(y + 1, x + 4, f"{status_label:<10}")
-    win.addstr(y + 1, x + 16, f"{elapsed_str:>{CARD_WIDTH - 19}}")
-    win.addstr(y + 1, x + CARD_WIDTH - 1, "\u2502")
-
-    # Branch line
-    branch_short = card.branch.split("/")[-1] if "/" in card.branch else card.branch
-    branch_trunc = branch_short[:CARD_WIDTH - 4]
-    win.addstr(y + 2, x, "\u2502" + " " * (CARD_WIDTH - 2) + "\u2502")
-    win.addstr(y + 2, x + 2, branch_trunc)
-    win.addstr(y + 2, x + CARD_WIDTH - 1, "\u2502")
-
-    # AI tool + diff stat line
-    win.addstr(y + 3, x, "\u2502" + " " * (CARD_WIDTH - 2) + "\u2502")
-    tool_label = card.ai_tool[:12]
-    win.addstr(y + 3, x + 2, tool_label)
-    if card.diff_stat:
-        stat_x = x + CARD_WIDTH - len(card.diff_stat) - 2
-        if stat_x > x + len(tool_label) + 2:
-            win.addstr(y + 3, stat_x, card.diff_stat, curses.A_DIM)
-    win.addstr(y + 3, x + CARD_WIDTH - 1, "\u2502")
-
-    # Task line (with overlap warning)
-    win.addstr(y + 4, x, "\u2502" + " " * (CARD_WIDTH - 2) + "\u2502")
-    if card.overlap_count > 0:
-        overlap_tag = f"[! {card.overlap_count} overlap]"
-        overlap_pair = color_pairs.get("blocked", 0)
-        win.addstr(y + 4, x + 2, overlap_tag, curses.color_pair(overlap_pair) | curses.A_BOLD)
-        remaining = CARD_WIDTH - 4 - len(overlap_tag) - 1
-        if remaining > 0 and card.task:
-            win.addstr(y + 4, x + 2 + len(overlap_tag) + 1, card.task[:remaining])
-    else:
-        task_str = card.task or "\u2014"
-        task_trunc = task_str[:CARD_WIDTH - 4]
-        win.addstr(y + 4, x + 2, task_trunc)
-    win.addstr(y + 4, x + CARD_WIDTH - 1, "\u2502")
-
-    # Bottom border
-    win.addstr(y + 5, x, "\u2514" + "\u2500" * (CARD_WIDTH - 2) + "\u2518", bottom_attr)
+def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str]]]:
+    """Sync wrapper for _build_cards_async (used by tests)."""
+    return asyncio.run(_build_cards_async(tracker))
 
 
-def _draw_header(win: curses.window, cards: list[Card]) -> None:
-    """Draw the header bar."""
-    max_x = win.getmaxyx()[1]
-
-    active = sum(1 for c in cards if c.status == AIActivityStatus.WORKING)
-    waiting = sum(1 for c in cards if c.status in (AIActivityStatus.WAITING, AIActivityStatus.BLOCKED))
-    total = len(cards)
-    idle = total - active - waiting
-    overlaps = sum(1 for c in cards if c.overlap_count > 0)
-
-    title = "SWITCHBOARD"
-    parts = [f"{total} lines", f"\u25cf{active} active"]
-    if waiting:
-        parts.append(f"\u26a0{waiting} waiting")
-    parts.append(f"\u25cb{idle}")
-    if overlaps:
-        parts.append(f"!{overlaps} overlap")
-    stats = "  ".join(parts)
-
-    # Draw header — pad to full width so A_REVERSE fills the line
-    header = f"  {title:<30} {stats:>{max_x - 34}}"
-    header = header.ljust(max_x - 1)
-    win.addstr(0, 0, header[:max_x - 1], curses.A_BOLD | curses.A_REVERSE)
-
-
-def _draw_footer(win: curses.window) -> None:
-    """Draw the footer with key bindings."""
-    max_y, max_x = win.getmaxyx()
-    keys = "[arrows] nav [Enter] patch [s] send [a] all [n] new [S] ship [f] files [i] info [q] quit"
-    footer = f"  {keys}"
-    footer = footer.ljust(max_x - 1)
-    try:
-        win.addstr(max_y - 1, 0, footer[:max_x - 1], curses.A_REVERSE)
-    except curses.error:
-        pass
-
-
-def _prompt_input(win: curses.window, prompt: str) -> str | None:
-    """Show a prompt at the bottom and get user input."""
-    max_y, max_x = win.getmaxyx()
-    curses.echo()
-    curses.curs_set(1)
-    # Disable timeout so getstr() blocks until Enter
-    win.timeout(-1)
-    win.nodelay(False)
-    try:
-        win.addstr(max_y - 1, 0, " " * (max_x - 1))
-        win.addstr(max_y - 1, 0, prompt[:max_x - 1])
-        win.refresh()
-        response = win.getstr(max_y - 1, len(prompt), max_x - len(prompt) - 1)
-        return response.decode("utf-8").strip() if response else None
-    except curses.error:
-        return None
-    finally:
-        curses.noecho()
-        curses.curs_set(0)
-        # Restore fast tick for animations
-        win.nodelay(True)
-        win.timeout(TICK_MS)
-
-
-def _show_modal(
-    win: curses.window, title: str, lines: list[str], width: int = 60,
-) -> None:
-    """Draw a centered modal panel and wait for any key to dismiss."""
-    max_y, max_x = win.getmaxyx()
-    panel_w = min(width, max_x - 4)
-    panel_h = min(len(lines) + 4, max_y - 4)
-    sy = (max_y - panel_h) // 2
-    sx = (max_x - panel_w) // 2
-
-    win.attron(curses.A_REVERSE)
-    for row in range(panel_h):
-        win.addstr(sy + row, sx, " " * panel_w)
-    win.attroff(curses.A_REVERSE)
-
-    win.addstr(sy, sx + 1, title[:panel_w - 2], curses.A_BOLD | curses.A_REVERSE)
-    for i, line in enumerate(lines):
-        if i + 2 >= panel_h - 1:
-            break
-        win.addstr(sy + 2 + i, sx + 1, line[:panel_w - 2], curses.A_REVERSE)
-
-    win.addstr(sy + panel_h - 1, sx + 1, " Press any key to close ", curses.A_REVERSE | curses.A_DIM)
-    win.refresh()
-    win.timeout(-1)
-    win.getch()
-    win.nodelay(True)
-    win.timeout(TICK_MS)
-
-
-def _show_overlap_detail(
-    win: curses.window, card: Card, file_map: dict[str, list[str]],
-) -> None:
-    """Show file overlap detail using precomputed file_map."""
-    my_files = set(file_map.get(card.name, []))
-    overlap_files: dict[str, list[str]] = {}
-    for other_name, other_files_list in file_map.items():
-        if other_name == card.name:
-            continue
-        for f in my_files & set(other_files_list):
-            overlap_files.setdefault(f, []).append(other_name)
-
-    lines = []
-    for f_path, wt_names in sorted(overlap_files.items()):
-        lines.append(f"  {f_path} \u2190 {', '.join(wt_names)}")
-
-    _show_modal(win, f" Overlap: {card.name} ({card.overlap_count} files) ", lines)
-
-
-def _show_detail_panel(win: curses.window, card: Card, tracker: StatusTracker) -> None:
-    """Show detail panel with git stats, commits, and last AI message."""
-    status = tracker.get_status(card.name)
-    wt_path = status.worktree_path if status else ""
-
-    commits: list[str] = []
-    if wt_path:
-        try:
-            result = subprocess.run(
-                ["git", "log", "--oneline", "-5"],
-                capture_output=True, text=True, cwd=wt_path, timeout=5,
-            )
-            if result.returncode == 0:
-                commits = [line for line in result.stdout.strip().split("\n") if line]
-        except (subprocess.TimeoutExpired, OSError):
-            pass
-
-    lines = [
-        f"  Branch: {card.branch}",
-        f"  Status: {card.status.value}  Elapsed: {card.elapsed}",
-        f"  AI: {card.ai_tool}  Diff: {card.diff_stat or 'n/a'}",
-        f"  Task: {card.task or chr(8212)}",
-        "",
-        "  Recent commits:",
-    ]
-    for c in commits[:5]:
-        lines.append(f"    {c}")
-    if card.overlap_count > 0:
-        lines.append("")
-        lines.append(f"  \u26a0 {card.overlap_count} file(s) overlap with: {', '.join(card.overlap_names or [])}")
-
-    _show_modal(win, f" Detail: {card.name} ", lines, width=70)
-
-
-def _reinit_curses(stdscr: curses.window) -> curses.window:
-    """Re-initialize curses after shelling out."""
-    stdscr = curses.initscr()
-    curses.noecho()
-    curses.cbreak()
-    stdscr.keypad(True)
-    curses.curs_set(0)
-    stdscr.nodelay(True)
-    stdscr.timeout(TICK_MS)
-    return stdscr
-
+# ---------------------------------------------------------------------------
+# Textual UI
+# ---------------------------------------------------------------------------
 
 SHELL_TIMEOUT = 120  # seconds — max time for owt ship/merge/delete/new
 
 
-def _shell_out(
-    stdscr: curses.window, cmd: list[str], timeout: int = SHELL_TIMEOUT,
-) -> curses.window:
-    """Shell out to a command, handling timeout and Ctrl+C gracefully.
+def _render_card(card: Card, tick: int) -> str:
+    """Render a card as Rich markup text."""
+    w = CARD_WIDTH - 4  # inner width (minus border padding)
+    status_key = card.status.value
+    light_char, color = STATUS_LIGHTS.get(status_key, ("?", "white"))
+    if card.status == AIActivityStatus.WORKING:
+        light_char = SPINNER_FRAMES[tick % len(SPINNER_FRAMES)]
 
-    Always returns a re-initialized curses window, even on failure.
+    name_trunc = card.name[:w]
+    status_label = status_key.upper()
+    elapsed_str = f"{card.elapsed:>5}" if card.elapsed else ""
+
+    branch_short = card.branch.split("/")[-1] if "/" in card.branch else card.branch
+    branch_trunc = branch_short[:w]
+
+    tool_label = card.ai_tool[:12]
+    diff_str = card.diff_stat or ""
+
+    # Status line
+    status_line = f"[{color} bold]{light_char}[/{color} bold] {status_label}"
+    pad = w - len(status_label) - 2 - len(elapsed_str)
+    status_line += " " * max(0, pad) + elapsed_str
+
+    # Tool + diff line
+    tool_pad = w - len(tool_label) - len(diff_str)
+    tool_line = tool_label + " " * max(1, tool_pad) + f"[dim]{diff_str}[/dim]" if diff_str else tool_label
+
+    # Task line
+    if card.overlap_count > 0:
+        overlap_tag = f"[yellow bold][! {card.overlap_count} overlap][/yellow bold]"
+        task_part = ""
+        if card.task:
+            remaining = w - len(f"[! {card.overlap_count} overlap] ")
+            task_part = " " + card.task[:max(0, remaining)]
+        task_line = overlap_tag + task_part
+    else:
+        task_str = card.task or "\u2014"
+        task_line = task_str[:w]
+
+    return "\n".join([
+        f"[bold]{name_trunc}[/bold]",
+        status_line,
+        branch_trunc,
+        tool_line,
+        task_line,
+    ])
+
+
+class InputModal(ModalScreen[str | None]):
+    """Modal screen for text input (send, new, broadcast)."""
+
+    DEFAULT_CSS = """
+    InputModal {
+        align: center middle;
+    }
+    #input-dialog {
+        width: 60;
+        height: auto;
+        padding: 1 2;
+        border: heavy $accent;
+        background: $surface;
+    }
+    #input-dialog Label {
+        margin-bottom: 1;
+    }
     """
-    curses.endwin()
-    print(f"  (Ctrl+C to cancel, {timeout}s timeout)\n")
-    try:
-        subprocess.run(cmd, check=False, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        print(f"\n  Timed out after {timeout}s. Returning to switchboard.")
-    except KeyboardInterrupt:
-        print("\n  Cancelled. Returning to switchboard.")
-    return _reinit_curses(stdscr)
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, prompt: str) -> None:
+        super().__init__()
+        self._prompt = prompt
+
+    def compose(self) -> ComposeResult:
+        with Container(id="input-dialog"):
+            yield Label(self._prompt)
+            yield Input(id="modal-input")
+
+    def on_mount(self) -> None:
+        self.query_one("#modal-input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = event.value.strip()
+        self.dismiss(value if value else None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
-def _run_switchboard(stdscr: curses.window) -> None:
-    """Main switchboard loop."""
-    curses.curs_set(0)
-    stdscr.keypad(True)
-    stdscr.nodelay(True)
-    stdscr.timeout(TICK_MS)
+class ConfirmModal(ModalScreen[bool]):
+    """Modal screen for y/N confirmation."""
 
-    # Initialize color pairs
-    curses.start_color()
-    curses.use_default_colors()
-    color_pairs: dict[str, int] = {}
-    for i, (status_key, (_, color)) in enumerate(STATUS_LIGHTS.items(), start=1):
-        curses.init_pair(i, color, -1)
-        color_pairs[status_key] = i
+    DEFAULT_CSS = """
+    ConfirmModal {
+        align: center middle;
+    }
+    #confirm-dialog {
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        border: heavy $accent;
+        background: $surface;
+    }
+    #confirm-dialog Label {
+        margin-bottom: 1;
+    }
+    #confirm-dialog .buttons {
+        layout: horizontal;
+        height: auto;
+    }
+    #confirm-dialog .buttons Button {
+        margin: 0 1;
+    }
+    """
 
-    tracker = StatusTracker()
-    tmux = TmuxManager()
-    selected = 0
-    tick = 0
-    cards: list[Card] = []
-    prev_statuses: dict[str, AIActivityStatus] = {}
-    cached_statuses: dict[str, WorktreeAIStatus] = {}  # from last heavy refresh
-    cached_file_map: dict[str, list[str]] = {}
+    BINDINGS = [
+        Binding("y", "yes", "Yes", show=False),
+        Binding("n", "no", "No", show=False),
+        Binding("escape", "no", "Cancel", show=False),
+    ]
 
-    while True:
-        # Heavy refresh (tmux pane capture) only every HEAVY_EVERY ticks
-        if tick % HEAVY_EVERY == 0:
-            cards, cached_file_map = _build_cards(tracker)
+    def __init__(self, message: str) -> None:
+        super().__init__()
+        self._message = message
 
-            # Cache status objects for light-tick elapsed updates
-            cached_statuses = {
-                s.worktree_name: s
-                for s in tracker.get_all_statuses()
-            }
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm-dialog"):
+            yield Label(self._message)
+            with Container(classes="buttons"):
+                yield Button("Yes (y)", id="yes", variant="error")
+                yield Button("No (n)", id="no", variant="primary")
 
-            # Detect status transitions → set flash_until; prune stale entries
-            current_names = {card.name for card in cards}
-            for name in list(prev_statuses):
-                if name not in current_names:
-                    del prev_statuses[name]
-            for card in cards:
-                prev = prev_statuses.get(card.name)
-                if prev is not None and prev != card.status:
-                    card.flash_until = tick + 3  # flash for ~600ms (3 ticks)
-                prev_statuses[card.name] = card.status
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "yes")
 
-        stdscr.erase()
-        max_y, max_x = stdscr.getmaxyx()
+    def action_yes(self) -> None:
+        self.dismiss(True)
 
-        _draw_header(stdscr, cards)
+    def action_no(self) -> None:
+        self.dismiss(False)
 
-        if not cards:
-            msg = "No active worktrees. Press [n] to create one, [q] to quit."
-            stdscr.addstr(max_y // 2, max(0, (max_x - len(msg)) // 2), msg)
-        else:
-            # Calculate grid
-            cols = max(1, (max_x - 2) // (CARD_WIDTH + 2))
-            start_y = 2
-            start_x = 1
 
-            # Re-compute elapsed times on every tick (uses cached status, no I/O)
-            for card in cards:
-                wt_status = cached_statuses.get(card.name)
-                if wt_status:
-                    card.elapsed = _format_elapsed(wt_status)
+class DetailModal(ModalScreen[None]):
+    """Modal screen for detail panels (info, overlap)."""
 
-            for i, card in enumerate(cards):
-                row = i // cols
-                col = i % cols
-                y = start_y + row * (CARD_HEIGHT + 1)
-                x = start_x + col * (CARD_WIDTH + 2)
+    DEFAULT_CSS = """
+    DetailModal {
+        align: center middle;
+    }
+    #detail-panel {
+        width: 70;
+        max-height: 80%;
+        padding: 1 2;
+        border: heavy $accent;
+        background: $surface;
+        overflow-y: auto;
+    }
+    #detail-panel .modal-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #detail-panel .modal-hint {
+        margin-top: 1;
+        text-style: dim;
+    }
+    """
 
-                if y + CARD_HEIGHT < max_y - 1:
-                    _draw_card(stdscr, y, x, card, selected == i, color_pairs, tick)
+    BINDINGS = [Binding("escape", "close", "Close", show=False)]
 
-        _draw_footer(stdscr)
-        stdscr.refresh()
-        tick += 1
+    def __init__(self, title: str, lines: list[str]) -> None:
+        super().__init__()
+        self._title = title
+        self._lines = lines
 
-        # Handle input
+    def compose(self) -> ComposeResult:
+        with Container(id="detail-panel"):
+            yield Static(self._title, classes="modal-title")
+            yield Static("\n".join(self._lines), classes="modal-body")
+            yield Static("Press Escape to close", classes="modal-hint")
+
+    def on_key(self) -> None:
+        self.dismiss(None)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
+class CardGrid(Static):
+    """Single widget that renders all cards in a wrapping grid via Rich Columns."""
+
+    DEFAULT_CSS = """
+    CardGrid {
+        width: 100%;
+        height: 1fr;
+        overflow-y: auto;
+        padding: 1 1;
+    }
+    """
+
+    def render(self) -> object:
+        app: SwitchboardApp = self.app  # type: ignore[assignment]
+        if not app._cards:
+            return "No active worktrees. Press [bold][n][/bold] to create one, [bold][q][/bold] to quit."
+
+        panels = []
+        for i, card in enumerate(app._cards):
+            selected = i == app._selected
+            flashing = app._tick < card.flash_until
+            content = _render_card(card, app._tick)
+            border_style = "bold cyan" if selected else ("reverse" if flashing else "dim")
+            panels.append(Panel(
+                content,
+                width=CARD_WIDTH + 2,
+                border_style=border_style,
+            ))
+
+        return Columns(panels, padding=(1, 1))
+
+
+class SwitchboardApp(App[None]):
+    """Textual app replacing the curses switchboard."""
+
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+    #header {
+        dock: top;
+        width: 1fr;
+        height: 1;
+        layout: horizontal;
+        background: $foreground;
+        color: $background;
+        text-style: bold;
+    }
+    #header-title {
+        width: auto;
+        height: 1;
+    }
+    #header-stats {
+        width: 1fr;
+        height: 1;
+        text-align: right;
+    }
+    #bottom-bar {
+        dock: bottom;
+        width: 1fr;
+        height: auto;
+    }
+    #toast {
+        width: 1fr;
+        height: 0;
+        background: $warning;
+        color: $background;
+        text-style: bold;
+    }
+    #toast.visible {
+        height: 1;
+    }
+    #footer {
+        width: 1fr;
+        height: 1;
+        background: $foreground;
+        color: $background;
+    }
+    """
+
+    BINDINGS = [
+        Binding("up", "navigate('up')", "Up", show=False),
+        Binding("down", "navigate('down')", "Down", show=False),
+        Binding("left", "navigate('left')", "Left", show=False),
+        Binding("right", "navigate('right')", "Right", show=False),
+        Binding("enter", "patch_in", "Patch in", show=False),
+        Binding("s", "send_message", "Send", show=False),
+        Binding("n", "new_worktree", "New", show=False),
+        Binding("d", "delete_worktree", "Delete", show=False),
+        Binding("S", "ship", "Ship", show=False),
+        Binding("m", "merge", "Merge", show=False),
+        Binding("f", "show_files", "Files", show=False),
+        Binding("i", "show_info", "Info", show=False),
+        Binding("a", "broadcast", "Broadcast", show=False),
+        Binding("q", "quit", "Quit", show=False),
+    ]
+
+    _footer_text = (
+        " \\[arrows] nav  \\[Enter] patch  \\[s] send  \\[a] all  "
+        "\\[n] new  \\[S] ship  \\[f] files  \\[i] info  \\[q] quit"
+    )
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._tracker = StatusTracker()
+        self._tmux = TmuxManager()
         try:
-            key = stdscr.getch()
-        except curses.error:
-            key = -1
+            self._wt_manager: WorktreeManager | None = WorktreeManager()
+        except Exception:
+            self._wt_manager = None
+        self._cards: list[Card] = []
+        self._file_map: dict[str, list[str]] = {}
+        self._cached_statuses: dict[str, WorktreeAIStatus] = {}
+        self._selected = 0
+        self._tick = 0
+        self._prev_statuses: dict[str, AIActivityStatus] = {}
+        self._cols = 4
 
-        if key == -1:
-            continue
+    def compose(self) -> ComposeResult:
+        with Container(id="header"):
+            yield Static(" SWITCHBOARD", id="header-title")
+            yield Static(id="header-stats")
+        yield CardGrid(id="card-grid")
+        with Container(id="bottom-bar"):
+            yield Static(id="toast")
+            yield Static(self._footer_text, id="footer")
 
-        if not cards and key != ord("n") and key != ord("q"):
-            continue
+    def on_mount(self) -> None:
+        self.set_interval(TICK_MS / 1000.0, self._on_tick)
+        self.set_interval(HEAVY_EVERY * TICK_MS / 1000.0, self._heavy_refresh)
+        # Defer first refresh until size is known
+        self.call_after_refresh(self._heavy_refresh)
 
-        num_cards = len(cards)
-        cols = max(1, (max_x - 2) // (CARD_WIDTH + 2)) if cards else 1
+    def on_resize(self) -> None:
+        """Recalculate columns for navigation on terminal resize."""
+        self._cols = max(1, (self.size.width - 2) // (CARD_WIDTH + 4))
 
-        if key == curses.KEY_DOWN:
-            selected = min(selected + cols, num_cards - 1)
-        elif key == curses.KEY_UP:
-            selected = max(selected - cols, 0)
-        elif key == curses.KEY_RIGHT:
-            selected = min(selected + 1, num_cards - 1)
-        elif key == curses.KEY_LEFT:
-            selected = max(selected - 1, 0)
-        elif key == ord("\n") and cards:
-            # Patch in: switch tmux client to the agent's session
-            # The switchboard session stays alive — Alt+s comes back here
-            card = cards[selected]
-            if card.tmux_session and tmux.session_exists(card.tmux_session):
-                subprocess.run(
-                    ["tmux", "switch-client", "-t", card.tmux_session],
-                    check=False,
-                )
-                # Don't return — keep the switchboard running so Alt+s can come back
-        elif key == ord("s") and cards:
-            # Send message to agent
-            card = cards[selected]
-            msg = _prompt_input(stdscr, f"Send to {card.name}: ")
+    def on_unmount(self) -> None:
+        """Clean up resources on exit."""
+        self._tracker.close()
+
+    def _on_tick(self) -> None:
+        """Fast tick: update spinners and elapsed times."""
+        self._tick += 1
+        # Re-compute elapsed from cached statuses (no I/O)
+        for card in self._cards:
+            wt_status = self._cached_statuses.get(card.name)
+            if wt_status:
+                card.elapsed = _format_elapsed(wt_status)
+        self.query_one("#card-grid", CardGrid).refresh()
+
+    async def _heavy_refresh(self) -> None:
+        """Heavy refresh: parallel async pane + diff polling."""
+        self._cards, self._file_map = await _build_cards_async(self._tracker, self._wt_manager)
+
+        # Cache statuses for light-tick elapsed updates
+        self._cached_statuses = {
+            s.worktree_name: s
+            for s in self._tracker.get_all_statuses()
+        }
+
+        # Flash on status transitions
+        current_names = {c.name for c in self._cards}
+        for name in list(self._prev_statuses):
+            if name not in current_names:
+                del self._prev_statuses[name]
+        for card in self._cards:
+            prev = self._prev_statuses.get(card.name)
+            if prev is not None and prev != card.status:
+                card.flash_until = self._tick + 3
+            self._prev_statuses[card.name] = card.status
+
+        # Clamp selection
+        if self._cards:
+            self._selected = min(self._selected, len(self._cards) - 1)
+
+        self._update_header()
+        self.query_one("#card-grid", CardGrid).refresh()
+
+    def _update_header(self) -> None:
+        """Update the header stats (right side). Title is static."""
+        cards = self._cards
+        active = sum(1 for c in cards if c.status == AIActivityStatus.WORKING)
+        waiting = sum(1 for c in cards if c.status in (AIActivityStatus.WAITING, AIActivityStatus.BLOCKED))
+        total = len(cards)
+        idle = total - active - waiting
+        overlaps = sum(1 for c in cards if c.overlap_count > 0)
+
+        parts = [f"{total} lines", f"\u25cf{active} active"]
+        if waiting:
+            parts.append(f"\u26a0{waiting} waiting")
+        parts.append(f"\u25cb{idle}")
+        if overlaps:
+            parts.append(f"!{overlaps} overlap")
+        stats = "  ".join(parts) + " "
+
+        self.query_one("#header-stats", Static).update(stats)
+
+    # ---- Actions ----
+
+    def action_navigate(self, direction: str) -> None:
+        if not self._cards:
+            return
+        n = len(self._cards)
+        if direction == "up":
+            self._selected = max(self._selected - self._cols, 0)
+        elif direction == "down":
+            self._selected = min(self._selected + self._cols, n - 1)
+        elif direction == "left":
+            self._selected = max(self._selected - 1, 0)
+        elif direction == "right":
+            self._selected = min(self._selected + 1, n - 1)
+        self.query_one("#card-grid", CardGrid).refresh()
+
+    def _show_toast(self, message: str) -> None:
+        """Show a temporary warning bar above the footer for 3 seconds."""
+        toast = self.query_one("#toast", Static)
+        toast.update(Text(f" {message}"))
+        toast.add_class("visible")
+        self.set_timer(3.0, self._hide_toast)
+
+    def _hide_toast(self) -> None:
+        toast = self.query_one("#toast", Static)
+        toast.remove_class("visible")
+
+    def action_patch_in(self) -> None:
+        if not self._cards:
+            return
+        card = self._cards[self._selected]
+        if not card.tmux_session or not self._tmux.session_exists(card.tmux_session):
+            self._show_toast(f"No tmux session for '{card.name}'")
+            return
+        self._tmux.switch_client(card.tmux_session)
+
+    def action_send_message(self) -> None:
+        if not self._cards:
+            return
+        card = self._cards[self._selected]
+
+        def _on_input(msg: str | None) -> None:
             if msg and card.tmux_session:
                 try:
-                    tmux.send_keys_to_pane(card.tmux_session, msg)
+                    self._tmux.send_keys_to_pane(card.tmux_session, msg)
                 except Exception:
                     pass
-        elif key == ord("n"):
-            # New worktree
-            task = _prompt_input(stdscr, "Task description: ")
+
+        self.push_screen(InputModal(f"Send to {card.name}: "), _on_input)
+
+    def action_new_worktree(self) -> None:
+        def _on_input(task: str | None) -> None:
             if task:
-                stdscr = _shell_out(stdscr, ["owt", "new", task])
-        elif key == ord("d") and cards:
-            # Drop (delete) worktree + status
-            card = cards[selected]
-            confirm = _prompt_input(stdscr, f"Delete '{card.name}'? (y/N): ")
-            if confirm and confirm.lower() == "y":
-                stdscr = _shell_out(stdscr, ["owt", "delete", card.name, "--yes"])
-                # Fallback cleanup if owt delete failed
-                if tracker.get_status(card.name):
-                    tracker.remove_status(card.name)
-                    if card.tmux_session:
-                        try:
-                            tmux.kill_session(card.tmux_session)
-                        except Exception:
-                            pass
-                selected = min(selected, max(0, num_cards - 2))
-        elif key == ord("S") and cards:
-            # Ship: commit + merge + delete (one-shot completion)
-            card = cards[selected]
-            confirm = _prompt_input(stdscr, f"Ship '{card.name}'? (commit+merge+delete) (y/N): ")
-            if confirm and confirm.lower() == "y":
-                stdscr = _shell_out(stdscr, ["owt", "ship", card.name, "--yes"])
-                selected = min(selected, max(0, num_cards - 2))
-        elif key == ord("m") and cards:
-            # Merge worktree
-            card = cards[selected]
-            confirm = _prompt_input(stdscr, f"Merge '{card.name}'? (y/N): ")
-            if confirm and confirm.lower() == "y":
-                stdscr = _shell_out(stdscr, ["owt", "merge", card.name])
-                selected = min(selected, max(0, num_cards - 2))
-        elif key == ord("f") and cards:
-            # Show file overlap detail for selected card
-            card = cards[selected]
-            if card.overlap_count > 0 and card.overlap_names:
-                _show_overlap_detail(stdscr, card, cached_file_map)
-        elif key == ord("i") and cards:
-            # Show detail panel for selected card
-            card = cards[selected]
-            _show_detail_panel(stdscr, card, tracker)
-        elif key == ord("a") and cards:
-            # Broadcast message to all agents
-            msg = _prompt_input(stdscr, "Broadcast to all: ")
-            if msg:
-                for card in cards:
-                    if card.tmux_session:
-                        try:
-                            tmux.send_keys_to_pane(card.tmux_session, msg)
-                            tracker.record_command(card.name, msg)
-                        except Exception:
-                            pass
-        elif key == ord("q"):
+                with self.suspend():
+                    subprocess.run(["owt", "new", task], check=False, timeout=SHELL_TIMEOUT)
+
+        self.push_screen(InputModal("Task description: "), _on_input)
+
+    def _confirm_and_shell(self, prompt: str, cmd: list[str]) -> None:
+        """Confirm, shell out, then clamp selection."""
+        if not self._cards:
             return
+
+        def _on_confirm(yes: bool | None) -> None:
+            if yes:
+                with self.suspend():
+                    subprocess.run(cmd, check=False, timeout=SHELL_TIMEOUT)
+                self._selected = min(self._selected, max(0, len(self._cards) - 2))
+
+        self.push_screen(ConfirmModal(prompt), _on_confirm)
+
+    def action_delete_worktree(self) -> None:
+        if not self._cards:
+            return
+        card = self._cards[self._selected]
+        self._confirm_and_shell(f"Delete '{card.name}'?", ["owt", "delete", card.name, "--yes"])
+
+    def action_ship(self) -> None:
+        if not self._cards:
+            return
+        card = self._cards[self._selected]
+        self._confirm_and_shell(f"Ship '{card.name}'? (commit+merge+delete)", ["owt", "ship", card.name, "--yes"])
+
+    def action_merge(self) -> None:
+        if not self._cards:
+            return
+        card = self._cards[self._selected]
+        self._confirm_and_shell(f"Merge '{card.name}'?", ["owt", "merge", card.name])
+
+    def action_show_files(self) -> None:
+        if not self._cards:
+            return
+        card = self._cards[self._selected]
+        if card.overlap_count <= 0 or not card.overlap_names:
+            return
+
+        my_files = set(self._file_map.get(card.name, []))
+        overlap_files: dict[str, list[str]] = {}
+        for other_name, other_files_list in self._file_map.items():
+            if other_name == card.name:
+                continue
+            for f in my_files & set(other_files_list):
+                overlap_files.setdefault(f, []).append(other_name)
+
+        lines = [
+            f"  {f_path} \u2190 {', '.join(wt_names)}"
+            for f_path, wt_names in sorted(overlap_files.items())
+        ]
+        self.push_screen(DetailModal(
+            f"Overlap: {card.name} ({card.overlap_count} files)",
+            lines,
+        ))
+
+    async def action_show_info(self) -> None:
+        if not self._cards:
+            return
+        card = self._cards[self._selected]
+        status = self._tracker.get_status(card.name)
+        wt_path = status.worktree_path if status else ""
+
+        commits: list[str] = []
+        if wt_path:
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["git", "log", "--oneline", "-5"],
+                    capture_output=True, text=True, cwd=wt_path, timeout=5,
+                )
+                if result.returncode == 0:
+                    commits = [line for line in result.stdout.strip().split("\n") if line]
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+
+        lines = [
+            f"  Branch: {card.branch}",
+            f"  Status: {card.status.value}  Elapsed: {card.elapsed}",
+            f"  AI: {card.ai_tool}  Diff: {card.diff_stat or 'n/a'}",
+            f"  Task: {card.task or chr(8212)}",
+            "",
+            "  Recent commits:",
+        ]
+        for c in commits[:5]:
+            lines.append(f"    {c}")
+        if card.overlap_count > 0:
+            lines.append("")
+            lines.append(f"  \u26a0 {card.overlap_count} file(s) overlap with: {', '.join(card.overlap_names or [])}")
+
+        self.push_screen(DetailModal(f"Detail: {card.name}", lines))
+
+    def action_broadcast(self) -> None:
+        if not self._cards:
+            return
+
+        def _on_input(msg: str | None) -> None:
+            if msg:
+                for card in self._cards:
+                    if card.tmux_session:
+                        try:
+                            self._tmux.send_keys_to_pane(card.tmux_session, msg)
+                            self._tracker.record_command(card.name, msg)
+                        except Exception:
+                            pass
+
+        self.push_screen(InputModal("Broadcast to all: "), _on_input)
+
+
+# ---------------------------------------------------------------------------
+# Tmux session management (unchanged)
+# ---------------------------------------------------------------------------
 
 
 def _is_inside_switchboard_session() -> bool:
@@ -842,13 +1043,14 @@ def launch_switchboard() -> None:
     - Alt+s from any agent session to switch back to the switchboard
     - q to exit completely (kills the session, returns to terminal)
 
-    If already inside the switchboard session, runs the curses app directly.
+    If already inside the switchboard session, runs the Textual app directly.
     If outside tmux, creates the session and attaches.
     If inside another tmux session, switches to the switchboard session.
     """
     if _is_inside_switchboard_session():
-        # We're already in the switchboard session — run curses directly
-        curses.wrapper(_run_switchboard)
+        # We're already in the switchboard session — run Textual directly
+        app = SwitchboardApp()
+        app.run()
         return
 
     tmux = TmuxManager()
