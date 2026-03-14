@@ -157,6 +157,8 @@ def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
     Uses `git diff --numstat` which yields both file names and line counts.
     Returns (modified_files, diff_stat_str).
     """
+    if not os.path.isdir(worktree_path):
+        return [], ""
     try:
         for base in ("main", "master", "develop"):
             result = subprocess.run(
@@ -240,12 +242,16 @@ def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str
                 s.updated_at = now
                 tracker.set_status(s)
 
-        # Compute modified files + diff stats (single git call)
-        mod_files, diff_stat = _get_diff_info(s.worktree_path, s.branch)
-        if mod_files != s.modified_files:
-            s.modified_files = mod_files
-            tracker.set_status(s)
-        file_map[s.worktree_name] = mod_files
+        # Compute modified files + diff stats (single git call, skip if path gone)
+        diff_stat = ""
+        if os.path.isdir(s.worktree_path):
+            mod_files, diff_stat = _get_diff_info(s.worktree_path, s.branch)
+            if mod_files != s.modified_files:
+                s.modified_files = mod_files
+                tracker.set_status(s)
+            file_map[s.worktree_name] = mod_files
+        else:
+            file_map[s.worktree_name] = s.modified_files
 
         cards.append(Card(
             name=s.worktree_name,
