@@ -48,9 +48,14 @@ RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIAc
 HOOK_FRESHNESS_SECONDS = 10  # Trust hook-set status if updated within this window
 
 # Pre-compiled regex patterns for pane status detection
+# Must match actual permission prompts, NOT agent thinking text like "Allow me to..."
 _BLOCKED_RE = re.compile(
-    r"Allow\s|\(y/N\)|\(Y/n\)|approve|deny|Do you want to|Press Enter to",
+    r"\(y/N\)|\(Y/n\)|Do you want to proceed|Press Enter to continue",
     re.IGNORECASE,
+)
+# Stricter "Allow" check — only match "Allow <Tool>:" or "Allow <Tool> /" patterns
+_ALLOW_PROMPT_RE = re.compile(
+    r"Allow\s+(Read|Write|Edit|Bash|Glob|Grep|Agent|WebFetch|WebSearch|NotebookEdit|mcp_)",
 )
 # Lines to skip — Claude Code status bar is always visible and contains
 # words like "permissions" that would false-trigger BLOCKED detection.
@@ -139,7 +144,7 @@ def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
     content_lines = [line for line in tail if not _STATUS_BAR_RE.search(line)]
     content_text = "\n".join(reversed(content_lines)) if content_lines else ""
 
-    if content_text and _BLOCKED_RE.search(content_text):
+    if content_text and (_BLOCKED_RE.search(content_text) or _ALLOW_PROMPT_RE.search(content_text)):
         return AIActivityStatus.BLOCKED
 
     # If idle prompt (❯) is visible → WAITING. Otherwise → WORKING.
