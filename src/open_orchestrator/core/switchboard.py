@@ -23,6 +23,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 
+from open_orchestrator.config import AITool
 from open_orchestrator.core.status import StatusTracker
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
@@ -46,6 +47,7 @@ TICK_MS = 200
 HEAVY_EVERY = 10  # _build_cards() runs every HEAVY_EVERY ticks (2s)
 RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED, AIActivityStatus.IDLE}
 HOOK_FRESHNESS_SECONDS = 10  # Trust hook-set status if updated within this window
+HOOK_CAPABLE_TOOLS = {AITool.CLAUDE.value, AITool.DROID.value}  # Scraper must not downgrade WORKING → WAITING
 
 # Pre-compiled regex patterns for pane status detection
 # Must match actual permission prompts, NOT agent thinking text like "Allow me to..."
@@ -240,7 +242,13 @@ def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str
             s.updated_at
             and (now - s.updated_at).total_seconds() < HOOK_FRESHNESS_SECONDS
         )
-        if not recently_updated and s.activity_status in RECHECKABLE_STATUSES:
+        # For hook-capable tools in WORKING state, skip pane scraping entirely —
+        # the Stop hook is the only reliable signal for WORKING → WAITING.
+        hook_trusted = (
+            s.ai_tool in HOOK_CAPABLE_TOOLS
+            and s.activity_status == AIActivityStatus.WORKING
+        )
+        if not recently_updated and not hook_trusted and s.activity_status in RECHECKABLE_STATUSES:
             detected = _detect_pane_status(s.tmux_session)
             if detected and detected != s.activity_status:
                 s.activity_status = detected
