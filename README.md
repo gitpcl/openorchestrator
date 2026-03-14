@@ -55,14 +55,14 @@ owt
 # Create a worktree with AI agent (one command does everything)
 owt new "Add user authentication with JWT"
 
-# From inside an agent session, press Alt+b to return to the switchboard
+# From inside an agent session, press Alt+s to return to the switchboard
 # Or use CLI to interact:
 owt send auth-jwt "Fix the failing tests"
 owt switch auth-jwt    # Jump to that session
 
 # Ship when done (commit + merge + delete in one shot)
 owt ship auth-jwt
-# Or press Alt+s from inside the agent session
+# Or press S from the switchboard
 ```
 
 ## Commands
@@ -118,8 +118,7 @@ Run `owt` with no arguments to launch the switchboard — your command center. I
 - **q** — quit back to terminal
 
 **Global tmux keybindings (work from any agent session):**
-- **Alt+b** — switch back to the switchboard
-- **Alt+s** — ship current worktree (commit + merge + delete)
+- **Alt+s** — switch back to the switchboard
 - **Alt+m** — merge current worktree
 - **Alt+d** — delete current worktree
 - **Alt+c** — create a new worktree (opens popup)
@@ -127,7 +126,7 @@ Run `owt` with no arguments to launch the switchboard — your command center. I
 **Navigation flow:**
 
 ```
-owt → switchboard → Enter → agent session → Alt+b → switchboard → q → terminal
+owt → switchboard → Enter → agent session → Alt+s → switchboard → q → terminal
 ```
 
 ## Workflow Templates

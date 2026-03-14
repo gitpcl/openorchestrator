@@ -8,8 +8,8 @@ worktrees — all from one screen.
 
 The switchboard runs in its own tmux session ("owt-switchboard"). When
 you patch into an agent session (Enter), the switchboard stays alive.
-Alt+s from any agent session switches back to the switchboard. Press q
-to exit completely back to the terminal.
+Alt+s from any session switches back to the switchboard. Press q to
+exit completely back to the terminal.
 
 Metaphor: Like a telephone switchboard operator managing multiple lines.
 """
@@ -453,16 +453,14 @@ def _resolve_worktree_from_session(session_name: str) -> str | None:
 def _install_switchboard_keys() -> None:
     """Install global tmux keybindings for switchboard navigation.
 
-    Alt+b: switch back to the switchboard session
+    Alt+s: switch back to the switchboard session
     Alt+c: create a new worktree (runs owt new in a popup)
-    Alt+s: ship current worktree (commit + merge + delete)
     Alt+m: merge current worktree
     Alt+d: delete current worktree
     """
-    # Alt+b: switch to the switchboard (b = board)
+    # Unbind Alt+b if previously set (was conflicting with terminal shortcuts)
     subprocess.run(
-        ["tmux", "bind-key", "-n", "M-b",
-         "switch-client", "-t", SWITCHBOARD_SESSION],
+        ["tmux", "unbind-key", "-n", "M-b"],
         check=False, capture_output=True,
     )
 
@@ -481,29 +479,12 @@ def _install_switchboard_keys() -> None:
             check=False, capture_output=True,
         )
 
-    # Alt+s: ship the current worktree (commit + merge + delete)
-    # Derives worktree name from the current tmux session name (owt-<name>)
-    ship_script = (
-        "wt_name=$(tmux display-message -p '#S' | sed 's/^owt-//'); "
-        "if [ -n \"$wt_name\" ] && [ \"$wt_name\" != 'owt-switchboard' ]; then "
-        "  tmux switch-client -t owt-switchboard; "
-        "  owt ship \"$wt_name\" --yes; "
-        "fi"
+    # Alt+s: switch back to the switchboard session (s = switchboard)
+    subprocess.run(
+        ["tmux", "bind-key", "-n", "M-s",
+         "switch-client", "-t", SWITCHBOARD_SESSION],
+        check=False, capture_output=True,
     )
-    if (major, minor) >= (3, 2):
-        subprocess.run(
-            ["tmux", "bind-key", "-n", "M-s",
-             "display-popup", "-E", "-w", "80%", "-h", "50%",
-             f"bash -c {_shell_quote(ship_script)}"],
-            check=False, capture_output=True,
-        )
-    else:
-        subprocess.run(
-            ["tmux", "bind-key", "-n", "M-s",
-             "new-window", "-n", "ship",
-             f"bash -c {_shell_quote(ship_script)}"],
-            check=False, capture_output=True,
-        )
 
     # Alt+m: merge the current worktree
     merge_script = (
@@ -585,7 +566,7 @@ def launch_switchboard() -> None:
             check=False,
         )
 
-    # Install Alt+s / Alt+c keybindings
+    # Install global tmux keybindings (Alt+s to return, Alt+c to create, etc.)
     _install_switchboard_keys()
 
     if tmux.is_inside_tmux():

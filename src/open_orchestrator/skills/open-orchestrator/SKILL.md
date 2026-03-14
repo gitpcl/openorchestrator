@@ -51,13 +51,12 @@ Run `owt` to launch the switchboard — your command center for multi-agent orch
 - `q`: quit back to terminal
 
 **Global tmux keybindings (work from any agent session):**
-- `Alt+b`: switch back to the switchboard
-- `Alt+s`: ship current worktree (commit + merge + delete)
+- `Alt+s`: switch back to the switchboard
 - `Alt+m`: merge current worktree
 - `Alt+d`: delete current worktree
 - `Alt+c`: create a new worktree (opens popup)
 
-**Navigation flow:** `owt` → switchboard → `Enter` → agent → `Alt+b` → switchboard → `q` → terminal
+**Navigation flow:** `owt` → switchboard → `Enter` → agent → `Alt+s` → switchboard → `q` → terminal
 
 ## Core Workflow
 
@@ -83,7 +82,7 @@ owt list      # Quick text table for scripts/pipes
 ### 3. Interact with Agents
 ```bash
 # From the switchboard: press Enter to patch into an agent session
-# From any agent session: press Alt+b to return to the switchboard
+# From any agent session: press Alt+s to return to the switchboard
 # Or use CLI:
 owt send auth-jwt "Fix the failing tests"
 owt switch auth-jwt    # Jump to that tmux session
@@ -92,7 +91,7 @@ owt switch auth-jwt    # Jump to that tmux session
 ### 4. Complete Work
 ```bash
 owt ship auth-jwt      # Commit + merge + delete in one shot
-# Or from inside the agent session: press Alt+s to ship
+# Or from the switchboard: press S to ship
 owt merge auth-jwt     # Two-phase merge + auto-cleanup (no auto-commit)
 owt delete fix-login   # Delete worktree + session + status
 owt cleanup            # Remove stale worktrees (dry-run)
