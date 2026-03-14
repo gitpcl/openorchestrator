@@ -70,6 +70,11 @@ _PROMPT_RE = re.compile(
     r"^>\s*$|^❯\s*$|What would you like|How can I help",
     re.IGNORECASE,
 )
+# High-confidence idle signal — agent was interrupted/stopped, never appears during thinking
+_INTERRUPTED_RE = re.compile(
+    r"Interrupted|What should Claude do instead",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -106,17 +111,12 @@ def _format_elapsed(status: WorktreeAIStatus) -> str:
     return f"{hours // 24}d"
 
 
-def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
+def _detect_pane_status(tmux_session: str | None) -> tuple[AIActivityStatus, bool] | None:
     """Detect agent status by capturing tmux pane content.
 
-    Looks for prompt indicators that signal the agent is waiting for input
-    or blocked on a permission/confirmation prompt.
-
-    Detection strategy:
-    - BLOCKED: permission/confirmation prompts (highest priority)
-    - WAITING: idle prompt (❯ or >) visible, optionally confirmed by status bar
-    - WORKING: active output indicators (spinner, streaming)
-    - None: inconclusive — caller keeps existing status
+    Returns (status, high_confidence) or None if inconclusive.
+    high_confidence=True means the signal is unambiguous (e.g. "Interrupted" text)
+    and should override hook trust guards.
     """
     if not tmux_session:
         return None
@@ -148,15 +148,18 @@ def _detect_pane_status(tmux_session: str | None) -> AIActivityStatus | None:
     content_text = "\n".join(reversed(content_lines)) if content_lines else ""
 
     if content_text and (_BLOCKED_RE.search(content_text) or _ALLOW_PROMPT_RE.search(content_text)):
-        return AIActivityStatus.BLOCKED
+        return AIActivityStatus.BLOCKED, True
+
+    # Check for high-confidence idle signals (Interrupted, etc.)
+    has_interrupted = bool(content_text and _INTERRUPTED_RE.search(content_text))
 
     # If idle prompt (❯) is visible → WAITING. Otherwise → WORKING.
     for line in content_lines[:5]:
         if _PROMPT_RE.search(line):
-            return AIActivityStatus.WAITING
+            return AIActivityStatus.WAITING, has_interrupted
 
     # No prompt visible — agent is doing something
-    return AIActivityStatus.WORKING
+    return AIActivityStatus.WORKING, False
 
 
 def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
@@ -243,21 +246,26 @@ def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str
             s.updated_at
             and (now - s.updated_at).total_seconds() < HOOK_FRESHNESS_SECONDS
         )
-        # For hook-capable tools in WORKING state, skip pane scraping —
-        # the Stop hook is the only reliable signal for WORKING → WAITING.
-        # But cap trust at HOOK_TRUST_MAX_SECONDS so a missed Stop hook recovers.
-        time_since_update = (now - s.updated_at).total_seconds() if s.updated_at else float("inf")
-        hook_trusted = (
-            s.ai_tool in HOOK_CAPABLE_TOOLS
-            and s.activity_status == AIActivityStatus.WORKING
-            and time_since_update < HOOK_TRUST_MAX_SECONDS
-        )
-        if not recently_updated and not hook_trusted and s.activity_status in RECHECKABLE_STATUSES:
-            detected = _detect_pane_status(s.tmux_session)
-            if detected and detected != s.activity_status:
-                s.activity_status = detected
-                s.updated_at = now
-                tracker.set_status(s)
+        if not recently_updated and s.activity_status in RECHECKABLE_STATUSES:
+            detection = _detect_pane_status(s.tmux_session)
+            if detection:
+                detected, high_confidence = detection
+                if detected != s.activity_status:
+                    # For hook-capable tools, block low-confidence WORKING → WAITING
+                    # (stale ❯ prompt during thinking). High-confidence signals like
+                    # "Interrupted" always pass through.
+                    time_since_update = (now - s.updated_at).total_seconds() if s.updated_at else float("inf")
+                    hook_guarded = (
+                        not high_confidence
+                        and s.ai_tool in HOOK_CAPABLE_TOOLS
+                        and s.activity_status == AIActivityStatus.WORKING
+                        and detected == AIActivityStatus.WAITING
+                        and time_since_update < HOOK_TRUST_MAX_SECONDS
+                    )
+                    if not hook_guarded:
+                        s.activity_status = detected
+                        s.updated_at = now
+                        tracker.set_status(s)
 
         # Compute modified files + diff stats (single git call, skip if path gone)
         diff_stat = ""
