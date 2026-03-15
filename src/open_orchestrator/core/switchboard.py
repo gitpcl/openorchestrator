@@ -749,6 +749,15 @@ class SwitchboardApp(App[None]):
         parts.append(f"\u25cb{idle}")
         if overlaps:
             parts.append(f"!{overlaps} overlap")
+
+        # DAG progress indicator
+        try:
+            dag_progress = self._tracker.get_metadata("dag_progress")
+            if dag_progress:
+                parts.append(f"DAG: {dag_progress}")
+        except Exception:
+            pass
+
         stats = "  ".join(parts) + " "
 
         self.query_one("#header-stats", Static).update(stats)

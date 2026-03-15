@@ -151,18 +151,60 @@ def create_pane(
     except TmuxError as e:
         raise PaneActionError(f"Failed to create session: {e}") from e
 
-    # 4. Send template instructions if available
+    # 4. Send task instructions (poll for AI tool prompt readiness)
+    prompt_ready = False
     if ai_instructions:
-        try:
-            tmux_manager.send_keys_to_pane(
-                session_name=tmux_session.session_name,
-                keys=ai_instructions,
-                pane_index=0,
-            )
-        except TmuxError:
-            pass
+        import subprocess
+        import time
 
-    # 5. Initialize status tracking
+        # Poll tmux pane until the AI tool's input prompt appears
+        prompt_ready = False
+        for _ in range(30):  # up to 15 seconds (30 × 0.5s)
+            time.sleep(0.5)
+            try:
+                result = subprocess.run(
+                    ["tmux", "capture-pane", "-t", tmux_session.session_name, "-p"],
+                    capture_output=True, text=True, timeout=2,
+                )
+                if result.returncode == 0:
+                    content = result.stdout.strip()
+                    # Check for known AI tool input prompts on last lines
+                    last_lines = content.split("\n")[-8:]
+                    last_text = "\n".join(last_lines)
+                    if "❯" in last_text or "How can I help" in last_text:
+                        prompt_ready = True
+                        break
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+
+        if prompt_ready:
+            time.sleep(1)  # Let prompt fully render before sending
+            try:
+                # Send text and Enter separately — libtmux's enter=True
+                # fires too fast after a large paste, so Claude Code
+                # doesn't register the Enter.
+                session = tmux_manager.server.sessions.filter(
+                    session_name=tmux_session.session_name
+                )[0]
+                pane = session.windows[0].panes[0]
+                pane.send_keys(ai_instructions, enter=False)
+                time.sleep(0.5)
+                pane.send_keys("", enter=True)
+            except Exception:
+                logger.warning("Failed to send instructions to %s", worktree.name)
+        else:
+            logger.warning("AI tool prompt not detected for %s after 15s", worktree.name)
+
+    # 5. Install AI tool hooks for status reporting
+    try:
+        from open_orchestrator.core.hooks import install_hooks
+
+        install_hooks(worktree.path, worktree.name, ai_tool_enum)
+    except Exception as e:
+        logger.debug("Hook installation skipped: %s", e)
+
+    # 6. Initialize status tracking
+    initial_status = "working" if (ai_instructions and prompt_ready) else "idle"
     try:
         status_tracker = StatusTracker()
         status_tracker.initialize_status(
@@ -172,6 +214,14 @@ def create_pane(
             tmux_session=tmux_session.session_name,
             ai_tool=ai_tool_enum,
         )
+        if initial_status == "working":
+            from open_orchestrator.models.status import AIActivityStatus
+
+            status_tracker.update_task(
+                worktree.name,
+                (ai_instructions or "")[:100],
+                AIActivityStatus.WORKING,
+            )
     except Exception as e:
         logger.debug("Status tracking init skipped: %s", e)
 

@@ -1,8 +1,8 @@
 # Open Orchestrator
 
-Git Worktree + AI agent orchestration tool for parallel development workflows with curses-based switchboard UI.
+Git Worktree + AI agent orchestration tool for parallel development workflows with Textual switchboard UI.
 
-## Commands (15 total)
+## Commands (16 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -19,7 +19,8 @@ Git Worktree + AI agent orchestration tool for parallel development workflows wi
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux session + status |
 | `owt queue` | | Show optimal merge order for completed worktrees |
 | `owt queue --ship` | | Ship all completed worktrees in optimal order |
-| `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML file |
+| `owt plan "goal"` | | AI-powered task decomposition into dependency DAG |
+| `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML file (now with DAG support) |
 | `owt wait <name>` | | Poll until agent finishes (for CI/scripts) |
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync worktree(s) with upstream |
@@ -59,7 +60,7 @@ src/open_orchestrator/
 │   ├── status.py       # AI activity status tracking (SQLite + WAL)
 │   ├── branch_namer.py # Branch name generation from task descriptions
 │   ├── merge.py        # Two-phase merge logic + merge queue + conflict guard
-│   ├── batch.py        # Autopilot loop orchestration (Karpathy-style)
+│   ├── batch.py        # Autopilot loop + DAG scheduler + AI planner
 │   ├── pane_actions.py # Shared pane lifecycle (create/remove orchestration)
 │   └── agent_detector.py  # Detect installed AI coding tools
 ├── models/

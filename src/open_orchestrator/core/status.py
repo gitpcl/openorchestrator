@@ -369,6 +369,26 @@ class StatusTracker:
                 removed.append(s.worktree_name)
         return removed
 
+    def get_metadata(self, key: str) -> str | None:
+        """Retrieve a metadata value by key."""
+        row = self._conn.execute(
+            "SELECT value FROM metadata WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set_metadata(self, key: str, value: str) -> None:
+        """Store a metadata key-value pair."""
+        self._conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        self._conn.commit()
+
+    def delete_metadata(self, key: str) -> None:
+        """Delete a metadata entry by key."""
+        self._conn.execute("DELETE FROM metadata WHERE key = ?", (key,))
+        self._conn.commit()
+
     def get_current_worktree_name(self) -> str | None:
         """Get the worktree name for the current directory."""
         current_path = str(Path.cwd())

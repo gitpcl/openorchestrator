@@ -1,13 +1,13 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI agent orchestration with Textual switchboard UI. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot (owt ship), (8) Running batch autopilot tasks (owt batch), (9) Viewing optimal merge order (owt queue), (10) Sharing context across agents (owt note), (11) Headless CI/CD mode (owt new --headless, owt wait), (12) Orchestrating AI tools across branches (auto-detects claude, opencode, droid). Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt batch, owt queue, owt note, owt wait, auto-detect agents, conflict guard, autopilot."
+description: "Git worktree + AI agent orchestration with Textual switchboard UI. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot (owt ship), (8) AI-powered task decomposition into dependency DAGs (owt plan), (9) Running batch autopilot tasks with DAG scheduling (owt batch), (10) Viewing optimal merge order (owt queue), (11) Sharing context across agents (owt note), (12) Headless CI/CD mode (owt new --headless, owt wait), (13) Orchestrating AI tools across branches (auto-detects claude, opencode, droid). Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt plan, owt batch, owt queue, owt note, owt wait, auto-detect agents, conflict guard, autopilot, DAG, task planning."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
 Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **Textual-based switchboard UI**. The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, installs deps, and starts the AI tool in a tmux session. Run `owt` with no arguments to launch the switchboard — a card grid showing all active agents with status lights, diff stats, and file overlap warnings.
 
-## Commands (15 total)
+## Commands (16 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -24,7 +24,8 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux session + status |
 | `owt queue` | | Show optimal merge order for completed worktrees |
 | `owt queue --ship` | | Ship all completed worktrees in optimal order |
-| `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML file |
+| `owt plan "goal"` | | AI-powered task decomposition into dependency DAG |
+| `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML (DAG-aware) |
 | `owt wait <name>` | | Poll until agent finishes (for CI/scripts) |
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync worktree(s) with upstream |
@@ -118,9 +119,20 @@ owt delete fix-login   # Delete worktree + session + status
 owt cleanup --force    # Delete stale worktrees
 ```
 
-### 5. Batch Autopilot
+### 5. AI-Powered Planning (DAG Execution)
 ```bash
-owt batch tasks.toml               # Run batch from TOML
+owt plan "Build JWT auth with refresh tokens"           # Generate plan.toml
+owt plan "Add rate limiting" --execute                   # Generate + run
+owt plan "Refactor DB layer" --edit --execute            # Generate + edit + run
+owt plan "Fix auth bugs" --execute --auto-ship           # Generate + run + auto-merge
+owt plan "Build dashboard" --ai-tool opencode --execute  # Use specific AI tool
+```
+
+Tasks run in dependency order. Independent tasks run in parallel. Parent context is auto-injected into child worktrees.
+
+### 6. Batch Autopilot (DAG-Aware)
+```bash
+owt batch tasks.toml               # Run batch from TOML (supports depends_on)
 owt batch tasks.toml --auto-ship   # Auto-ship completed work
 ```
 

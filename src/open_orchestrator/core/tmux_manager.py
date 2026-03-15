@@ -7,7 +7,6 @@ with git worktrees for parallel development workflows.
 
 import os
 import re
-import shlex
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
@@ -400,28 +399,7 @@ class TmuxManager:
         return result.returncode == 0
 
     def install_status_bar(self, session_name: str) -> None:
-        """Configure tmux status bar to show worktree activity summary."""
-        from pathlib import Path
-
-        status_file = Path.home() / ".open-orchestrator" / "ai_status.json"
-
-        status_script = (
-            f"python3 -c \""
-            f"import json, sys; "
-            f"f='{status_file}'; "
-            f"d=json.load(open(f)) if __import__('os').path.exists(f) else {{}}; "
-            f"ss=d.get('statuses',{{}}); "
-            f"parts=[]; "
-            f"[parts.append(v.get('branch','?').split('/')[-1]+':'"
-            f"+v.get('activity_status','?'))"
-            f" for v in ss.values()"
-            f" if v.get('activity_status','idle')!='idle']; "
-            f"active=len(parts); "
-            f"out=' | '.join(parts[:3]); "
-            f"print(f'[owt] {{out}}  ({{active}} active)' if active else '[owt] idle')"
-            f"\""
-        )
-
+        """Configure tmux status bar with OWT branding and pane borders."""
         accent = ACCENT_COLOR
         border_fmt = (
             f"#{{?pane_active,#[fg={accent} bold],#[fg=#444444]}}"
@@ -429,10 +407,9 @@ class TmuxManager:
         )
         self._run_tmux_batch(
             ("set-option", "-t", session_name,
-             "status-right",
-             f"#(sh -c {shlex.quote(status_script)}) | %H:%M"),
+             "status-right", "[owt] %H:%M"),
             ("set-option", "-t", session_name, "status-interval", "5"),
-            ("set-option", "-t", session_name, "status-right-length", "80"),
+            ("set-option", "-t", session_name, "status-right-length", "40"),
             ("set-option", "-t", session_name,
              "status-style", f"bg=#262626,fg={accent}"),
             ("set-option", "-t", session_name,

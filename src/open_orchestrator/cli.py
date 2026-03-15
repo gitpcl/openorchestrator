@@ -30,6 +30,31 @@ from open_orchestrator.models.status import AIActivityStatus
 console = Console()
 
 
+def _print_batch_status(results: list) -> None:
+    """Print compact batch status counts."""
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[r.status.value] = counts.get(r.status.value, 0) + 1
+    parts = [f"{v} {k}" for k, v in sorted(counts.items())]
+    console.print(f"  [dim]{' | '.join(parts)}[/dim]")
+
+
+def _print_batch_results(results: list, heading: str = "Batch complete") -> None:
+    """Print final batch execution summary."""
+    from open_orchestrator.core.batch import BatchStatus
+
+    shipped = sum(1 for r in results if r.status == BatchStatus.SHIPPED)
+    completed = sum(1 for r in results if r.status == BatchStatus.COMPLETED)
+    failed = sum(1 for r in results if r.status == BatchStatus.FAILED)
+    console.print(f"\n[bold]{heading}:[/bold] {shipped} shipped, {completed} done, {failed} failed")
+    for r in results:
+        icon = {BatchStatus.SHIPPED: "[green]✓[/green]", BatchStatus.COMPLETED: "[cyan]●[/cyan]",
+                BatchStatus.FAILED: "[red]✗[/red]"}.get(r.status, "[dim]?[/dim]")
+        label = getattr(r.task, "id", None) or r.task.description[:50]
+        err = f" — {r.error}" if r.error else ""
+        console.print(f"  {icon} {label}{err}")
+
+
 def get_worktree_manager(repo_path: Path | None = None) -> WorktreeManager:
     """Get a WorktreeManager instance with error handling."""
     try:
@@ -865,6 +890,118 @@ def wait_for_worktree(worktree_name: str, timeout: int, poll: int, json_output: 
     raise click.ClickException(f"Timeout after {timeout}s — {worktree_name} still {last_status}")
 
 
+# ─── owt plan ──────────────────────────────────────────────────────────────
+
+@main.command("plan")
+@click.argument("goal", nargs=-1, required=True)
+@click.option("-o", "--output", "output_path", help="Output path for plan TOML (default: plan.toml).")
+@click.option("--execute", is_flag=True, help="Execute the plan immediately after generation.")
+@click.option("--edit", is_flag=True, help="Open plan in $EDITOR before executing.")
+@click.option("--auto-ship", is_flag=True, help="Auto-ship completed tasks during execution.")
+@click.option("--max-concurrent", type=int, default=3, help="Max parallel tasks.")
+@click.option(
+    "--ai-tool",
+    type=click.Choice(["claude", "opencode", "droid"]),
+    default=None,
+    help="AI tool to generate the plan (auto-detected if not specified).",
+)
+def plan_goal(
+    goal: tuple[str, ...],
+    output_path: str | None,
+    execute: bool,
+    edit: bool,
+    auto_ship: bool,
+    max_concurrent: int,
+    ai_tool: str | None,
+) -> None:
+    """AI-powered task decomposition into a dependency-aware DAG.
+
+    Decomposes a feature goal into parallel tasks with dependency ordering,
+    generates a TOML batch file, and optionally executes it.
+
+    Examples:
+        owt plan Build JWT auth with refresh tokens
+        owt plan "Add rate limiting" --execute
+        owt plan "Refactor DB layer" --edit --execute
+        owt plan "Fix auth bugs" --execute --auto-ship
+    """
+    from open_orchestrator.core.batch import (
+        load_batch_config,
+        plan_tasks,
+    )
+
+    goal_text = " ".join(goal)
+    wt_manager = get_worktree_manager()
+
+    # Auto-detect AI tool if not specified
+    if ai_tool is None:
+        from open_orchestrator.core.agent_detector import detect_installed_agents
+
+        installed = detect_installed_agents()
+        if not installed:
+            raise click.ClickException("No AI coding tools found. Install claude, opencode, or droid.")
+        ai_tool = installed[0].value
+
+    # 1. Generate plan
+    console.print(f"[bold blue]Planning tasks with {ai_tool}...[/bold blue]")
+    try:
+        plan_path = plan_tasks(
+            goal=goal_text,
+            repo_path=str(wt_manager.git_root),
+            ai_tool=ai_tool,
+            output_path=output_path,
+        )
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Planning cancelled.[/yellow]")
+        return
+    except (ValueError, RuntimeError) as e:
+        raise click.ClickException(str(e)) from e
+
+    # 2. Show task summary
+    config = load_batch_config(str(plan_path))
+    console.print(f"\n[bold]Plan:[/bold] {goal_text}")
+    console.print(f"[bold]Tasks:[/bold] {len(config.tasks)}  [bold]File:[/bold] {plan_path}\n")
+
+    for t in config.tasks:
+        deps = f" [dim]← {', '.join(t.depends_on)}[/dim]" if t.depends_on else ""
+        console.print(f"  [cyan]{t.id}[/cyan]: {t.description[:70]}{deps}")
+
+    # 3. Optionally open in editor
+    if edit:
+        import os
+        import subprocess
+
+        editor = os.environ.get("EDITOR", "vim")
+        subprocess.run([editor, str(plan_path)], check=False)
+        # Reload after editing
+        config = load_batch_config(str(plan_path))
+        console.print(f"\n[green]Reloaded {len(config.tasks)} task(s) after edit[/green]")
+
+    # 4. Optionally execute
+    if execute:
+        import subprocess
+
+        batch_cmd = ["owt", "batch", str(plan_path)]
+        if auto_ship:
+            batch_cmd.append("--auto-ship")
+        batch_cmd.extend(["--max-concurrent", str(max_concurrent)])
+
+        # Run batch in a background tmux session so the terminal isn't blocked
+        batch_session = "owt-batch"
+        subprocess.run(
+            ["tmux", "kill-session", "-t", batch_session],
+            capture_output=True, check=False,
+        )
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", batch_session, *batch_cmd],
+            check=False,
+        )
+        console.print(f"\n[green]Batch launched in tmux session '{batch_session}'[/green]")
+        console.print("[dim]Use 'owt' for switchboard, or: tmux attach -t owt-batch[/dim]")
+    else:
+        console.print(f"\n[dim]Plan saved to {plan_path}. Use --execute to run, or: owt batch {plan_path}[/dim]")
+
+
 # ─── owt batch ─────────────────────────────────────────────────────────────
 
 @main.command("batch")
@@ -892,7 +1029,7 @@ def batch_run(tasks_file: str, auto_ship: bool, max_concurrent: int, json_output
         owt batch tasks.toml
         owt batch tasks.toml --auto-ship
     """
-    from open_orchestrator.core.batch import BatchResult, BatchRunner, BatchStatus, load_batch_config
+    from open_orchestrator.core.batch import BatchRunner, load_batch_config
 
     config = load_batch_config(tasks_file)
     if auto_ship:
@@ -905,17 +1042,10 @@ def batch_run(tasks_file: str, auto_ship: bool, max_concurrent: int, json_output
     wt_manager = get_worktree_manager()
     runner = BatchRunner(config, str(wt_manager.git_root))
 
-    def on_status(results: list[BatchResult]) -> None:
-        if json_output:
-            return
-        counts: dict[str, int] = {}
-        for r in results:
-            counts[r.status.value] = counts.get(r.status.value, 0) + 1
-        parts = [f"{v} {k}" for k, v in sorted(counts.items())]
-        console.print(f"  [dim]{' | '.join(parts)}[/dim]")
+    status_cb = None if json_output else _print_batch_status
 
     try:
-        results = runner.run(on_status=on_status)
+        results = runner.run(on_status=status_cb)
     except KeyboardInterrupt:
         console.print("\n[yellow]Batch interrupted. Worktrees left running.[/yellow]")
         return
@@ -928,15 +1058,7 @@ def batch_run(tasks_file: str, auto_ship: bool, max_concurrent: int, json_output
         ]
         console.print(json.dumps(output, indent=2))
     else:
-        shipped = sum(1 for r in results if r.status == BatchStatus.SHIPPED)
-        completed = sum(1 for r in results if r.status == BatchStatus.COMPLETED)
-        failed = sum(1 for r in results if r.status == BatchStatus.FAILED)
-        console.print(f"\n[bold]Batch complete:[/bold] {shipped} shipped, {completed} done, {failed} failed")
-        for r in results:
-            icon = {BatchStatus.SHIPPED: "[green]✓[/green]", BatchStatus.COMPLETED: "[cyan]●[/cyan]",
-                    BatchStatus.FAILED: "[red]✗[/red]"}.get(r.status, "[dim]?[/dim]")
-            err = f" — {r.error}" if r.error else ""
-            console.print(f"  {icon} {r.task.description[:60]}{err}")
+        _print_batch_results(results)
 
 
 # ─── owt queue ─────────────────────────────────────────────────────────────

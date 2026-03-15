@@ -14,10 +14,11 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Features
 
-- **15 commands** — focused CLI surface, no bloat
+- **16 commands** — focused CLI surface, no bloat
 - **Switchboard UI** — Textual-based card grid with status lights, diff stats, file overlap warnings, and detail panels
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
-- **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops: create → work → ship → next
+- **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
+- **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops with DAG-aware scheduling
 - **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
 - **Merge Queue** — `owt queue` shows optimal merge order; `owt queue --ship` ships all completed work intelligently
 - **Context Bridge** — `owt note "msg"` shares context across all agent sessions via CLAUDE.md injection
@@ -90,7 +91,8 @@ owt ship auth-jwt
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux + status |
 | `owt queue` | | Show optimal merge order for completed worktrees |
 | `owt queue --ship` | | Ship all completed worktrees in optimal order |
-| `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML file |
+| `owt plan "goal"` | | AI-powered task decomposition into dependency DAG |
+| `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML (DAG-aware) |
 | `owt wait <name>` | | Poll until agent finishes (for CI/scripts) |
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync with upstream |
@@ -220,25 +222,48 @@ owt new "Add payment docs"
 # -> Conflict Guard warns if agents touch the same files
 ```
 
+### AI-Powered Planning (DAG Execution)
+```bash
+owt plan "Build JWT auth with refresh tokens and admin dashboard"
+# -> AI decomposes into dependency-aware tasks, saves plan.toml
+
+owt plan "Add rate limiting" --execute
+# -> Generate plan + run immediately in background
+
+owt plan "Refactor DB layer" --edit --execute
+# -> Generate plan + edit in $EDITOR + run
+
+owt plan "Fix auth bugs" --execute --auto-ship
+# -> Generate plan + run + auto-merge completed tasks
+```
+
+Tasks with dependencies run in topological order. Independent tasks run in parallel. Parent task context (git log summaries) is auto-injected into child worktrees' CLAUDE.md.
+
 ### Overnight Autopilot (Batch Mode)
 ```toml
-# tasks.toml
+# tasks.toml — now supports dependency DAGs
 [batch]
 max_concurrent = 3
 auto_ship = true
 
 [[tasks]]
-description = "Add user authentication with JWT"
+id = "models"
+description = "Create User and Token models"
+depends_on = []
 
 [[tasks]]
-description = "Write API documentation"
+id = "auth-api"
+description = "Build auth endpoints"
+depends_on = ["models"]
 
 [[tasks]]
-description = "Add input validation to all endpoints"
+id = "auth-tests"
+description = "Write auth integration tests"
+depends_on = ["auth-api"]
 ```
 ```bash
 owt batch tasks.toml --auto-ship
-# -> Creates worktrees, starts agents, monitors status
+# -> Respects dependency order, injects parent context
 # -> Auto-ships completed work, starts next task
 ```
 
@@ -305,14 +330,14 @@ Use these slash commands in Claude Code sessions:
 
 ```
 src/open_orchestrator/         (~7,100 LOC)
-├── cli.py                     # 15 CLI commands (click)
+├── cli.py                     # 16 CLI commands (click)
 ├── config.py                  # Hierarchical config (TOML)
 ├── core/
 │   ├── switchboard.py         # Textual card grid UI (async polling, modal screens, broadcast)
 │   ├── worktree.py            # Git worktree CRUD
 │   ├── tmux_manager.py        # tmux session management
 │   ├── merge.py               # Two-phase merge + merge queue + conflict guard
-│   ├── batch.py               # Autopilot loop orchestration (Karpathy-style)
+│   ├── batch.py               # Autopilot loop + DAG scheduler + AI planner
 │   ├── environment.py         # Deps, .env, CLAUDE.md, shared notes injection
 │   ├── status.py              # AI activity tracking (SQLite + WAL)
 │   ├── hooks.py               # AI tool hook installer (status push)

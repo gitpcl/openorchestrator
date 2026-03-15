@@ -493,19 +493,22 @@ def sync_claude_md(
     return copied_files
 
 
-def inject_shared_notes(
+def _inject_claude_md_section(
     worktree_path: str | Path,
-    notes: list[str],
+    marker_id: str,
+    section_title: str,
+    body: str,
 ) -> None:
-    """Inject shared notes into a worktree's CLAUDE.md.
+    """Inject or replace a marked section in a worktree's CLAUDE.md.
 
-    Adds or updates a "## Shared Notes (OWT)" section at the end of
-    the worktree's .claude/CLAUDE.md with cross-cutting context from
-    other agents.
+    Uses HTML comment markers to identify the section boundaries,
+    allowing idempotent updates.
 
     Args:
         worktree_path: Path to the worktree directory.
-        notes: List of note strings to inject.
+        marker_id: Unique identifier for markers (e.g., "SHARED-NOTES").
+        section_title: Markdown heading for the section.
+        body: Pre-formatted body content (empty string to remove section).
     """
     worktree_path = Path(worktree_path).resolve()
     claude_md = worktree_path / ".claude" / "CLAUDE.md"
@@ -514,32 +517,52 @@ def inject_shared_notes(
         return
 
     content = claude_md.read_text()
-    marker_start = "<!-- OWT-SHARED-NOTES-START -->"
-    marker_end = "<!-- OWT-SHARED-NOTES-END -->"
+    marker_start = f"<!-- OWT-{marker_id}-START -->"
+    marker_end = f"<!-- OWT-{marker_id}-END -->"
 
-    # Build notes section
-    if notes:
-        notes_block = f"\n{marker_start}\n## Shared Notes (OWT)\n\n"
-        for note in notes:
-            notes_block += f"- {note}\n"
-        notes_block += f"\n{marker_end}\n"
+    if body:
+        block = f"\n{marker_start}\n## {section_title}\n\n{body}\n{marker_end}\n"
     else:
-        notes_block = ""
+        block = ""
 
-    # Replace existing section or append
     if marker_start in content:
-        import re as _re
-        content = _re.sub(
-            f"\n?{_re.escape(marker_start)}.*?{_re.escape(marker_end)}\n?",
-            notes_block,
+        content = re.sub(
+            f"\n?{re.escape(marker_start)}.*?{re.escape(marker_end)}\n?",
+            block,
             content,
-            flags=_re.DOTALL,
+            flags=re.DOTALL,
         )
-    elif notes_block:
-        content = content.rstrip() + "\n" + notes_block
+    elif block:
+        content = content.rstrip() + "\n" + block
 
     claude_md.write_text(content)
-    logger.info(f"Injected {len(notes)} shared note(s) into {claude_md}")
+    logger.info(f"Injected section '{section_title}' into {claude_md}")
+
+
+def inject_shared_notes(
+    worktree_path: str | Path,
+    notes: list[str],
+) -> None:
+    """Inject shared notes into a worktree's CLAUDE.md."""
+    body = "".join(f"- {note}\n" for note in notes) if notes else ""
+    _inject_claude_md_section(
+        worktree_path, "SHARED-NOTES", "Shared Notes (OWT)", body,
+    )
+
+
+def inject_dag_context(
+    worktree_path: str | Path,
+    parent_summaries: list[str],
+) -> None:
+    """Inject parent task context into a worktree's CLAUDE.md."""
+    if parent_summaries:
+        body = "These tasks completed before yours. Use their output:\n\n"
+        body += "\n".join(f"{s}\n" for s in parent_summaries)
+    else:
+        body = ""
+    _inject_claude_md_section(
+        worktree_path, "DAG-CONTEXT", "Parent Tasks (OWT DAG)", body,
+    )
 
 
 __all__ = [
@@ -549,4 +572,5 @@ __all__ = [
     "EnvFileError",
     "sync_claude_md",
     "inject_shared_notes",
+    "inject_dag_context",
 ]

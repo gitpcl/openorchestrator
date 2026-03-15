@@ -175,14 +175,23 @@ class MergeManager:
         except GitCommandError:
             return 0
 
-    def plan_merge_order(self, base_branch: str | None = None) -> list[tuple[str, int, int]]:
+    def plan_merge_order(
+        self,
+        base_branch: str | None = None,
+        dependency_order: list[str] | None = None,
+    ) -> list[tuple[str, int, int]]:
         """Plan optimal merge order for all completed/waiting worktrees.
 
-        Strategy: merge smallest changes first to minimize rebase churn.
+        Strategy: if dependency_order is provided (from DAG), use that order.
+        Otherwise, merge smallest changes first to minimize rebase churn.
+
+        Args:
+            base_branch: Target branch for merge.
+            dependency_order: Optional topological order from DAG execution.
 
         Returns:
             List of (worktree_name, commits_ahead, overlap_count)
-            sorted by commits_ahead ascending (smallest first).
+            sorted by dependency_order or commits_ahead ascending.
         """
         from open_orchestrator.core.status import StatusTracker
 
@@ -202,8 +211,13 @@ class MergeManager:
                 logger.debug("Skipping %s in merge queue", s.worktree_name)
                 continue
 
-        # Sort: fewest commits first, then fewest overlaps
-        candidates.sort(key=lambda x: (x[1], x[2]))
+        if dependency_order:
+            # Use DAG topological order
+            order_map = {name: i for i, name in enumerate(dependency_order)}
+            candidates.sort(key=lambda x: order_map.get(x[0], len(dependency_order)))
+        else:
+            # Sort: fewest commits first, then fewest overlaps
+            candidates.sort(key=lambda x: (x[1], x[2]))
         return candidates
 
     def merge(
