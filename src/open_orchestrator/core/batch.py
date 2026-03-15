@@ -476,11 +476,17 @@ class BatchRunner:
                 branch = f"batch/task-{idx}"
 
         try:
+            try:
+                ai_tool_enum = AITool(task.ai_tool)
+            except ValueError:
+                result.status = BatchStatus.FAILED
+                result.error = f"Unknown ai_tool: {task.ai_tool!r}"
+                return
             pane = create_pane(
                 session_name=f"batch-{idx}",
                 repo_path=self.repo_path,
                 branch=branch,
-                ai_tool=AITool(task.ai_tool),
+                ai_tool=ai_tool_enum,
                 plan_mode=task.plan_mode,
                 ai_instructions=(
                     task.description
@@ -523,7 +529,7 @@ class BatchRunner:
                 pass
 
             # Auto-commit any uncommitted work before merging
-            merge_mgr = MergeManager()
+            merge_mgr = MergeManager(repo_path=Path(self.repo_path))
             dirty = merge_mgr.check_uncommitted_changes(result.worktree_name)
             if dirty:
                 from git import Repo
@@ -541,5 +547,5 @@ class BatchRunner:
             self.tracker.remove_status(result.worktree_name)
             result.status = BatchStatus.SHIPPED
         except Exception as e:
-            result.status = BatchStatus.COMPLETED
+            result.status = BatchStatus.FAILED
             result.error = f"Ship failed: {e}"

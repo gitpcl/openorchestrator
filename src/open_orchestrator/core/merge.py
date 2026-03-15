@@ -8,6 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from git import Repo
 from git.exc import GitCommandError
@@ -39,7 +40,7 @@ class MergeResult:
     commits_merged: int = 0
     worktree_cleaned: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON output."""
         return {
             "status": self.status.value,
@@ -97,7 +98,7 @@ class MergeManager:
         # Fallback: try the default branch from remote
         try:
             result = self.repo.git.symbolic_ref("refs/remotes/origin/HEAD")
-            return result.replace("refs/remotes/origin/", "")
+            return str(result).replace("refs/remotes/origin/", "")
         except GitCommandError:
             pass
 
@@ -125,7 +126,13 @@ class MergeManager:
         staged = [item.a_path for item in wt_repo.index.diff("HEAD")]
         untracked = wt_repo.untracked_files
 
-        return changed + staged + list(untracked)
+        seen: set[str] = set()
+        result: list[str] = []
+        for f in changed + staged + list(untracked):
+            if f and f not in seen:
+                seen.add(f)
+                result.append(f)
+        return result
 
     def get_modified_files(self, branch: str, base: str) -> list[str]:
         """Get files modified on branch vs base."""
@@ -283,7 +290,13 @@ class MergeManager:
             pass  # Fetch failure is non-fatal; we'll try with local refs
 
         try:
-            wt_repo.git.merge(f"origin/{target_branch}", "--no-edit")
+            # Use remote ref if available, fall back to local branch
+            try:
+                wt_repo.git.rev_parse("--verify", f"origin/{target_branch}")
+                merge_ref = f"origin/{target_branch}"
+            except GitCommandError:
+                merge_ref = target_branch
+            wt_repo.git.merge(merge_ref, "--no-edit")
         except GitCommandError as e:
             # Check for conflicts
             try:
@@ -327,10 +340,11 @@ class MergeManager:
             raise MergeError(f"Phase 2 merge failed: {e}") from e
         finally:
             # Restore original branch if different
+            current: str | None = None
             try:
                 current = self.repo.active_branch.name
             except TypeError:
-                current = None
+                pass
             if current != original_branch:
                 try:
                     self.repo.git.checkout(original_branch)

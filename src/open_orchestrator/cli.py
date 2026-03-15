@@ -25,7 +25,7 @@ from open_orchestrator.core.worktree import (
     WorktreeManager,
     WorktreeNotFoundError,
 )
-from open_orchestrator.models.status import AIActivityStatus
+from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
 console = Console()
 
@@ -628,7 +628,7 @@ def ship_worktree(worktree_name: str, base_branch: str | None, commit_message: s
         with console.status("[bold blue]Merging..."):
             result = merge_manager.merge(
                 worktree_name=worktree_name,
-                base_branch=base_branch,
+                base_branch=target,
                 delete_worktree=True,
             )
     except MergeConflictError as e:
@@ -858,7 +858,8 @@ def wait_for_worktree(worktree_name: str, timeout: int, poll: int, json_output: 
     """
     tracker = StatusTracker()
     elapsed = 0
-    terminal_states = {AIActivityStatus.WAITING, AIActivityStatus.COMPLETED, AIActivityStatus.ERROR}
+    status: WorktreeAIStatus | None = None
+    terminal_states = {AIActivityStatus.COMPLETED, AIActivityStatus.ERROR}
 
     while elapsed < timeout:
         tracker.reload()

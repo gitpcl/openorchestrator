@@ -248,13 +248,16 @@ class EnvironmentSetup:
                 import tempfile
 
                 fd, tmp_path = tempfile.mkstemp(dir=worktree_path, prefix=".env.tmp")
+                fd_closed = False
                 try:
                     os.fchmod(fd, 0o600)
                     os.write(fd, adjusted_content.encode())
                     os.close(fd)
+                    fd_closed = True
                     os.replace(tmp_path, target_env)
                 except Exception:
-                    os.close(fd) if not os.get_inheritable(fd) else None
+                    if not fd_closed:
+                        os.close(fd)
                     if os.path.exists(tmp_path):
                         os.unlink(tmp_path)
                     raise

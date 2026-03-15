@@ -87,6 +87,22 @@ _INTERRUPTED_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Process names that indicate the agent has exited and a shell is showing
+_SHELL_PROCESSES = {"zsh", "bash", "fish", "sh", "dash"}
+
+
+def _is_agent_exited(tmux_session: str) -> bool:
+    """Check if all panes' foreground processes are shells (agent has exited)."""
+    try:
+        result = subprocess.run(
+            ["tmux", "list-panes", "-t", tmux_session, "-F", "#{pane_current_command}"],
+            capture_output=True, text=True, check=True, timeout=2,
+        )
+        commands = [cmd.strip() for cmd in result.stdout.strip().split("\n") if cmd.strip()]
+        return bool(commands) and all(cmd in _SHELL_PROCESSES for cmd in commands)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return False
+
 
 @dataclass
 class Card:
@@ -164,12 +180,18 @@ def _detect_pane_status(tmux_session: str | None) -> tuple[AIActivityStatus, boo
     # Check for high-confidence idle signals (Interrupted, etc.)
     has_interrupted = bool(content_text and _INTERRUPTED_RE.search(content_text))
 
-    # If idle prompt (❯) is visible → WAITING. Otherwise → WORKING.
+    # If idle prompt (❯) is visible → WAITING. Only check agent exit when needed.
     for line in content_lines[:5]:
         if _PROMPT_RE.search(line):
-            return AIActivityStatus.WAITING, has_interrupted
+            agent_exited = _is_agent_exited(tmux_session)
+            return AIActivityStatus.WAITING, has_interrupted or agent_exited
 
-    # No prompt visible — agent is doing something
+    # No prompt visible — check if agent process exited (edge case)
+    agent_exited = _is_agent_exited(tmux_session)
+    if agent_exited:
+        return AIActivityStatus.WAITING, True
+
+    # No prompt visible and agent running — actively working
     return AIActivityStatus.WORKING, False
 
 

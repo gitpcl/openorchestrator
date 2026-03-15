@@ -17,12 +17,6 @@ from open_orchestrator.models.worktree_info import WorktreeInfo
 
 
 @pytest.fixture
-def cli_runner() -> CliRunner:
-    """Create a Click CLI test runner."""
-    return CliRunner()
-
-
-@pytest.fixture
 def mock_worktree_info(temp_directory: Path) -> WorktreeInfo:
     """Create a mock WorktreeInfo for testing."""
     return WorktreeInfo(

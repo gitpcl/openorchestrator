@@ -161,6 +161,8 @@ class WorktreeTemplate(BaseModel):
     ai_instructions: str | None = Field(default=None, description="Instructions to send to AI")
     plan_mode: bool = Field(default=False, description="Start Claude in plan mode")
     install_deps: bool | None = Field(default=None, description="Override auto_install_deps")
+    tmux_layout: str | None = Field(default=None, description="Default tmux layout")
+    auto_commands: list[str] = Field(default_factory=list, description="Auto-run commands")
     tags: list[str] = Field(default_factory=list, description="Tags for categorizing templates")
 
 
@@ -243,8 +245,7 @@ def get_builtin_templates() -> dict[str, WorktreeTemplate]:
             base_branch="main",
             ai_tool=AITool.CLAUDE,
             ai_instructions=(
-                "Focus on: 1) Identifying root cause, 2) Writing tests that reproduce the bug, "
-                "3) Minimal code changes to fix"
+                "Focus on: 1) Identifying root cause, 2) Writing tests that reproduce the bug, 3) Minimal code changes to fix"
             ),
             tags=["quick", "maintenance"],
         ),
@@ -290,7 +291,7 @@ def save_config(config: Config, path: Path) -> None:
     """Save configuration to a TOML file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        toml.dump(config.model_dump(), f)
+        toml.dump(config.model_dump(mode="json"), f)
 
 
 def get_default_config_path() -> Path:

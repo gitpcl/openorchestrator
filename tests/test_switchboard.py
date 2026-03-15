@@ -137,15 +137,11 @@ class TestInterruptedRegex:
         assert _INTERRUPTED_RE.search(text)
 
     @pytest.mark.parametrize("text", [
-        "Processing interrupted files",
         "Working on feature",
         "❯",
     ])
     def test_rejects_non_interrupted(self, text: str) -> None:
-        # "Processing interrupted files" DOES contain "Interrupted" substring (case-insensitive)
-        # so we only test truly non-matching text
-        assert not _INTERRUPTED_RE.search("Working on feature")
-        assert not _INTERRUPTED_RE.search("❯")
+        assert not _INTERRUPTED_RE.search(text)
 
 
 # ---------------------------------------------------------------------------

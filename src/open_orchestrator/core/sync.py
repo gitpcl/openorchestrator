@@ -154,14 +154,19 @@ class SyncService:
             pull_result = self._pull_changes(path)
 
             if pull_result.returncode != 0:
-                # Pull failed — restore stash if we stashed earlier
+                # Detect if this was a merge conflict vs other failure
+                is_conflict = "conflict" in (pull_result.stderr or "").lower()
+                # Abort any in-progress merge before restoring stash
+                if is_conflict:
+                    self._run_git_command(path, ["merge", "--abort"])
                 if stashed:
                     self._run_git_command(path, ["stash", "pop"])
+                status = SyncStatus.CONFLICTS if is_conflict else SyncStatus.ERROR
                 return WorktreeSyncResult(
                     worktree_path=worktree_path,
                     branch_name=branch_name,
-                    status=SyncStatus.CONFLICTS,
-                    message=f"Merge conflicts detected: {pull_result.stderr}",
+                    status=status,
+                    message=f"Pull failed: {pull_result.stderr}",
                     commits_behind=commits_behind,
                     commits_ahead=commits_ahead,
                     upstream_branch=upstream,

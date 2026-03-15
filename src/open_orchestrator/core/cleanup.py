@@ -153,7 +153,7 @@ class CleanupService:
         Returns:
             List of WorktreeUsageStats for stale worktrees
         """
-        threshold = threshold_days or self.config.stale_threshold_days
+        threshold = threshold_days if threshold_days is not None else self.config.stale_threshold_days
         cutoff_date = datetime.now() - timedelta(days=threshold)
         stale_worktrees = []
 
@@ -284,7 +284,7 @@ class CleanupService:
         Returns:
             CleanupReport with details of the operation
         """
-        threshold = threshold_days or self.config.stale_threshold_days
+        threshold = threshold_days if threshold_days is not None else self.config.stale_threshold_days
         stale_worktrees = self.get_stale_worktrees(worktree_paths, threshold)
 
         report = CleanupReport(
@@ -323,12 +323,15 @@ class CleanupService:
         """Delete a worktree using git worktree remove."""
         import subprocess
 
+        # Run from worktree's parent dir to ensure we're in a valid git repo
+        worktree_dir = Path(worktree_path)
+        cwd = str(worktree_dir.parent) if worktree_dir.exists() else None
         result = subprocess.run(
             ["git", "worktree", "remove", "--force", worktree_path],
             capture_output=True,
             text=True,
             timeout=30,
-            cwd=self.repo_root if hasattr(self, "repo_root") else None,
+            cwd=cwd,
         )
 
         if result.returncode != 0:

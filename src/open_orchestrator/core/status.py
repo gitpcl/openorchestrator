@@ -347,9 +347,9 @@ class StatusTracker:
         for status in all_statuses:
             if status.activity_status == AIActivityStatus.WORKING:
                 summary.active_ai_sessions += 1
-            elif status.activity_status == AIActivityStatus.IDLE:
+            elif status.activity_status in (AIActivityStatus.IDLE, AIActivityStatus.WAITING, AIActivityStatus.COMPLETED):
                 summary.idle_ai_sessions += 1
-            elif status.activity_status == AIActivityStatus.BLOCKED:
+            elif status.activity_status in (AIActivityStatus.BLOCKED, AIActivityStatus.ERROR):
                 summary.blocked_ai_sessions += 1
             else:
                 summary.unknown_status += 1
@@ -391,10 +391,13 @@ class StatusTracker:
 
     def get_current_worktree_name(self) -> str | None:
         """Get the worktree name for the current directory."""
-        current_path = str(Path.cwd())
+        current = Path.cwd()
 
         for status in self.get_all_statuses():
-            if current_path.startswith(status.worktree_path):
+            try:
+                current.relative_to(status.worktree_path)
                 return status.worktree_name
+            except ValueError:
+                continue
 
         return None

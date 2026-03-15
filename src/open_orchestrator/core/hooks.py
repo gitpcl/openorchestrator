@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
 import shutil
 from pathlib import Path
+from typing import Any
 
 from open_orchestrator.config import AITool
 
@@ -58,7 +60,7 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
     settings_dir.mkdir(parents=True, exist_ok=True)
 
     # Load existing local settings (merge, don't overwrite)
-    existing: dict[str, object] = {}
+    existing: dict[str, Any] = {}
     if settings_path.exists():
         try:
             existing = json.loads(settings_path.read_text())
@@ -66,6 +68,7 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
             existing = {}
 
     owt = _owt_path()
+    name_q = shlex.quote(worktree_name)
     hooks = existing.setdefault("hooks", {})
 
     # UserPromptSubmit → WORKING
@@ -74,7 +77,7 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event working --worktree '{worktree_name}'",
+                    "command": f"{owt} hook --event working --worktree {name_q}",
                 }
             ],
         }
@@ -86,7 +89,7 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event waiting --worktree '{worktree_name}'",
+                    "command": f"{owt} hook --event waiting --worktree {name_q}",
                 }
             ],
         }
@@ -95,19 +98,18 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
     # Notification(permission_prompt) → BLOCKED
     notification_hooks = hooks.get("Notification", [])
     # Remove any existing OWT notification hooks, keep user-defined ones
-    notification_hooks = [
-        h for h in notification_hooks
-        if not (isinstance(h, dict) and "owt hook" in str(h.get("hooks", [])))
-    ]
-    notification_hooks.append({
-        "matcher": "permission_prompt",
-        "hooks": [
-            {
-                "type": "command",
-                "command": f"{owt} hook --event blocked --worktree '{worktree_name}'",
-            }
-        ],
-    })
+    notification_hooks = [h for h in notification_hooks if not (isinstance(h, dict) and "owt hook" in str(h.get("hooks", [])))]
+    notification_hooks.append(
+        {
+            "matcher": "permission_prompt",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f"{owt} hook --event blocked --worktree {name_q}",
+                }
+            ],
+        }
+    )
     hooks["Notification"] = notification_hooks
 
     existing["hooks"] = hooks
@@ -128,7 +130,7 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
     settings_path = settings_dir / "settings.json"
     settings_dir.mkdir(parents=True, exist_ok=True)
 
-    existing: dict[str, object] = {}
+    existing: dict[str, Any] = {}
     if settings_path.exists():
         try:
             existing = json.loads(settings_path.read_text())
@@ -136,6 +138,7 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
             existing = {}
 
     owt = _owt_path()
+    name_q = shlex.quote(worktree_name)
     hooks = existing.setdefault("hooks", {})
 
     hooks["UserPromptSubmit"] = [
@@ -143,7 +146,7 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event working --worktree '{worktree_name}'",
+                    "command": f"{owt} hook --event working --worktree {name_q}",
                 }
             ],
         }
@@ -154,7 +157,7 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event waiting --worktree '{worktree_name}'",
+                    "command": f"{owt} hook --event waiting --worktree {name_q}",
                 }
             ],
         }
@@ -165,7 +168,7 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event blocked --worktree '{worktree_name}'",
+                    "command": f"{owt} hook --event blocked --worktree {name_q}",
                 }
             ],
         }

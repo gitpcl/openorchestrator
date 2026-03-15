@@ -36,10 +36,8 @@ def detect_installed() -> list[tuple[str, str, str, bool]]:
 
 
 def _get_theme_curses_color() -> int:
-    """Get the curses color constant from the user's configured theme."""
-    from open_orchestrator.config import get_active_theme
-
-    return get_active_theme().curses_color
+    """Get the curses color constant for the accent theme."""
+    return curses.COLOR_CYAN  # matches ACCENT_COLOR #00d7d7
 
 
 def _init_colors() -> None:

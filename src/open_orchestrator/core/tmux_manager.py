@@ -356,7 +356,7 @@ class TmuxManager:
             session = self.server.sessions.filter(session_name=session_name)[0]
             window = session.active_window
             return len(window.panes)
-        except libtmux.exc.LibTmuxException as e:
+        except (libtmux.exc.LibTmuxException, IndexError) as e:
             raise TmuxError(f"Failed to get pane count: {e}") from e
 
     @staticmethod
@@ -366,7 +366,7 @@ class TmuxManager:
             result = subprocess.run(
                 ["tmux", "-V"], capture_output=True, text=True, check=True
             )
-            version_str = result.stdout.strip().split()[-1].lstrip("next-")
+            version_str = result.stdout.strip().split()[-1].removeprefix("next-")
             match = re.match(r"(\d+)\.(\d+)", version_str)
             if match:
                 return (int(match.group(1)), int(match.group(2)))
