@@ -401,7 +401,7 @@ class TmuxManager:
     def install_status_bar(self, session_name: str) -> None:
         """Configure tmux status bar with OWT branding and pane borders."""
         border_inactive = COLORS["border_inactive"]
-        bg = COLORS["dark_secondary"]
+        bg = COLORS["background"]
         text = "#888888"
         border_fmt = (
             f"#{{?pane_active,#[fg=white bold],#[fg={border_inactive}]}}"

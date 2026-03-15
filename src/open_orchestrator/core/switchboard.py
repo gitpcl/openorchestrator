@@ -742,7 +742,7 @@ class SearchableSelectModal(ModalScreen[str | None]):
         height: 1;
     }}
     .select-item.highlighted {{
-        background: {COLORS["dark_tertiary"]};
+        background: {COLORS["surface_4dp"]};
         text-style: bold;
     }}
     .select-hint {{
