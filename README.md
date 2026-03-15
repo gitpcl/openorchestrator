@@ -1,5 +1,7 @@
 # Open Orchestrator
 
+[![CI](https://github.com/gitpcl/openorchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/gitpcl/openorchestrator/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/open-orchestrator)](https://pypi.org/project/open-orchestrator/) [![Python](https://img.shields.io/pypi/pyversions/open-orchestrator)](https://pypi.org/project/open-orchestrator/) [![License](https://img.shields.io/github/license/gitpcl/openorchestrator)](LICENSE) [![Downloads](https://img.shields.io/pypi/dm/open-orchestrator)](https://pypi.org/project/open-orchestrator/)
+
 A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a Textual-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid.
 
 ## Overview
