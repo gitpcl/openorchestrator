@@ -482,7 +482,10 @@ class BatchRunner:
                 branch=branch,
                 ai_tool=AITool(task.ai_tool),
                 plan_mode=task.plan_mode,
-                ai_instructions=task.description,
+                ai_instructions=(
+                    task.description
+                    + "\n\nIMPORTANT: When done, use /commit to commit your changes."
+                ),
             )
             result.worktree_name = pane.worktree_name
             result.status = BatchStatus.RUNNING
@@ -519,7 +522,18 @@ class BatchRunner:
             except Exception:
                 pass
 
+            # Auto-commit any uncommitted work before merging
             merge_mgr = MergeManager()
+            dirty = merge_mgr.check_uncommitted_changes(result.worktree_name)
+            if dirty:
+                from git import Repo
+
+                wt = merge_mgr.wt_manager.get(result.worktree_name)
+                wt_repo = Repo(wt.path)
+                wt_repo.git.add("-A")
+                branch_desc = wt.branch.split("/")[-1].replace("-", " ")
+                wt_repo.git.commit("-m", f"feat: {branch_desc}")
+
             merge_mgr.merge(
                 worktree_name=result.worktree_name,
                 delete_worktree=True,
