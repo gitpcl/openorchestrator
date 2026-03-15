@@ -8,17 +8,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from open_orchestrator.core.switchboard import (
-    HOOK_CAPABLE_TOOLS,
-    HOOK_TRUST_MAX_SECONDS,
     _ALLOW_PROMPT_RE,
     _BLOCKED_RE,
     _INTERRUPTED_RE,
     _PROMPT_RE,
     _STATUS_BAR_RE,
+    HOOK_CAPABLE_TOOLS,
+    HOOK_TRUST_MAX_SECONDS,
     _detect_pane_status,
 )
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
-
 
 # ---------------------------------------------------------------------------
 # Regex pattern tests

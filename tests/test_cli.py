@@ -259,7 +259,7 @@ class TestSwitchboardLaunch:
         self, mock_switchboard: MagicMock, cli_runner: CliRunner
     ) -> None:
         """Test that 'owt' with no args launches the switchboard."""
-        result = cli_runner.invoke(main, [])
+        cli_runner.invoke(main, [])
         mock_switchboard.assert_called_once()
 
     def test_help_still_works(self, cli_runner: CliRunner) -> None:

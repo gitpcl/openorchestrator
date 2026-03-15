@@ -39,7 +39,7 @@ def git_repo(temp_directory: Path) -> Generator[Path, None, None]:
     repo_path = temp_directory / "test-repo"
     repo_path.mkdir()
 
-    subprocess.run(["git", "init"], cwd=repo_path, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_path, capture_output=True)
 
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_path, capture_output=True)
 
