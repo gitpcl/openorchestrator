@@ -14,6 +14,10 @@ import shutil
 import sys
 from typing import Any
 
+# Theme colors are defined in open_orchestrator.core.theme.COLORS.
+# Curses cannot use hex values directly; _get_theme_curses_color() maps
+# COLORS["accent"] (#00d7d7) to curses.COLOR_CYAN.
+
 # Agent definitions: (display_name, abbreviation, binary_name)
 AGENTS = [
     ("Claude Code", "cc", "claude"),
@@ -37,8 +41,12 @@ def detect_installed() -> list[tuple[str, str, str, bool]]:
 
 
 def _get_theme_curses_color() -> int:
-    """Get the curses color constant for the accent theme."""
-    return curses.COLOR_CYAN  # matches ACCENT_COLOR #00d7d7
+    """Get the curses color constant for the accent theme.
+
+    Maps theme accent (#00d7d7) to the nearest curses constant.
+    See open_orchestrator.core.theme.COLORS for canonical values.
+    """
+    return curses.COLOR_CYAN
 
 
 def _init_colors() -> None:

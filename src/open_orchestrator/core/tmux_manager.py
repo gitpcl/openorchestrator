@@ -14,7 +14,8 @@ from enum import Enum
 import libtmux
 from libtmux.constants import PaneDirection
 
-from open_orchestrator.config import ACCENT_COLOR, AITool, DroidAutoLevel
+from open_orchestrator.config import AITool, DroidAutoLevel
+from open_orchestrator.core.theme import COLORS
 
 
 class TmuxLayout(Enum):
@@ -399,9 +400,11 @@ class TmuxManager:
 
     def install_status_bar(self, session_name: str) -> None:
         """Configure tmux status bar with OWT branding and pane borders."""
-        accent = ACCENT_COLOR
+        border_inactive = COLORS["border_inactive"]
+        bg = COLORS["dark_secondary"]
+        text = "#888888"
         border_fmt = (
-            f"#{{?pane_active,#[fg={accent} bold],#[fg=#444444]}}"
+            f"#{{?pane_active,#[fg=white bold],#[fg={border_inactive}]}}"
             f" #{{pane_title}} "
         )
         self._run_tmux_batch(
@@ -410,11 +413,11 @@ class TmuxManager:
             ("set-option", "-t", session_name, "status-interval", "5"),
             ("set-option", "-t", session_name, "status-right-length", "40"),
             ("set-option", "-t", session_name,
-             "status-style", f"bg=#262626,fg={accent}"),
+             "status-style", f"bg={bg},fg={text}"),
             ("set-option", "-t", session_name,
-             "pane-border-style", "fg=#444444"),
+             "pane-border-style", f"fg={border_inactive}"),
             ("set-option", "-t", session_name,
-             "pane-active-border-style", f"fg={accent}"),
+             "pane-active-border-style", "fg=white"),
             ("set-option", "-t", session_name,
              "pane-border-indicators", "arrows"),
             ("set-option", "-t", session_name,

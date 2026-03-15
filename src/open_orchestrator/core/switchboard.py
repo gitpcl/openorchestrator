@@ -31,35 +31,37 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static
+from textual.widgets import Input, Label, Static
 
 from open_orchestrator.config import AITool
 from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.theme import COLORS, STATUS_COLORS
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.core.worktree import WorktreeManager
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
 # Status light characters and colors (Rich markup)
 STATUS_LIGHTS: dict[str, tuple[str, str]] = {
-    "working": ("\u25cf", "green"),       # ● green
-    "idle": ("\u25cb", "white"),           # ○ white
-    "blocked": ("\u26a0", "yellow"),       # ⚠ yellow
-    "waiting": ("\u26a0", "yellow"),       # ⚠ yellow
-    "completed": ("\u2713", "cyan"),       # ✓ cyan
-    "error": ("\u25cf", "red"),            # ● red
-    "unknown": ("?", "white"),
+    "working": ("\u25cf", STATUS_COLORS["working"]),
+    "idle": ("\u25cb", STATUS_COLORS["idle"]),
+    "blocked": ("\u26a0", STATUS_COLORS["blocked"]),
+    "waiting": ("\u26a0", STATUS_COLORS["waiting"]),
+    "completed": ("\u2713", STATUS_COLORS["completed"]),
+    "error": ("\u25cf", STATUS_COLORS["error"]),
+    "unknown": ("?", STATUS_COLORS["unknown"]),
 }
 
 CARD_WIDTH = 30
-CARD_HEIGHT = 6
+CARD_HEIGHT = 4
 SWITCHBOARD_SESSION = "owt-switchboard"
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧"
-TICK_MS = 200
-HEAVY_EVERY = 10  # _build_cards runs every HEAVY_EVERY ticks (2s)
+SPINNER_COLORS = ["#666666", "#888888", "#aaaaaa", "#888888"]
+TICK_MS = 150
+HEAVY_EVERY = 14  # _build_cards runs every HEAVY_EVERY ticks (~2.1s at 150ms)
 RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED, AIActivityStatus.IDLE}
 HOOK_FRESHNESS_SECONDS = 10  # Trust hook-set status if updated within this window
 HOOK_CAPABLE_TOOLS = {AITool.CLAUDE.value, AITool.DROID.value}  # Scraper must not downgrade WORKING → WAITING
-HOOK_TRUST_MAX_SECONDS = 120  # After 2 min with no hook update, let scraper recover stale WORKING
+HOOK_TRUST_MAX_SECONDS = 15  # After 15s with no hook update, let scraper recover stale WORKING
 
 # Pre-compiled regex patterns for pane status detection
 # Must match actual permission prompts, NOT agent thinking text like "Allow me to..."
@@ -77,8 +79,10 @@ _STATUS_BAR_RE = re.compile(
     r"ctx:\s*\d+%|bypass permissions|shift\+tab|permissions\s+on",
     re.IGNORECASE,
 )
+# Box-drawing separator lines (U+2500–U+257F) carry no semantic info
+_SEPARATOR_RE = re.compile(r"^[\u2500-\u257F\s]{5,}$")
 _PROMPT_RE = re.compile(
-    r"^>\s*$|^❯\s*$|What would you like|How can I help",
+    r"^[>❯›»\)]\s*$|^\$\s*$|What would you like|How can I help",
     re.IGNORECASE,
 )
 # High-confidence working signal — Claude Code tool execution headers
@@ -90,6 +94,7 @@ _INTERRUPTED_RE = re.compile(
     r"Interrupted|What should Claude do instead",
     re.IGNORECASE,
 )
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 
 def _tmux_session_exists_raw(session_name: str) -> bool:
@@ -171,7 +176,10 @@ def _detect_pane_status(tmux_session: str | None) -> tuple[AIActivityStatus, boo
         return None
 
     # Filter out Claude Code status bar lines before analysis
-    content_lines = [line for line in tail if not _STATUS_BAR_RE.search(line)]
+    content_lines = [
+        line for line in tail
+        if not _STATUS_BAR_RE.search(line) and not _SEPARATOR_RE.match(line)
+    ]
     content_text = "\n".join(reversed(content_lines)) if content_lines else ""
 
     # BLOCKED detection: only scan the last 2 non-empty content lines.
@@ -189,12 +197,11 @@ def _detect_pane_status(tmux_session: str | None) -> tuple[AIActivityStatus, boo
     # Check for high-confidence idle signals (Interrupted, etc.)
     has_interrupted = bool(content_text and _INTERRUPTED_RE.search(content_text))
 
-    # WAITING detection: only if the prompt char is on the VERY LAST non-empty
-    # content line AND the line is short (< 10 chars). Long lines containing ❯
-    # are likely output, not prompts.
+    # WAITING detection: prompt char on the VERY LAST non-empty content line.
+    # Strip ANSI escape sequences and trailing whitespace before checking.
     if content_lines:
-        last_line = content_lines[0]
-        if len(last_line) < 10 and _PROMPT_RE.search(last_line):
+        last_line = _ANSI_RE.sub("", content_lines[0]).strip()
+        if len(last_line) < 15 and _PROMPT_RE.search(last_line):
             return AIActivityStatus.WAITING, has_interrupted
 
     # No prompt visible — agent is doing something
@@ -456,70 +463,88 @@ SHELL_TIMEOUT = 120  # seconds — max time for owt ship/merge/delete/new
 
 
 def _render_card(card: Card, tick: int) -> str:
-    """Render a card as Rich markup text."""
-    w = CARD_WIDTH - 4  # inner width (minus border padding)
+    """Render a card as Rich markup text.
+
+    Compact 3-line layout:
+      [light] name              elapsed
+      branch | tool | stats
+      task description     [!N]
+    """
+    w = CARD_WIDTH - 2  # inner width (minus panel border)
     status_key = card.status.value
     light_char, color = STATUS_LIGHTS.get(status_key, ("?", "white"))
     if card.status == AIActivityStatus.WORKING:
         light_char = SPINNER_FRAMES[tick % len(SPINNER_FRAMES)]
+        color = SPINNER_COLORS[tick // 2 % len(SPINNER_COLORS)]
 
-    name_trunc = card.name[:w]
-    status_label = status_key.upper()
-    elapsed_str = f"{card.elapsed:>5}" if card.elapsed else ""
+    # Line 1: status light + name + elapsed (right-aligned)
+    name_trunc = card.name[: w - 8]
+    elapsed_str = card.elapsed or ""
+    line1_left = f"[{color}]{light_char}[/{color}] [bold]{name_trunc}[/bold]"
+    visible_left = 2 + len(name_trunc)
+    pad1 = w - visible_left - len(elapsed_str)
+    line1 = line1_left + " " * max(1, pad1) + f"[dim]{elapsed_str}[/dim]"
 
+    # Line 2: branch | tool | diff stats (dim)
     branch_short = card.branch.split("/")[-1] if "/" in card.branch else card.branch
-    branch_trunc = branch_short[:w]
+    meta_parts: list[str] = [branch_short[:12]]
+    if card.ai_tool:
+        meta_parts.append(card.ai_tool[:8])
+    if card.diff_stat:
+        diff_display = card.diff_stat.replace("+", "\u2191").replace("-", "\u2193")
+        meta_parts.append(diff_display)
+    meta_str = " | ".join(meta_parts)
+    line2 = f"[dim]{meta_str[:w]}[/dim]"
 
-    tool_label = card.ai_tool[:12]
-    diff_str = card.diff_stat or ""
-
-    # Status line
-    status_line = f"[{color} bold]{light_char}[/{color} bold] {status_label}"
-    pad = w - len(status_label) - 2 - len(elapsed_str)
-    status_line += " " * max(0, pad) + elapsed_str
-
-    # Tool + diff line
-    tool_pad = w - len(tool_label) - len(diff_str)
-    tool_line = tool_label + " " * max(1, tool_pad) + f"[dim]{diff_str}[/dim]" if diff_str else tool_label
-
-    # Task line
+    # Line 3: task + overlap badge
     if card.overlap_count > 0:
-        overlap_tag = f"[yellow bold][! {card.overlap_count} overlap][/yellow bold]"
-        task_part = ""
-        if card.task:
-            remaining = w - len(f"[! {card.overlap_count} overlap] ")
-            task_part = " " + card.task[:max(0, remaining)]
-        task_line = overlap_tag + task_part
+        overlap_badge = f" [yellow bold][!{card.overlap_count}][/yellow bold]"
+        badge_visible_len = len(f" [!{card.overlap_count}]")
+        task_str = card.task or "\u2014"
+        task_trunc = task_str[: w - badge_visible_len]
+        line3 = f"{task_trunc}{overlap_badge}"
     else:
         task_str = card.task or "\u2014"
-        task_line = task_str[:w]
+        line3 = f"{task_str[:w]}"
 
-    return "\n".join([
-        f"[bold]{name_trunc}[/bold]",
-        status_line,
-        branch_trunc,
-        tool_line,
-        task_line,
-    ])
+    return "\n".join([line1, line2, line3])
 
 
 class InputModal(ModalScreen[str | None]):
     """Modal screen for text input (send, new, broadcast)."""
 
-    DEFAULT_CSS = """
-    InputModal {
+    DEFAULT_CSS = f"""
+    InputModal {{
         align: center middle;
-    }
-    #input-dialog {
-        width: 60;
+    }}
+    #input-dialog {{
+        width: 55;
+        max-width: 90%;
         height: auto;
         padding: 1 2;
-        border: heavy $accent;
-        background: $surface;
-    }
-    #input-dialog Label {
-        margin-bottom: 1;
-    }
+        border: none;
+        background: {COLORS["surface"]};
+    }}
+    #input-dialog Input {{
+        border: none;
+        background: transparent;
+        border-left: tall {COLORS["input_border"]};
+        padding: 0 0 0 1;
+        margin: 1 0;
+        min-height: 2;
+    }}
+    #input-dialog Input:focus {{
+        border: none;
+        border-left: tall {COLORS["input_border"]};
+    }}
+    #input-dialog Label {{
+        margin: 0;
+    }}
+    .modal-hint {{
+        margin: 0;
+        text-style: dim;
+        color: {COLORS["text_secondary"]};
+    }}
     """
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
@@ -532,6 +557,7 @@ class InputModal(ModalScreen[str | None]):
         with Container(id="input-dialog"):
             yield Label(self._prompt)
             yield Input(id="modal-input")
+            yield Static("[dim]Enter[/dim] submit | [dim]Esc[/dim] cancel", classes="modal-hint")
 
     def on_mount(self) -> None:
         self.query_one("#modal-input", Input).focus()
@@ -547,27 +573,27 @@ class InputModal(ModalScreen[str | None]):
 class ConfirmModal(ModalScreen[bool]):
     """Modal screen for y/N confirmation."""
 
-    DEFAULT_CSS = """
-    ConfirmModal {
+    DEFAULT_CSS = f"""
+    ConfirmModal {{
         align: center middle;
-    }
-    #confirm-dialog {
-        width: 50;
+    }}
+    #confirm-dialog {{
+        width: auto;
+        min-width: 40;
+        max-width: 70;
         height: auto;
         padding: 1 2;
-        border: heavy $accent;
-        background: $surface;
-    }
-    #confirm-dialog Label {
-        margin-bottom: 1;
-    }
-    #confirm-dialog .buttons {
-        layout: horizontal;
-        height: auto;
-    }
-    #confirm-dialog .buttons Button {
-        margin: 0 1;
-    }
+        border: none;
+        background: {COLORS["surface"]};
+    }}
+    #confirm-dialog Label {{
+        margin: 0;
+    }}
+    .modal-hint {{
+        margin-top: 1;
+        text-style: dim;
+        color: {COLORS["text_secondary"]};
+    }}
     """
 
     BINDINGS = [
@@ -583,12 +609,7 @@ class ConfirmModal(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Container(id="confirm-dialog"):
             yield Label(self._message)
-            with Container(classes="buttons"):
-                yield Button("Yes (y)", id="yes", variant="error")
-                yield Button("No (n)", id="no", variant="primary")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(event.button.id == "yes")
+            yield Static("[dim]Y[/dim] yes | [dim]N[/dim] no | [dim]Esc[/dim] cancel", classes="modal-hint")
 
     def action_yes(self) -> None:
         self.dismiss(True)
@@ -600,26 +621,27 @@ class ConfirmModal(ModalScreen[bool]):
 class DetailModal(ModalScreen[None]):
     """Modal screen for detail panels (info, overlap)."""
 
-    DEFAULT_CSS = """
-    DetailModal {
+    DEFAULT_CSS = f"""
+    DetailModal {{
         align: center middle;
-    }
-    #detail-panel {
+    }}
+    #detail-panel {{
         width: 70;
+        max-width: 90%;
         max-height: 80%;
-        padding: 1 2;
-        border: heavy $accent;
-        background: $surface;
+        padding: 2 3;
+        border: none;
+        background: {COLORS["surface"]};
         overflow-y: auto;
-    }
-    #detail-panel .modal-title {
+    }}
+    #detail-panel .modal-title {{
         text-style: bold;
         margin-bottom: 1;
-    }
-    #detail-panel .modal-hint {
+    }}
+    #detail-panel .modal-hint {{
         margin-top: 1;
         text-style: dim;
-    }
+    }}
     """
 
     BINDINGS = [Binding("escape", "close", "Close", show=False)]
@@ -633,12 +655,221 @@ class DetailModal(ModalScreen[None]):
         with Container(id="detail-panel"):
             yield Static(self._title, classes="modal-title")
             yield Static("\n".join(self._lines), classes="modal-body")
-            yield Static("Press Escape to close", classes="modal-hint")
+            yield Static("[dim]Esc[/dim] close", classes="modal-hint")
 
-    def on_key(self) -> None:
+    def on_key(self, event: object) -> None:
         self.dismiss(None)
 
     def action_close(self) -> None:
+        self.dismiss(None)
+
+
+@dataclass
+class SelectOption:
+    """An option in the searchable select modal."""
+
+    value: str
+    label: str
+    description: str = ""
+    category: str = ""
+
+
+class SearchableSelectModal(ModalScreen[str | None]):
+    """Modal with search input and categorized selectable list.
+
+    Usage example::
+
+        options = [
+            SelectOption(value="wt-auth", label="auth-flow", description="COMPLETED", category="Ready"),
+            SelectOption(value="wt-api", label="api-refactor", description="WORKING", category="In Progress"),
+        ]
+        def on_selected(value: str | None) -> None:
+            if value:
+                # value is the SelectOption.value of the chosen item
+                ...
+        self.push_screen(SearchableSelectModal("Pick a worktree", options), on_selected)
+    """
+
+    DEFAULT_CSS = f"""
+    SearchableSelectModal {{
+        align: center middle;
+    }}
+    #select-dialog {{
+        width: 55;
+        max-width: 90%;
+        height: auto;
+        max-height: 60%;
+        padding: 1 2;
+        border: none;
+        background: {COLORS["surface"]};
+    }}
+    #select-title-row {{
+        layout: horizontal;
+        height: 1;
+        margin-bottom: 1;
+    }}
+    #select-title {{
+        width: 1fr;
+        text-style: bold;
+    }}
+    #select-esc-hint {{
+        width: auto;
+        color: {COLORS["text_secondary"]};
+    }}
+    #select-search {{
+        margin-bottom: 1;
+        border: none;
+        background: transparent;
+        border-left: tall {COLORS["input_border"]};
+        padding: 0 0 0 1;
+    }}
+    #select-search:focus {{
+        border: none;
+        border-left: tall {COLORS["input_border"]};
+    }}
+    #select-list {{
+        height: auto;
+        max-height: 20;
+        overflow-y: auto;
+    }}
+    .select-category {{
+        color: white;
+        text-style: bold;
+        margin-top: 1;
+    }}
+    .select-item {{
+        padding: 0 1;
+        height: 1;
+    }}
+    .select-item.highlighted {{
+        background: {COLORS["dark_tertiary"]};
+        text-style: bold;
+    }}
+    .select-hint {{
+        margin-top: 1;
+        color: {COLORS["text_secondary"]};
+        text-style: dim;
+    }}
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("enter", "select_item", "Select", show=False),
+        Binding("up", "move_up", "Up", show=False),
+        Binding("down", "move_down", "Down", show=False),
+    ]
+
+    def __init__(
+        self,
+        title: str,
+        options: list[SelectOption],
+        *,
+        search_placeholder: str = "Search...",
+    ) -> None:
+        super().__init__()
+        self._title = title
+        self._options = options
+        self._search_placeholder = search_placeholder
+        self._filtered: list[SelectOption] = list(options)
+        self._highlight_index = 0
+
+    def compose(self) -> ComposeResult:
+        with Container(id="select-dialog"):
+            with Container(id="select-title-row"):
+                yield Static(self._title, id="select-title")
+                yield Static("esc", id="select-esc-hint")
+            yield Input(placeholder=self._search_placeholder, id="select-search")
+            yield Container(id="select-list")  # populated dynamically
+            yield Static(
+                "[dim][bold]1-9[/bold] quick pick | "
+                "[bold]\u2191\u2193[/bold] navigate | "
+                "[bold]Enter[/bold] select | "
+                "[bold]Esc[/bold] cancel[/dim]",
+                classes="select-hint",
+            )
+
+    def on_mount(self) -> None:
+        self._rebuild_list()
+        self.query_one("#select-search", Input).focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "select-search":
+            query = event.value.strip()
+            # Number shortcut: if single digit, select that item directly
+            if query.isdigit() and 1 <= int(query) <= len(self._options):
+                idx = int(query) - 1
+                self.dismiss(self._options[idx].value)
+                return
+            query_lower = query.lower()
+            if query_lower:
+                self._filtered = [
+                    opt
+                    for opt in self._options
+                    if query_lower in opt.label.lower()
+                    or query_lower in opt.category.lower()
+                    or query_lower in opt.description.lower()
+                ]
+            else:
+                self._filtered = list(self._options)
+            self._highlight_index = 0
+            self._rebuild_list()
+
+    def _rebuild_list(self) -> None:
+        """Rebuild the option list, grouping by category."""
+        container = self.query_one("#select-list", Container)
+        container.remove_children()
+
+        # Group by category (preserving insertion order)
+        categories: dict[str, list[SelectOption]] = {}
+        for opt in self._filtered:
+            cat = opt.category or ""
+            categories.setdefault(cat, []).append(opt)
+
+        idx = 0
+        for cat_name, opts in categories.items():
+            if cat_name:
+                container.mount(Static(cat_name, classes="select-category"))
+            for opt in opts:
+                # Show 1-indexed number for quick selection
+                num = idx + 1
+                num_hint = f"[dim]{num}.[/dim] " if num <= 9 else "   "
+                label = opt.label
+                if opt.description:
+                    label = f"{opt.label}  [dim]{opt.description}[/dim]"
+                item = Static(f"  {num_hint}{label}", classes="select-item")
+                item.data_index = idx  # type: ignore[attr-defined]
+                if idx == self._highlight_index:
+                    item.add_class("highlighted")
+                container.mount(item)
+                idx += 1
+
+    def _update_highlight(self, new_index: int) -> None:
+        """Move highlight by toggling CSS classes (avoids full remount)."""
+        items = self.query(".select-item")
+        if not items:
+            return
+        old = self._highlight_index
+        self._highlight_index = new_index
+        if 0 <= old < len(items):
+            items[old].remove_class("highlighted")
+        if 0 <= new_index < len(items):
+            items[new_index].add_class("highlighted")
+
+    def action_move_up(self) -> None:
+        if self._filtered and self._highlight_index > 0:
+            self._update_highlight(self._highlight_index - 1)
+
+    def action_move_down(self) -> None:
+        if self._filtered and self._highlight_index < len(self._filtered) - 1:
+            self._update_highlight(self._highlight_index + 1)
+
+    def action_select_item(self) -> None:
+        if self._filtered and 0 <= self._highlight_index < len(self._filtered):
+            self.dismiss(self._filtered[self._highlight_index].value)
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
         self.dismiss(None)
 
 
@@ -654,72 +885,90 @@ class CardGrid(Static):
     }
     """
 
-    def render(self) -> str | Columns:
+    def render(self) -> Text | Columns:
         app: SwitchboardApp = self.app  # type: ignore[assignment]
         if not app._cards:
-            return "No active worktrees. Press [bold][n][/bold] to create one, [bold][q][/bold] to quit."
+            return Text.from_markup(
+                "\n\n\n"
+                "  [bold white]Open Orchestrator[/bold white]\n\n"
+                "  No active worktrees.\n\n"
+                "  [dim]Press [bold]n[/bold] to create a new worktree[/dim]\n"
+                "  [dim]Press [bold]q[/bold] to quit[/dim]\n"
+            )
 
         panels = []
         for i, card in enumerate(app._cards):
             selected = i == app._selected
-            flashing = app._tick < card.flash_until
             content = _render_card(card, app._tick)
-            border_style = "bold cyan" if selected else ("reverse" if flashing else "dim")
+            flash_remaining = card.flash_until - app._tick
+            if flash_remaining > 3:
+                border_style = "bold white reverse"
+            elif flash_remaining > 0:
+                border_style = "bold white"
+            elif selected:
+                border_style = "white"
+            else:
+                border_style = COLORS["card_border"]
             panels.append(Panel(
                 content,
                 width=CARD_WIDTH + 2,
+                padding=(0, 1),
                 border_style=border_style,
             ))
 
-        return Columns(panels, padding=(1, 1))
+        return Columns(panels, padding=(0, 1))
 
 
 class SwitchboardApp(App[None]):
     """Textual app replacing the curses switchboard."""
 
-    CSS = """
-    Screen {
+    CSS = f"""
+    Screen {{
         layout: vertical;
-    }
-    #header {
+    }}
+    #header {{
         dock: top;
         width: 1fr;
         height: 1;
         layout: horizontal;
-        background: $foreground;
-        color: $background;
+        background: {COLORS["header_bg"]};
+        color: {COLORS["text_primary"]};
         text-style: bold;
-    }
-    #header-title {
+        padding: 0 1;
+    }}
+    #header-title {{
         width: auto;
         height: 1;
-    }
-    #header-stats {
+    }}
+    #header-stats {{
         width: 1fr;
         height: 1;
         text-align: right;
-    }
-    #bottom-bar {
+    }}
+    #bottom-bar {{
         dock: bottom;
         width: 1fr;
         height: auto;
-    }
-    #toast {
+    }}
+    #toast {{
         width: 1fr;
-        height: 0;
-        background: $warning;
-        color: $background;
+        height: 1;
+        background: {COLORS["toast_info"]};
+        color: {COLORS["text_primary"]};
         text-style: bold;
-    }
-    #toast.visible {
-        height: 1;
-    }
-    #footer {
+        offset: 0 -1;
+        transition: offset 300ms in_out_cubic;
+    }}
+    #toast.visible {{
+        offset: 0 0;
+    }}
+    #footer {{
         width: 1fr;
         height: 1;
-        background: $foreground;
-        color: $background;
-    }
+        background: {COLORS["header_bg"]};
+        color: {COLORS["text_secondary"]};
+        padding: 0 1;
+    }}
     """
 
     BINDINGS = [
@@ -739,10 +988,23 @@ class SwitchboardApp(App[None]):
         Binding("q", "quit", "Quit", show=False),
     ]
 
-    _footer_text = (
-        " \\[arrows] nav  \\[Enter] patch  \\[s] send  \\[a] all  "
-        "\\[n] new  \\[S] ship  \\[f] files  \\[i] info  \\[q] quit"
+    _FOOTER_KEYS = (
+        "[bold]\u2191\u2193\u2190\u2192[/bold] [dim]nav[/dim] | "
+        "[bold]Enter[/bold] [dim]patch[/dim] | "
+        "[bold]s[/bold] [dim]send[/dim] | "
+        "[bold]a[/bold] [dim]all[/dim] | "
+        "[bold]n[/bold] [dim]new[/dim] | "
+        "[bold]S[/bold] [dim]ship[/dim] | "
+        "[bold]f[/bold] [dim]files[/dim] | "
+        "[bold]i[/bold] [dim]info[/dim] | "
+        "[bold]q[/bold] [dim]quit[/dim]"
     )
+
+    def _build_footer(self) -> str:
+        """Build dynamic footer with keybind hints and card position."""
+        n = len(self._cards)
+        pos = f"Card {self._selected + 1}/{n}" if n > 0 else "No cards"
+        return f" {self._FOOTER_KEYS}  [bold]{pos}[/bold]"
 
     def __init__(self) -> None:
         super().__init__()
@@ -760,6 +1022,10 @@ class SwitchboardApp(App[None]):
         self._prev_statuses: dict[str, AIActivityStatus] = {}
         self._cols = 4
         self._heavy_refresh_count = 0
+        # Transient state for new-worktree modal flow
+        self._new_wt_task: str = ""
+        self._new_wt_branch: str = ""
+        self._new_wt_tool: AITool = AITool.CLAUDE
 
     def compose(self) -> ComposeResult:
         with Container(id="header"):
@@ -768,7 +1034,7 @@ class SwitchboardApp(App[None]):
         yield CardGrid(id="card-grid")
         with Container(id="bottom-bar"):
             yield Static(id="toast")
-            yield Static(self._footer_text, id="footer")
+            yield Static(self._build_footer(), id="footer")
 
     def on_mount(self) -> None:
         self.set_interval(TICK_MS / 1000.0, self._on_tick)
@@ -819,7 +1085,7 @@ class SwitchboardApp(App[None]):
         for card in self._cards:
             prev = self._prev_statuses.get(card.name)
             if prev is not None and prev != card.status:
-                card.flash_until = self._tick + 3
+                card.flash_until = self._tick + 5
             self._prev_statuses[card.name] = card.status
 
         # Clamp selection
@@ -827,6 +1093,7 @@ class SwitchboardApp(App[None]):
             self._selected = min(self._selected, len(self._cards) - 1)
 
         self._update_header()
+        self._update_footer()
         self.query_one("#card-grid", CardGrid).refresh()
 
     def _update_header(self) -> None:
@@ -838,12 +1105,19 @@ class SwitchboardApp(App[None]):
         idle = total - active - waiting
         overlaps = sum(1 for c in cards if c.overlap_count > 0)
 
-        parts = [f"{total} lines", f"\u25cf{active} active"]
+        working_color = STATUS_COLORS["working"]
+        waiting_color = STATUS_COLORS["waiting"]
+        idle_color = STATUS_COLORS["idle"]
+
+        parts = [
+            f"{total} lines",
+            f"[{working_color}]\u25cf{active} active[/{working_color}]",
+        ]
         if waiting:
-            parts.append(f"\u26a0{waiting} waiting")
-        parts.append(f"\u25cb{idle}")
+            parts.append(f"[{waiting_color}]\u26a0{waiting} waiting[/{waiting_color}]")
+        parts.append(f"[{idle_color}]\u25cb{idle}[/{idle_color}]")
         if overlaps:
-            parts.append(f"!{overlaps} overlap")
+            parts.append(f"[yellow]!{overlaps} overlap[/yellow]")
 
         # DAG progress indicator
         try:
@@ -872,13 +1146,21 @@ class SwitchboardApp(App[None]):
         elif direction == "right":
             self._selected = min(self._selected + 1, n - 1)
         self.query_one("#card-grid", CardGrid).refresh()
+        self._update_footer()
 
-    def _show_toast(self, message: str) -> None:
-        """Show a temporary warning bar above the footer for 3 seconds."""
+    def _update_footer(self) -> None:
+        """Refresh the footer bar with current card position."""
+        self.query_one("#footer", Static).update(self._build_footer())
+
+    def _show_toast(self, message: str, variant: str = "info") -> None:
+        """Show a temporary toast bar above the footer."""
         toast = self.query_one("#toast", Static)
+        color = COLORS.get(f"toast_{variant}", COLORS["toast_info"])
         toast.update(Text(f" {message}"))
+        toast.styles.background = color
+        toast.styles.color = "#ffffff" if variant in ("error", "warning") else COLORS["text_primary"]
         toast.add_class("visible")
-        self.set_timer(3.0, self._hide_toast)
+        self.set_timer(3.0 if variant != "error" else 5.0, self._hide_toast)
 
     def _hide_toast(self) -> None:
         toast = self.query_one("#toast", Static)
@@ -923,11 +1205,67 @@ class SwitchboardApp(App[None]):
 
     def action_new_worktree(self) -> None:
         def _on_input(task: str | None) -> None:
-            if task:
-                with self.suspend():
-                    subprocess.run(["owt", "new", task], check=False, timeout=SHELL_TIMEOUT)
+            if not task:
+                return
+            self._new_wt_task = task
+            # Generate branch name and confirm
+            from open_orchestrator.core.branch_namer import generate_branch_name
 
-        self.push_screen(InputModal("Task description: "), _on_input)
+            try:
+                branch = generate_branch_name(task)
+            except ValueError:
+                branch = task.lower().replace(" ", "-")[:40]
+            self._new_wt_branch = branch
+            self.push_screen(
+                ConfirmModal(f"Task: {task}\nBranch: {branch}\n\nProceed?"),
+                self._on_new_confirm,
+            )
+
+        self.push_screen(InputModal("Task description:"), _on_input)
+
+    def _on_new_confirm(self, yes: bool | None) -> None:
+        if not yes:
+            return
+        # Check for AI tools
+        from open_orchestrator.core.agent_detector import detect_installed_agents
+
+        installed = detect_installed_agents()
+        if len(installed) == 0:
+            self._show_toast("No AI tools found (claude, opencode, droid)", variant="error")
+            return
+        elif len(installed) == 1:
+            self._new_wt_tool = installed[0]
+            self._do_create_worktree()
+        else:
+            # Multiple tools — show picker
+            options = [
+                SelectOption(
+                    value=t.value,
+                    label=t.value,
+                    category="Detected",
+                )
+                for t in installed
+            ]
+
+            def _on_tool(tool_value: str | None) -> None:
+                if not tool_value:
+                    return
+                self._new_wt_tool = AITool(tool_value)
+                self._do_create_worktree()
+
+            self.push_screen(
+                SearchableSelectModal("Select AI tool", options),
+                _on_tool,
+            )
+
+    def _do_create_worktree(self) -> None:
+        """Create worktree via owt new subprocess (reliable, handles all setup)."""
+        task = self._new_wt_task
+        ai_tool = self._new_wt_tool
+
+        cmd = ["owt", "new", task, "--yes", "--ai-tool", ai_tool.value]
+        with self.suspend():
+            subprocess.run(cmd, check=False, timeout=SHELL_TIMEOUT)
 
     def _confirm_and_shell(self, prompt: str, cmd: list[str]) -> None:
         """Confirm, shell out, then clamp selection."""
@@ -958,6 +1296,37 @@ class SwitchboardApp(App[None]):
         if not self._cards:
             return
         card = self._cards[self._selected]
+
+        # If multiple completed worktrees exist and the selected card isn't
+        # completed, show a SearchableSelectModal so the user can pick which
+        # completed worktree to merge.
+        completed = [
+            c for c in self._cards
+            if c.status == AIActivityStatus.COMPLETED
+        ]
+        if len(completed) > 1 and card.status != AIActivityStatus.COMPLETED:
+            options = [
+                SelectOption(
+                    value=c.name,
+                    label=c.name,
+                    description=c.diff_stat or "",
+                    category="Completed",
+                )
+                for c in completed
+            ]
+
+            def _on_pick(name: str | None) -> None:
+                if name:
+                    self._confirm_and_shell(
+                        f"Merge '{name}'?", ["owt", "merge", name],
+                    )
+
+            self.push_screen(
+                SearchableSelectModal("Merge which worktree?", options),
+                _on_pick,
+            )
+            return
+
         self._confirm_and_shell(f"Merge '{card.name}'?", ["owt", "merge", card.name])
 
     def action_show_files(self) -> None:

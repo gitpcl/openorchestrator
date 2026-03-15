@@ -372,8 +372,8 @@ class TestHookGuardLogic:
 
         mock_wt_manager.return_value.list_all.return_value = []
 
-        # Status set 30s ago (past HOOK_FRESHNESS but within HOOK_TRUST_MAX)
-        status = self._make_status(updated_at=datetime.now() - timedelta(seconds=30))
+        # Status set 5s ago (past HOOK_FRESHNESS but within HOOK_TRUST_MAX of 15s)
+        status = self._make_status(updated_at=datetime.now() - timedelta(seconds=5))
         mock_detect.return_value = (AIActivityStatus.WAITING, False)  # low confidence
 
         tracker = MagicMock()

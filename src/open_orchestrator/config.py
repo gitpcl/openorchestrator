@@ -21,7 +21,9 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
-# Accent color for status bar and borders
+# Accent color for status bar and borders.
+# Canonical value lives in open_orchestrator.core.theme.COLORS["accent"].
+# Duplicated here to avoid circular imports (config <- core.* <- config).
 ACCENT_COLOR = "#00d7d7"
 
 
