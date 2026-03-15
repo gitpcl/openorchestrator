@@ -12,6 +12,7 @@ import curses
 import json
 import shutil
 import sys
+from typing import Any
 
 # Agent definitions: (display_name, abbreviation, binary_name)
 AGENTS = [
@@ -51,7 +52,7 @@ def _init_colors() -> None:
     curses.init_pair(5, curses.COLOR_RED, -1)       # Not installed
 
 
-def run_picker(stdscr: curses.window) -> dict | None:
+def run_picker(stdscr: curses.window) -> dict[str, Any] | None:
     """Run the interactive agent picker."""
     curses.curs_set(0)  # Hide cursor
     _init_colors()
@@ -218,7 +219,7 @@ def get_branch_name(stdscr: curses.window) -> str | None:
                 cursor_pos += 1
 
 
-def _picker_flow(stdscr: curses.window) -> dict | None:
+def _picker_flow(stdscr: curses.window) -> dict[str, Any] | None:
     """Run the full picker flow: agent selection → branch name input."""
     result = run_picker(stdscr)
     if result is None:

@@ -1,9 +1,14 @@
 """CLI entry point for Open Orchestrator."""
+from __future__ import annotations
 
 import json
 import time
 from contextlib import nullcontext
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from open_orchestrator.core.batch import BatchResult
 
 import click
 from rich.console import Console
@@ -30,7 +35,7 @@ from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 console = Console()
 
 
-def _print_batch_status(results: list) -> None:
+def _print_batch_status(results: list[BatchResult]) -> None:
     """Print compact batch status counts."""
     counts: dict[str, int] = {}
     for r in results:
@@ -39,7 +44,7 @@ def _print_batch_status(results: list) -> None:
     console.print(f"  [dim]{' | '.join(parts)}[/dim]")
 
 
-def _print_batch_results(results: list, heading: str = "Batch complete") -> None:
+def _print_batch_results(results: list[BatchResult], heading: str = "Batch complete") -> None:
     """Print final batch execution summary."""
     from open_orchestrator.core.batch import BatchStatus
 
@@ -525,21 +530,15 @@ def merge_worktree(worktree_name: str, base_branch: str | None, keep: bool, yes:
         )
 
         if result.worktree_cleaned and not keep:
-            # Kill tmux session
-            tmux = TmuxManager()
-            session_name = tmux.generate_session_name(worktree.name)
-            try:
-                if tmux.session_exists(session_name):
-                    tmux.kill_session(session_name)
-            except TmuxError:
-                pass
+            from open_orchestrator.core.pane_actions import teardown_worktree
 
-            # Clean up status
-            try:
-                StatusTracker().remove_status(worktree.name)
-            except Exception:
-                pass
-
+            # Worktree already deleted by merge_manager; only kill tmux + clean status
+            teardown_worktree(
+                worktree.name,
+                kill_tmux=True,
+                delete_git_worktree=False,
+                clean_status=True,
+            )
             console.print("  [green]Cleaned up worktree + session[/green]")
     else:
         console.print(f"\n[red]{result.message}[/red]")
@@ -614,14 +613,19 @@ def ship_worktree(worktree_name: str, base_branch: str | None, commit_message: s
         console.print(f"[green]Committed:[/green] {msg}")
 
     # Step 2: Kill tmux session BEFORE merge (avoids issues with agent holding locks)
-    tmux = TmuxManager()
-    session_name = tmux.generate_session_name(worktree.name)
-    try:
-        if tmux.session_exists(session_name):
-            tmux.kill_session(session_name)
-            console.print(f"[green]Killed tmux session:[/green] {session_name}")
-    except TmuxError as e:
-        console.print(f"[yellow]tmux warning: {e}[/yellow]")
+    from open_orchestrator.core.pane_actions import teardown_worktree
+
+    tmux_errs = teardown_worktree(
+        worktree.name,
+        kill_tmux=True,
+        delete_git_worktree=False,
+        clean_status=False,
+    )
+    if not tmux_errs:
+        console.print(f"[green]Killed tmux session:[/green] owt-{worktree.name}")
+    else:
+        for err in tmux_errs:
+            console.print(f"[yellow]tmux warning: {err}[/yellow]")
 
     # Step 3: Merge
     try:
@@ -647,17 +651,15 @@ def ship_worktree(worktree_name: str, base_branch: str | None, commit_message: s
         )
     elif result.status == MergeStatus.ALREADY_MERGED:
         console.print(f"\n[yellow]{result.message}[/yellow]")
-        # Still clean up worktree if already merged
-        try:
-            wt_manager.delete(worktree_name, force=True)
-        except WorktreeError:
-            pass
 
-    # Step 4: Clean up status
-    try:
-        StatusTracker().remove_status(worktree.name)
-    except Exception:
-        pass
+    # Step 4: Clean up git worktree (if not already removed by merge) + status
+    teardown_worktree(
+        worktree.name,
+        repo_path=str(wt_manager.git_root),
+        kill_tmux=False,  # already killed in Step 2
+        delete_git_worktree=result.status == MergeStatus.ALREADY_MERGED,
+        clean_status=True,
+    )
 
     console.print("  [green]Cleaned up worktree + session + status[/green]")
 
@@ -691,28 +693,24 @@ def delete_worktree(identifier: str, force: bool, yes: bool) -> None:
             console.print("[yellow]Aborted.[/yellow]")
             return
 
-    # 1. Kill tmux session
-    tmux = TmuxManager()
-    session_name = tmux.generate_session_name(worktree.name)
-    try:
-        if tmux.session_exists(session_name):
-            tmux.kill_session(session_name)
-            console.print(f"[green]Killed tmux session:[/green] {session_name}")
-    except TmuxError as e:
-        console.print(f"[yellow]tmux warning: {e}[/yellow]")
+    from open_orchestrator.core.pane_actions import teardown_worktree
 
-    # 2. Delete worktree
-    try:
-        wt_manager.delete(identifier, force=force)
-        console.print(f"[green]Deleted worktree:[/green] {worktree.path}")
-    except WorktreeError as e:
-        raise click.ClickException(str(e)) from e
+    errors = teardown_worktree(
+        worktree.name,
+        repo_path=str(wt_manager.git_root),
+        kill_tmux=True,
+        delete_git_worktree=True,
+        clean_status=True,
+    )
 
-    # 3. Clean up status
-    try:
-        StatusTracker().remove_status(worktree.name)
-    except Exception:
-        pass
+    git_errors = [e for e in errors if "git worktree" in e]
+    other_errors = [e for e in errors if "git worktree" not in e]
+
+    if git_errors:
+        raise click.ClickException(git_errors[0])
+    for err in other_errors:
+        console.print(f"[yellow]Warning: {err}[/yellow]")
+    console.print(f"[green]Deleted worktree:[/green] {worktree.path}")
 
 
 # ─── owt sync ───────────────────────────────────────────────────────────────
@@ -820,22 +818,6 @@ def cleanup_worktrees(force: bool, days: int, json_output: bool) -> None:
 
     if not force:
         console.print("\n[dim]Dry run. Use --force to actually delete.[/dim]")
-    else:
-        # Also clean up tmux sessions and status for cleaned worktrees
-        tmux = TmuxManager()
-        tracker = StatusTracker()
-        for path in report.cleaned_paths:
-            name = Path(path).name
-            session_name = tmux.generate_session_name(name)
-            try:
-                if tmux.session_exists(session_name):
-                    tmux.kill_session(session_name)
-            except TmuxError:
-                pass
-            try:
-                tracker.remove_status(name)
-            except Exception:
-                pass
 
 
 # ─── owt wait ──────────────────────────────────────────────────────────────

@@ -188,7 +188,8 @@ def safe_read_json(path: str | Path) -> dict[str, Any] | None:
     try:
         with open(path, encoding="utf-8") as f:
             with shared_file_lock(f):
-                return json.load(f)
+                data: dict[str, Any] = json.load(f)
+                return data
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to read JSON from {path}: {e}")
         return None

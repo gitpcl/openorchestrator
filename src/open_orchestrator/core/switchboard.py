@@ -59,7 +59,7 @@ HEAVY_EVERY = 10  # _build_cards runs every HEAVY_EVERY ticks (2s)
 RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED, AIActivityStatus.IDLE}
 HOOK_FRESHNESS_SECONDS = 10  # Trust hook-set status if updated within this window
 HOOK_CAPABLE_TOOLS = {AITool.CLAUDE.value, AITool.DROID.value}  # Scraper must not downgrade WORKING → WAITING
-HOOK_TRUST_MAX_SECONDS = 300  # After 5 min with no hook update, let scraper recover stale WORKING
+HOOK_TRUST_MAX_SECONDS = 120  # After 2 min with no hook update, let scraper recover stale WORKING
 
 # Pre-compiled regex patterns for pane status detection
 # Must match actual permission prompts, NOT agent thinking text like "Allow me to..."
@@ -81,26 +81,26 @@ _PROMPT_RE = re.compile(
     r"^>\s*$|^❯\s*$|What would you like|How can I help",
     re.IGNORECASE,
 )
+# High-confidence working signal — Claude Code tool execution headers
+_TOOL_HEADER_RE = re.compile(
+    r"^(Read|Write|Edit|Bash|Glob|Grep|Agent|WebFetch|WebSearch|NotebookEdit)\s*[:/]",
+)
 # High-confidence idle signal — agent was interrupted/stopped, never appears during thinking
 _INTERRUPTED_RE = re.compile(
     r"Interrupted|What should Claude do instead",
     re.IGNORECASE,
 )
 
-# Process names that indicate the agent has exited and a shell is showing
-_SHELL_PROCESSES = {"zsh", "bash", "fish", "sh", "dash"}
 
-
-def _is_agent_exited(tmux_session: str) -> bool:
-    """Check if all panes' foreground processes are shells (agent has exited)."""
+def _tmux_session_exists_raw(session_name: str) -> bool:
+    """Check tmux session existence via raw subprocess (safe for asyncio.to_thread)."""
     try:
         result = subprocess.run(
-            ["tmux", "list-panes", "-t", tmux_session, "-F", "#{pane_current_command}"],
-            capture_output=True, text=True, check=True, timeout=2,
+            ["tmux", "has-session", "-t", session_name],
+            capture_output=True, timeout=2,
         )
-        commands = [cmd.strip() for cmd in result.stdout.strip().split("\n") if cmd.strip()]
-        return bool(commands) and all(cmd in _SHELL_PROCESSES for cmd in commands)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
         return False
 
 
@@ -174,39 +174,69 @@ def _detect_pane_status(tmux_session: str | None) -> tuple[AIActivityStatus, boo
     content_lines = [line for line in tail if not _STATUS_BAR_RE.search(line)]
     content_text = "\n".join(reversed(content_lines)) if content_lines else ""
 
-    if content_text and (_BLOCKED_RE.search(content_text) or _ALLOW_PROMPT_RE.search(content_text)):
+    # BLOCKED detection: only scan the last 2 non-empty content lines.
+    # Old permission prompts that scrolled up should NOT trigger BLOCKED.
+    blocked_window = content_lines[:2]
+    blocked_text = "\n".join(blocked_window)
+    if blocked_text and (_BLOCKED_RE.search(blocked_text) or _ALLOW_PROMPT_RE.search(blocked_text)):
         return AIActivityStatus.BLOCKED, True
+
+    # TOOL_HEADER detection in last 2 content lines → high-confidence WORKING.
+    for line in content_lines[:2]:
+        if _TOOL_HEADER_RE.search(line):
+            return AIActivityStatus.WORKING, True
 
     # Check for high-confidence idle signals (Interrupted, etc.)
     has_interrupted = bool(content_text and _INTERRUPTED_RE.search(content_text))
 
-    # If idle prompt (❯) is visible → WAITING. Only check agent exit when needed.
-    for line in content_lines[:5]:
-        if _PROMPT_RE.search(line):
-            agent_exited = _is_agent_exited(tmux_session)
-            return AIActivityStatus.WAITING, has_interrupted or agent_exited
+    # WAITING detection: only if the prompt char is on the VERY LAST non-empty
+    # content line AND the line is short (< 10 chars). Long lines containing ❯
+    # are likely output, not prompts.
+    if content_lines:
+        last_line = content_lines[0]
+        if len(last_line) < 10 and _PROMPT_RE.search(last_line):
+            return AIActivityStatus.WAITING, has_interrupted
 
-    # No prompt visible — check if agent process exited (edge case)
-    agent_exited = _is_agent_exited(tmux_session)
-    if agent_exited:
-        return AIActivityStatus.WAITING, True
-
-    # No prompt visible and agent running — actively working
+    # No prompt visible — agent is doing something
     return AIActivityStatus.WORKING, False
+
+
+# Files that are commonly touched by all worktrees and should not count as
+# meaningful overlaps (lock files, package manifests, init modules, etc.).
+_OVERLAP_IGNORE_NAMES: frozenset[str] = frozenset({
+    "pyproject.toml", "uv.lock", "package-lock.json", "yarn.lock",
+    "poetry.lock", "Cargo.lock", "Cargo.toml", "requirements.txt",
+    "requirements-dev.txt", "__init__.py", "CLAUDE.md", ".env", ".env.example",
+})
 
 
 def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
     """Get modified files AND diff stat in a single git call.
 
-    Uses `git diff --numstat` which yields both file names and line counts.
+    Uses ``git merge-base`` to find the common ancestor with the upstream
+    branch, then diffs from that ancestor to HEAD so we only see commits
+    that belong to this worktree.  Falls back to raw three-dot diff if
+    ``merge-base`` is unavailable.
+
     Returns (modified_files, diff_stat_str).
     """
     if not os.path.isdir(worktree_path):
         return [], ""
     try:
         for base in ("main", "master", "develop"):
+            # Find the common ancestor for accurate diffs
+            mb_result = subprocess.run(
+                ["git", "merge-base", base, "HEAD"],
+                capture_output=True, text=True, cwd=worktree_path, timeout=5,
+            )
+            if mb_result.returncode != 0:
+                continue
+            merge_base = mb_result.stdout.strip()
+            if not merge_base:
+                continue
+
             result = subprocess.run(
-                ["git", "diff", "--numstat", f"{base}...{branch}"],
+                ["git", "diff", "--numstat", f"{merge_base}...HEAD"],
                 capture_output=True, text=True, cwd=worktree_path, timeout=5,
             )
             if result.returncode == 0:
@@ -235,12 +265,26 @@ def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
     return [], ""
 
 
+def _filter_overlap_files(files: set[str]) -> set[str]:
+    """Remove noise files that should not trigger overlap warnings."""
+    return {f for f in files if os.path.basename(f) not in _OVERLAP_IGNORE_NAMES}
+
+
 def _compute_overlaps(
     cards: list[Card], file_map: dict[str, list[str]],
 ) -> None:
-    """Compute pairwise file overlaps and annotate cards."""
+    """Compute pairwise file overlaps and annotate cards.
+
+    Only meaningful source files are considered — lock files, manifests, and
+    other commonly-modified noise files are excluded.
+    """
+    # Pre-compute filtered file sets to avoid O(n^2) _filter_overlap_files calls
+    filtered_map = {
+        card.name: _filter_overlap_files(set(file_map.get(card.name, [])))
+        for card in cards
+    }
     for i, card in enumerate(cards):
-        my_files = set(file_map.get(card.name, []))
+        my_files = filtered_map[card.name]
         if not my_files:
             continue
         overlap_names = []
@@ -248,7 +292,7 @@ def _compute_overlaps(
         for j, other in enumerate(cards):
             if i == j:
                 continue
-            other_files = set(file_map.get(other.name, []))
+            other_files = filtered_map[other.name]
             common = my_files & other_files
             if common:
                 overlap_names.append(other.name)
@@ -299,9 +343,15 @@ async def _build_cards_async(
 
     now = datetime.now()
 
-    # Schedule parallel I/O: pane detection + diff info
+    # Schedule parallel I/O: session checks + pane detection + diff info
     tasks: list[collections.abc.Awaitable[object]] = []
-    task_meta: list[tuple[str, int]] = []  # ("pane"|"diff", status_index)
+    task_meta: list[tuple[str, int]] = []  # ("session"|"pane"|"diff", status_index)
+
+    # Session existence checks (parallel)
+    for i, s in enumerate(statuses):
+        if s.tmux_session:
+            tasks.append(asyncio.to_thread(_tmux_session_exists_raw, s.tmux_session))
+            task_meta.append(("session", i))
 
     for i, s in enumerate(statuses):
         recently_updated = (
@@ -321,20 +371,35 @@ async def _build_cards_async(
 
     pane_results: dict[int, tuple[AIActivityStatus, bool] | None] = {}
     diff_results: dict[int, tuple[list[str], str]] = {}
+    stale_sessions: set[int] = set()
     for (kind, idx), result in zip(task_meta, results):
         if isinstance(result, BaseException):
             continue
-        if kind == "pane":
+        if kind == "session":
+            if not result:  # session doesn't exist
+                stale_sessions.add(idx)
+        elif kind == "pane":
             pane_results[idx] = result  # type: ignore[assignment]
         else:
             diff_results[idx] = result  # type: ignore[assignment]
+
+    # Clear stale tmux sessions before processing
+    for idx in stale_sessions:
+        s = statuses[idx]
+        s.tmux_session = None
+        if s.activity_status in (AIActivityStatus.WORKING, AIActivityStatus.BLOCKED):
+            s.activity_status = AIActivityStatus.WAITING
+        s.updated_at = now
+        tracker.set_status(s)
+        # Discard any pane detection for this stale entry
+        pane_results.pop(idx, None)
 
     # Process results and build cards
     cards = []
     file_map: dict[str, list[str]] = {}
 
     for i, s in enumerate(statuses):
-        # Apply pane detection
+        # Apply pane detection (skip entries with stale sessions)
         detection = pane_results.get(i)
         if detection is not None:
             detected, high_confidence = detection
@@ -589,7 +654,7 @@ class CardGrid(Static):
     }
     """
 
-    def render(self) -> object:
+    def render(self) -> str | Columns:
         app: SwitchboardApp = self.app  # type: ignore[assignment]
         if not app._cards:
             return "No active worktrees. Press [bold][n][/bold] to create one, [bold][q][/bold] to quit."
@@ -694,6 +759,7 @@ class SwitchboardApp(App[None]):
         self._tick = 0
         self._prev_statuses: dict[str, AIActivityStatus] = {}
         self._cols = 4
+        self._heavy_refresh_count = 0
 
     def compose(self) -> ComposeResult:
         with Container(id="header"):
@@ -730,7 +796,14 @@ class SwitchboardApp(App[None]):
 
     async def _heavy_refresh(self) -> None:
         """Heavy refresh: parallel async pane + diff polling."""
+        self._heavy_refresh_count += 1
         self._cards, self._file_map = await _build_cards_async(self._tracker, self._wt_manager)
+
+        # Periodic orphan cleanup (~every 20s)
+        if self._heavy_refresh_count % 10 == 0:
+            valid_names = [c.name for c in self._cards]
+            if valid_names:
+                self._tracker.cleanup_orphans(valid_names)
 
         # Cache statuses for light-tick elapsed updates
         self._cached_statuses = {
@@ -816,7 +889,21 @@ class SwitchboardApp(App[None]):
             return
         card = self._cards[self._selected]
         if not card.tmux_session or not self._tmux.session_exists(card.tmux_session):
-            self._show_toast(f"No tmux session for '{card.name}'")
+            # Stale session — offer to delete or recreate
+            def _on_delete_confirm(yes: bool | None) -> None:
+                if yes:
+                    with self.suspend():
+                        subprocess.run(["owt", "delete", card.name, "--yes"], check=False, timeout=SHELL_TIMEOUT)
+                else:
+                    # Offer to recreate
+                    def _on_recreate(yes2: bool | None) -> None:
+                        if yes2:
+                            with self.suspend():
+                                subprocess.run(["owt", "new", card.branch], check=False, timeout=SHELL_TIMEOUT)
+
+                    self.push_screen(ConfirmModal(f"Recreate session for '{card.name}'?"), _on_recreate)
+
+            self.push_screen(ConfirmModal(f"No session for '{card.name}'. Delete stale worktree?"), _on_delete_confirm)
             return
         self._tmux.switch_client(card.tmux_session)
 

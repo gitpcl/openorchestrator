@@ -44,7 +44,7 @@ def popup_result_path(workspace_name: str) -> str:
     return str(user_tmp / f"owt-popup-{workspace_name}.json")
 
 
-def read_popup_result(popup_file: str, cleanup: bool = True) -> dict:
+def read_popup_result(popup_file: str, cleanup: bool = True) -> dict[str, object]:
     """Read and parse a popup picker result file."""
     from open_orchestrator.utils.io import safe_read_json
 
@@ -97,7 +97,7 @@ def create_pane(
     ai_tool_enum = ai_tool
 
     # Check for duplicate
-    wt_manager = WorktreeManager(repo_path=repo_path)
+    wt_manager = WorktreeManager(repo_path=Path(repo_path))
     existing_names = {wt.name for wt in wt_manager.list_all()}
     candidate_name = branch.split("/")[-1] if "/" in branch else branch
     if candidate_name in existing_names:
@@ -234,40 +234,80 @@ def create_pane(
     )
 
 
+def teardown_worktree(
+    worktree_name: str,
+    repo_path: str | None = None,
+    *,
+    kill_tmux: bool = True,
+    delete_git_worktree: bool = True,
+    clean_status: bool = True,
+) -> list[str]:
+    """Best-effort cleanup of all worktree resources.
+
+    Always attempts all three cleanup steps regardless of individual failures,
+    preventing orphaned resources when one step errors.
+
+    Args:
+        worktree_name: Name of the worktree to tear down.
+        repo_path: Path to main repo (needed to delete git worktree).
+        kill_tmux: Whether to kill the associated tmux session.
+        delete_git_worktree: Whether to delete the git worktree directory.
+        clean_status: Whether to remove the status DB entry.
+
+    Returns:
+        List of error strings for any steps that failed (empty = full success).
+    """
+    errors: list[str] = []
+
+    # 1. Kill tmux session
+    if kill_tmux:
+        try:
+            tmux_manager = TmuxManager()
+            session_name = tmux_manager.generate_session_name(worktree_name)
+            if tmux_manager.session_exists(session_name):
+                tmux_manager.kill_session(session_name)
+        except TmuxError as e:
+            msg = f"Could not kill tmux session for '{worktree_name}': {e}"
+            logger.warning(msg)
+            errors.append(msg)
+        except Exception as e:
+            msg = f"Unexpected error killing tmux session for '{worktree_name}': {e}"
+            logger.warning(msg)
+            errors.append(msg)
+
+    # 2. Delete git worktree
+    if delete_git_worktree and repo_path:
+        try:
+            wt_manager = WorktreeManager(repo_path=Path(repo_path))
+            wt_manager.delete(worktree_name)
+        except WorktreeError as e:
+            msg = f"Could not delete git worktree '{worktree_name}': {e}"
+            logger.warning(msg)
+            errors.append(msg)
+        except Exception as e:
+            msg = f"Unexpected error deleting git worktree '{worktree_name}': {e}"
+            logger.warning(msg)
+            errors.append(msg)
+
+    # 3. Clean up status tracking
+    if clean_status:
+        try:
+            StatusTracker().remove_status(worktree_name)
+        except Exception as e:
+            msg = f"Could not remove status entry for '{worktree_name}': {e}"
+            logger.warning(msg)
+            errors.append(msg)
+
+    return errors
+
+
 def remove_pane(
     worktree_name: str,
     repo_path: str | None = None,
 ) -> None:
     """Delete a worktree, its tmux session, and clean up status.
 
-    Args:
-        worktree_name: Name of the worktree to remove.
-        repo_path: Path to main repo (needed to delete worktree).
-
-    Raises:
-        PaneActionError: If the worktree cannot be found or removed.
+    Delegates to ``teardown_worktree`` for best-effort cleanup.
+    Errors are logged but not raised.
     """
-    tmux_manager = TmuxManager()
-
-    # 1. Kill tmux session
-    session_name = tmux_manager.generate_session_name(worktree_name)
-    try:
-        if tmux_manager.session_exists(session_name):
-            tmux_manager.kill_session(session_name)
-    except TmuxError as e:
-        logger.warning("Could not kill tmux session: %s", e)
-
-    # 2. Delete git worktree
-    if repo_path:
-        try:
-            wt_manager = WorktreeManager(repo_path=repo_path)
-            wt_manager.delete(worktree_name)
-        except WorktreeError as e:
-            logger.warning("Could not delete worktree: %s", e)
-
-    # 3. Clean up status tracking
-    try:
-        status_tracker = StatusTracker()
-        status_tracker.remove_status(worktree_name)
-    except Exception:
-        pass
+    teardown_worktree(worktree_name, repo_path=repo_path)

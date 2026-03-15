@@ -169,29 +169,30 @@ class TestSendCommand:
 class TestDeleteCommand:
     """Test 'owt delete' command."""
 
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.TmuxManager")
+    @patch("open_orchestrator.core.pane_actions.StatusTracker")
+    @patch("open_orchestrator.core.pane_actions.TmuxManager")
+    @patch("open_orchestrator.core.pane_actions.WorktreeManager")
     @patch("open_orchestrator.cli.WorktreeManager")
     def test_delete_worktree_success(
         self,
         mock_wt_manager: MagicMock,
-        mock_tmux: MagicMock,
-        mock_status: MagicMock,
+        mock_pa_wt_manager: MagicMock,
+        mock_pa_tmux: MagicMock,
+        mock_pa_status: MagicMock,
         cli_runner: CliRunner,
         mock_worktree_info: WorktreeInfo,
     ) -> None:
         """Test deleting a worktree successfully."""
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.return_value = mock_worktree_info
-        mock_wt_instance.delete.return_value = mock_worktree_info.path
+        mock_wt_instance.git_root = Path("/tmp/test-repo")
 
-        mock_tmux_instance = mock_tmux.return_value
-        mock_tmux_instance.generate_session_name.return_value = "owt-test-worktree"
-        mock_tmux_instance.session_exists.return_value = False
+        mock_pa_tmux.return_value.generate_session_name.return_value = "owt-test-worktree"
+        mock_pa_tmux.return_value.session_exists.return_value = False
 
         result = cli_runner.invoke(main, ["delete", "feature/test", "--force", "--yes"])
         assert result.exit_code == 0
-        mock_wt_instance.delete.assert_called_once()
+        mock_pa_wt_manager.return_value.delete.assert_called_once()
 
     @patch("open_orchestrator.cli.WorktreeManager")
     def test_delete_nonexistent_worktree(

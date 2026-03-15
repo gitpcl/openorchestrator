@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import toml
 
@@ -74,7 +75,7 @@ class BatchConfig:
     poll_interval: int = 30  # seconds
 
 
-def _parse_tasks(data: dict, batch_section: dict | None = None) -> list[BatchTask]:
+def _parse_tasks(data: dict[str, Any], batch_section: dict[str, Any] | None = None) -> list[BatchTask]:
     """Parse BatchTask list from TOML data dict."""
     if batch_section is None:
         batch_section = data.get("batch", {})
@@ -368,14 +369,14 @@ class BatchRunner:
 
             # Start new tasks up to max_concurrent (only if deps satisfied)
             while pending and len(running) < self.config.max_concurrent:
-                idx = self._select_ready(pending)
-                if idx is None:
+                next_idx = self._select_ready(pending)
+                if next_idx is None:
                     break  # No task has deps satisfied yet
                 # Inject parent context before starting
                 if self._has_deps:
-                    self._inject_parent_context(idx)
-                self._start_task(idx)
-                running.append(idx)
+                    self._inject_parent_context(next_idx)
+                self._start_task(next_idx)
+                running.append(next_idx)
 
             # Deadlock detection: nothing running, pending tasks exist but none ready
             if not running and pending:

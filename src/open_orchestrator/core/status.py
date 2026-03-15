@@ -361,12 +361,31 @@ class StatusTracker:
         return summary
 
     def cleanup_orphans(self, valid_worktree_names: list[str]) -> list[str]:
-        """Remove status entries for worktrees that no longer exist."""
+        """Remove status entries for worktrees that no longer exist.
+
+        For each orphaned entry, also kills the associated tmux session if one
+        is still running, keeping all three systems (git, tmux, SQLite) in sync.
+        """
+        all_statuses = self.get_all_statuses()
+        orphans = [s for s in all_statuses if s.worktree_name not in valid_worktree_names]
+        if not orphans:
+            return []
+
+        from open_orchestrator.core.tmux_manager import TmuxManager
+
+        tmux = TmuxManager()
         removed = []
-        for s in self.get_all_statuses():
-            if s.worktree_name not in valid_worktree_names:
-                self.remove_status(s.worktree_name)
-                removed.append(s.worktree_name)
+        for s in orphans:
+            # Kill the tmux session before removing the status entry
+            session_name = s.tmux_session or tmux.generate_session_name(s.worktree_name)
+            try:
+                tmux.kill_session(session_name)
+                logger.debug("Killed orphan tmux session %s", session_name)
+            except Exception as e:
+                logger.debug("Could not kill tmux session %s: %s", session_name, e)
+
+            self.remove_status(s.worktree_name)
+            removed.append(s.worktree_name)
         return removed
 
     def get_metadata(self, key: str) -> str | None:

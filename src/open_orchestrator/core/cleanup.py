@@ -8,6 +8,8 @@ This module provides functionality to:
 """
 
 import json
+import logging
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,6 +18,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from open_orchestrator.utils.io import shared_file_lock
+
+logger = logging.getLogger(__name__)
 
 
 class WorktreeUsageStats(BaseModel):
@@ -136,9 +140,17 @@ class CleanupService:
 
     This service identifies worktrees that haven't been used recently
     and provides functionality to clean them up with safety checks.
+
+    Delegates actual deletion to ``teardown_worktree`` in ``pane_actions``
+    to keep all three systems (git worktrees, tmux sessions, SQLite status)
+    in sync without duplicating cleanup logic.
     """
 
-    def __init__(self, config: CleanupConfig | None = None, usage_tracker: UsageTracker | None = None):
+    def __init__(
+        self,
+        config: CleanupConfig | None = None,
+        usage_tracker: UsageTracker | None = None,
+    ):
         self.config = config or CleanupConfig()
         self.usage_tracker = usage_tracker or UsageTracker(self.config.stats_file_path)
 
@@ -204,8 +216,6 @@ class CleanupService:
     def _get_branch_name(self, worktree_path: Path) -> str:
         """Get the branch name for a worktree."""
         try:
-            import subprocess
-
             result = subprocess.run(
                 ["git", "branch", "--show-current"], cwd=worktree_path, capture_output=True, text=True, timeout=5
             )
@@ -216,8 +226,6 @@ class CleanupService:
     def _has_uncommitted_changes(self, worktree_path: Path) -> bool:
         """Check if worktree has uncommitted changes."""
         try:
-            import subprocess
-
             result = subprocess.run(
                 ["git", "status", "--porcelain"], cwd=worktree_path, capture_output=True, text=True, timeout=10
             )
@@ -228,8 +236,6 @@ class CleanupService:
     def _has_unpushed_commits(self, worktree_path: Path) -> bool:
         """Check if worktree has unpushed commits."""
         try:
-            import subprocess
-
             result = subprocess.run(
                 ["git", "log", "@{u}..", "--oneline"], cwd=worktree_path, capture_output=True, text=True, timeout=10
             )
@@ -240,8 +246,6 @@ class CleanupService:
     def _get_last_commit_date(self, worktree_path: Path) -> datetime | None:
         """Get the date of the last commit in the worktree."""
         try:
-            import subprocess
-
             result = subprocess.run(
                 ["git", "log", "-1", "--format=%ci"], cwd=worktree_path, capture_output=True, text=True, timeout=5
             )
@@ -320,22 +324,20 @@ class CleanupService:
         return report
 
     def _delete_worktree(self, worktree_path: str) -> None:
-        """Delete a worktree using git worktree remove."""
-        import subprocess
+        """Delete a worktree and clean up all associated resources.
 
-        # Run from worktree's parent dir to ensure we're in a valid git repo
-        worktree_dir = Path(worktree_path)
-        cwd = str(worktree_dir.parent) if worktree_dir.exists() else None
-        result = subprocess.run(
-            ["git", "worktree", "remove", "--force", worktree_path],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=cwd,
-        )
+        Delegates to ``teardown_worktree`` which handles tmux, status DB,
+        and git worktree removal in a best-effort manner.
+        """
+        from open_orchestrator.core.pane_actions import teardown_worktree
 
-        if result.returncode != 0:
-            raise RuntimeError(f"git worktree remove failed: {result.stderr}")
+        worktree_name = Path(worktree_path).name
+        # Use parent dir as repo_path — worktrees are siblings of the main repo
+        repo_path = str(Path(worktree_path).parent)
+        errors = teardown_worktree(worktree_name, repo_path=repo_path)
+        git_errors = [e for e in errors if "git worktree" in e]
+        if git_errors:
+            raise RuntimeError(git_errors[0])
 
     def get_usage_report(self, worktree_paths: list[str]) -> list[WorktreeUsageStats]:
         """Generate a usage report for all worktrees."""
