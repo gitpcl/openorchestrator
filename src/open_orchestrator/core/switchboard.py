@@ -956,11 +956,10 @@ class SwitchboardApp(App[None]):
         background: {COLORS["toast_info"]};
         color: {COLORS["text_primary"]};
         text-style: bold;
-        offset: 0 -1;
-        transition: offset 300ms in_out_cubic;
+        display: none;
     }}
     #toast.visible {{
-        offset: 0 0;
+        display: block;
     }}
     #footer {{
         width: 1fr;
@@ -1014,9 +1013,17 @@ class SwitchboardApp(App[None]):
             self._wt_manager: WorktreeManager | None = WorktreeManager()
         except Exception:
             self._wt_manager = None
-        self._cards: list[Card] = []
-        self._file_map: dict[str, list[str]] = {}
-        self._cached_statuses: dict[str, WorktreeAIStatus] = {}
+        # Pre-build cards synchronously so the first render already has content
+        # (eliminates "No active worktrees" flash). asyncio.run() is safe here
+        # because Textual's event loop hasn't started yet.
+        try:
+            self._cards, self._file_map = _build_cards(self._tracker)
+        except Exception:
+            self._cards, self._file_map = [], {}
+        # Pre-cache statuses so elapsed times render on first frame
+        self._cached_statuses: dict[str, WorktreeAIStatus] = {
+            s.worktree_name: s for s in self._tracker.get_all_statuses()
+        }
         self._selected = 0
         self._tick = 0
         self._prev_statuses: dict[str, AIActivityStatus] = {}
@@ -1174,14 +1181,18 @@ class SwitchboardApp(App[None]):
             # Stale session — offer to delete or recreate
             def _on_delete_confirm(yes: bool | None) -> None:
                 if yes:
-                    with self.suspend():
-                        subprocess.run(["owt", "delete", card.name, "--yes"], check=False, timeout=SHELL_TIMEOUT)
+                    self.run_worker(self._run_shell_bg(
+                        ["owt", "delete", card.name, "--yes"],
+                        f"Deleting '{card.name}'...", clamp=True,
+                    ))
                 else:
                     # Offer to recreate
                     def _on_recreate(yes2: bool | None) -> None:
                         if yes2:
-                            with self.suspend():
-                                subprocess.run(["owt", "new", card.branch], check=False, timeout=SHELL_TIMEOUT)
+                            self.run_worker(self._run_shell_bg(
+                                ["owt", "new", card.branch, "--yes"],
+                                f"Recreating '{card.name}'...",
+                            ))
 
                     self.push_screen(ConfirmModal(f"Recreate session for '{card.name}'?"), _on_recreate)
 
@@ -1258,25 +1269,50 @@ class SwitchboardApp(App[None]):
                 _on_tool,
             )
 
+    async def _run_shell_bg(self, cmd: list[str], toast_msg: str, *, clamp: bool = False) -> None:
+        """Run a shell command in the background without suspending the UI.
+
+        Shows a toast while running, refreshes cards on completion, and
+        reports success or failure via toast.
+        """
+        self._show_toast(toast_msg)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=SHELL_TIMEOUT)
+            if proc.returncode == 0:
+                self._show_toast(f"Done: {' '.join(cmd[:3])}", variant="success")
+            else:
+                err = stderr.decode(errors="replace").strip().split("\n")[-1] if stderr else "unknown error"
+                self._show_toast(f"Failed: {err}", variant="error")
+        except asyncio.TimeoutError:
+            self._show_toast("Command timed out", variant="error")
+        except Exception as exc:
+            self._show_toast(f"Error: {exc}", variant="error")
+
+        if clamp:
+            self._selected = min(self._selected, max(0, len(self._cards) - 2))
+        await self._heavy_refresh()
+
     def _do_create_worktree(self) -> None:
         """Create worktree via owt new subprocess (reliable, handles all setup)."""
         task = self._new_wt_task
         ai_tool = self._new_wt_tool
 
         cmd = ["owt", "new", task, "--yes", "--ai-tool", ai_tool.value]
-        with self.suspend():
-            subprocess.run(cmd, check=False, timeout=SHELL_TIMEOUT)
+        self.run_worker(self._run_shell_bg(cmd, "Creating worktree..."))
 
     def _confirm_and_shell(self, prompt: str, cmd: list[str]) -> None:
-        """Confirm, shell out, then clamp selection."""
+        """Confirm, shell out in background, then clamp selection."""
         if not self._cards:
             return
 
         def _on_confirm(yes: bool | None) -> None:
             if yes:
-                with self.suspend():
-                    subprocess.run(cmd, check=False, timeout=SHELL_TIMEOUT)
-                self._selected = min(self._selected, max(0, len(self._cards) - 2))
+                self.run_worker(self._run_shell_bg(cmd, f"Running: {' '.join(cmd[:3])}...", clamp=True))
 
         self.push_screen(ConfirmModal(prompt), _on_confirm)
 

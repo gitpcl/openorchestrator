@@ -306,16 +306,51 @@ class MergeManager:
                 conflicts = []
 
             if conflicts:
-                # Abort the merge so the worktree isn't left in a broken state
+                # Try AI-powered conflict resolution before aborting
+                resolved = False
                 try:
-                    wt_repo.git.merge("--abort")
-                except GitCommandError:
-                    pass
+                    from open_orchestrator.config import load_config
 
-                raise MergeConflictError(
-                    f"Merge conflicts detected when merging '{target_branch}' into '{source_branch}'",
-                    conflicts=conflicts,
-                )
+                    config = load_config()
+                    if config.agno.enabled and config.agno.auto_resolve_conflicts:
+                        from open_orchestrator.core.intelligence import AgnoConflictResolver
+
+                        conflicted_contents: dict[str, str] = {}
+                        for cf in conflicts:
+                            cf_path = Path(worktree.path) / cf
+                            if cf_path.exists():
+                                conflicted_contents[cf] = cf_path.read_text(encoding="utf-8", errors="replace")
+
+                        if conflicted_contents:
+                            resolution = AgnoConflictResolver(config.agno, repo_path=str(worktree.path)).resolve(
+                                conflicted_files=conflicted_contents,
+                                source_branch=source_branch,
+                                target_branch=target_branch,
+                            )
+                            if resolution.confidence > 0.8 and not resolution.requires_human and resolution.resolutions:
+                                for file_path, content in resolution.resolutions.items():
+                                    resolved_path = Path(worktree.path) / file_path
+                                    resolved_path.write_text(content, encoding="utf-8")
+                                    wt_repo.git.add(file_path)
+                                wt_repo.git.commit("-m", f"fix: auto-resolve merge conflicts ({resolution.explanation[:60]})")
+                                resolved = True
+                                logger.info("AI resolved %d conflict(s): %s", len(conflicts), resolution.explanation)
+                except ImportError:
+                    pass
+                except Exception as exc:
+                    logger.debug("AI conflict resolution failed: %s", exc)
+
+                if not resolved:
+                    # Abort the merge so the worktree isn't left in a broken state
+                    try:
+                        wt_repo.git.merge("--abort")
+                    except GitCommandError:
+                        pass
+
+                    raise MergeConflictError(
+                        f"Merge conflicts detected when merging '{target_branch}' into '{source_branch}'",
+                        conflicts=conflicts,
+                    )
 
             raise MergeError(f"Phase 1 merge failed: {e}") from e
 

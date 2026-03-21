@@ -147,8 +147,8 @@ def plan_tasks(
 ) -> Path:
     """Use an AI tool to decompose a goal into a dependency-aware task DAG.
 
-    Runs the AI tool in non-interactive mode to generate a TOML batch file
-    with task IDs and dependency relationships.
+    Tries Agno-powered planner first (if installed and enabled), then falls
+    back to subprocess-based AI tool invocation.
 
     Args:
         goal: The feature/goal description to decompose.
@@ -164,6 +164,19 @@ def plan_tasks(
         RuntimeError: If the AI tool fails to run.
     """
     import subprocess
+
+    try:
+        from open_orchestrator.config import load_config
+
+        config = load_config()
+        if config.agno.enabled:
+            from open_orchestrator.core.intelligence import AgnoPlanner
+
+            return AgnoPlanner(config.agno, repo_path=repo_path).plan(goal, repo_path, output_path, ai_tool)
+    except ImportError:
+        logger.debug("Agno not installed, falling back to subprocess planner")
+    except Exception as e:
+        logger.warning("Agno planner failed, falling back: %s", e)
 
     output_path = Path(output_path) if output_path else Path(repo_path) / "plan.toml"
 

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/gitpcl/openorchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/gitpcl/openorchestrator/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/gitpcl/openorchestrator)](LICENSE)
 
-A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a Textual-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid.
+A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a Textual-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid. Optional **Agno intelligence layer** adds AI-powered planning, quality gating, and merge conflict resolution.
 
 ## Overview
 
@@ -14,23 +14,26 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Features
 
-- **16 commands** — focused CLI surface, no bloat
+- **20 commands** — focused CLI surface, no bloat
 - **Switchboard UI** — Textual-based card grid with status lights, diff stats, file overlap warnings, and detail panels
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
+- **Orchestrator Agent** — `owt orchestrate` drives a plan end-to-end into a feature branch with coordination, user presence detection, and stop/resume
 - **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops with DAG-aware scheduling
 - **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
 - **Merge Queue** — `owt queue` shows optimal merge order; `owt queue --ship` ships all completed work intelligently
 - **Context Bridge** — `owt note "msg"` shares context across all agent sessions via CLAUDE.md injection
 - **Headless Mode** — `owt new "task" --headless` for CI/CD; `owt wait` polls until agent finishes
 - **One-command setup** — `owt new "task"` does everything: branch → worktree → deps → .env → tmux → AI tool
+- **Quality Gate** — `owt ship` optionally runs AI quality review before merging (with Agno); checks code quality, cross-worktree conflicts
+- **AI Conflict Resolution** — merge conflicts can be resolved semantically by an AI agent before falling back to manual resolution
 - **Ship in one shot** — `owt ship` auto-commits, merges to main, and tears down worktree + session
 - **Two-phase merge** — `owt merge` catches conflicts early with file overlap warnings, then auto-cleans
 - **Full teardown** — `owt delete` kills tmux session + removes worktree + cleans status
 - **Live status detection** — switchboard detects when agents are waiting for input or blocked
 - **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
 - **Project detection** — auto-detects Python, Node.js, Rust, Go, PHP and installs deps
-- **7 dependencies** — click, pydantic, rich, textual, toml, gitpython, libtmux
+- **7 dependencies** — click, pydantic, rich, textual, toml, gitpython, libtmux (+ optional agno for intelligence layer)
 
 ## Installation
 
@@ -45,6 +48,9 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ```bash
 pip install open-orchestrator
+
+# With Agno intelligence layer (AI-powered planning, quality gate, conflict resolution)
+pip install open-orchestrator[agno]
 ```
 
 ### Install from source
@@ -53,6 +59,9 @@ pip install open-orchestrator
 git clone https://github.com/gitpcl/openorchestrator.git
 cd openorchestrator
 uv pip install -e .
+
+# With Agno intelligence layer
+uv pip install -e ".[agno]"
 ```
 
 ## Quick Start
@@ -92,7 +101,12 @@ owt ship auth-jwt
 | `owt queue` | | Show optimal merge order for completed worktrees |
 | `owt queue --ship` | | Ship all completed worktrees in optimal order |
 | `owt plan "goal"` | | AI-powered task decomposition into dependency DAG |
+| `owt plan "goal" --start` | | Plan + start orchestrator in one shot |
 | `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML (DAG-aware) |
+| `owt orchestrate plan.toml` | | Orchestrate plan into feature branch with coordination |
+| `owt orchestrate --resume` | | Resume orchestrator from saved state |
+| `owt orchestrate --stop` | | Graceful stop (worktrees kept) |
+| `owt orchestrate --status` | | Show orchestrator progress |
 | `owt wait <name>` | | Poll until agent finishes (for CI/scripts) |
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync with upstream |
@@ -159,6 +173,46 @@ owt new "Add payments" --template feature   # Plan mode, TDD workflow
 owt new "Fix crash" --template bugfix       # Root cause focus, minimal changes
 owt new "Patch CVE" --template hotfix       # Emergency, production stability
 ```
+
+## Agno Intelligence Layer (Optional)
+
+Install with `pip install open-orchestrator[agno]` to enable AI-powered intelligence features. Without it, everything works exactly as before — all three features gracefully degrade.
+
+### Intelligent Planner
+
+`owt plan` uses an Agno agent with codebase awareness — it reads the file tree and git history to produce better task decompositions with Pydantic-validated structured output (no regex parsing). Falls back to subprocess-based planning if Agno is not installed.
+
+### Quality Gate
+
+`owt ship` runs an AI quality review before merging. Checks for:
+- Code completeness (TODOs, partial implementations, debug code)
+- Security issues (hardcoded secrets, injection vulnerabilities)
+- Cross-worktree conflicts (files modified by other active agents)
+
+If the quality gate flags issues, you're prompted to ship anyway or abort. Skipped with `--yes`.
+
+### Merge Conflict Resolution
+
+When `auto_resolve_conflicts = true` in config, merge conflicts are resolved semantically by an AI agent before falling back to manual resolution. Only applies resolved content when confidence exceeds 0.8.
+
+### Cross-Worktree Coordination
+
+The orchestrator detects file overlaps between running worktrees and injects context into each agent's CLAUDE.md. With Agno, a coordinator agent generates intelligent, targeted messages. Without Agno, template-based warnings are used. Coordination runs on a 120s cooldown per event to avoid noise.
+
+### Agno Configuration
+
+```toml
+[agno]
+enabled = true                           # Toggle intelligence features
+model_id = "claude-sonnet-4-20250514"    # Default model (Claude, OpenAI, Gemini)
+planner_model_id = "claude-sonnet-4-20250514"  # Override for planner
+quality_gate_model_id = "claude-sonnet-4-20250514"  # Override for gate
+coordinator_model_id = "claude-haiku-4-5-20251001"  # Cost-effective for coordination
+quality_gate_threshold = 0.7             # Minimum score to pass (0.0-1.0)
+auto_resolve_conflicts = false           # Auto-apply AI conflict resolutions
+```
+
+API keys use standard env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) — no OWT-specific config needed.
 
 ## Configuration
 
@@ -227,17 +281,43 @@ owt new "Add payment docs"
 owt plan "Build JWT auth with refresh tokens and admin dashboard"
 # -> AI decomposes into dependency-aware tasks, saves plan.toml
 
-owt plan "Add rate limiting" --execute
-# -> Generate plan + run immediately in background
+owt plan "Add auth" --start --branch feat/auth-v2
+# -> Generate plan + orchestrate into feature branch
 
-owt plan "Refactor DB layer" --edit --execute
-# -> Generate plan + edit in $EDITOR + run
+owt plan "Add rate limiting" --execute
+# -> Generate plan + run in batch mode (ships to main)
 
 owt plan "Fix auth bugs" --execute --auto-ship
 # -> Generate plan + run + auto-merge completed tasks
 ```
 
 Tasks with dependencies run in topological order. Independent tasks run in parallel. Parent task context (git log summaries) is auto-injected into child worktrees' CLAUDE.md.
+
+### Orchestrator (Feature Branch Mode)
+```bash
+# Plan + start orchestration in one shot
+owt plan "Add JWT auth" --start --branch feat/auth-v2
+
+# Or plan first, orchestrate later
+owt plan "Add JWT auth"                              # generates plan.toml
+owt orchestrate plan.toml --branch feat/auth-v2      # starts orchestration
+
+# Control the orchestrator
+owt orchestrate --resume                              # resume from saved state
+owt orchestrate --stop                                # graceful stop
+owt orchestrate --status                              # show progress
+
+# User jumps in to help (orchestrator pauses that worktree)
+owt switch auth-models
+# -> orchestrator detects user, skips auto-actions on auth-models
+# -> user leaves → orchestrator resumes coordination
+
+# When all tasks complete:
+# "All 5 tasks merged into feat/auth-v2. Ready for review."
+# User opens PR: feat/auth-v2 → main
+```
+
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback).
 
 ### Overnight Autopilot (Batch Mode)
 ```toml
@@ -329,15 +409,17 @@ Use these slash commands in Claude Code sessions:
 ## Architecture
 
 ```
-src/open_orchestrator/         (~7,100 LOC)
-├── cli.py                     # 16 CLI commands (click)
-├── config.py                  # Hierarchical config (TOML)
+src/open_orchestrator/
+├── cli.py                     # 20 CLI commands (click)
+├── config.py                  # Hierarchical config (TOML) + AgnoConfig
 ├── core/
 │   ├── switchboard.py         # Textual card grid UI (async polling, modal screens, broadcast)
+│   ├── intelligence.py        # Agno intelligence layer (planner, quality gate, conflict resolver, coordinator)
+│   ├── orchestrator.py        # Orchestrator agent (plan → execute → merge → feature branch)
 │   ├── worktree.py            # Git worktree CRUD
 │   ├── tmux_manager.py        # tmux session management
-│   ├── merge.py               # Two-phase merge + merge queue + conflict guard
-│   ├── batch.py               # Autopilot loop + DAG scheduler + AI planner
+│   ├── merge.py               # Two-phase merge + merge queue + conflict guard + AI resolution
+│   ├── batch.py               # Autopilot loop + DAG scheduler + AI planner (Agno or subprocess)
 │   ├── environment.py         # Deps, .env, CLAUDE.md, shared notes injection
 │   ├── status.py              # AI activity tracking (SQLite + WAL)
 │   ├── hooks.py               # AI tool hook installer (status push)
@@ -347,7 +429,12 @@ src/open_orchestrator/         (~7,100 LOC)
 │   ├── project_detector.py    # Auto-detect project type
 │   ├── pane_actions.py        # Create/remove orchestration
 │   └── agent_detector.py      # Detect installed AI tools
-├── models/                    # Pydantic data models
+├── models/
+│   ├── intelligence.py        # Agno structured output models (TaskPlan, QualityVerdict, etc.)
+│   ├── worktree_info.py       # Worktree models
+│   ├── project_config.py      # Project config models
+│   ├── maintenance.py         # Cleanup/sync models
+│   └── status.py              # AI status models
 ├── popup/                     # tmux popup picker
 ├── skills/                    # Claude Code skill definition
 └── utils/                     # Safe file I/O

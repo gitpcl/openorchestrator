@@ -134,6 +134,22 @@ class AITool(str, Enum):
         return hints.get(tool, f"Please install {tool.value} manually")
 
 
+class AgnoConfig(BaseModel):
+    """Agno intelligence layer configuration."""
+
+    enabled: bool = Field(default=True, description="Enable Agno intelligence features")
+    model_id: str = Field(default="claude-sonnet-4-20250514", description="Default model ID for Agno agents")
+    planner_model_id: str | None = Field(default=None, description="Override model for planner agent")
+    quality_gate_model_id: str | None = Field(default=None, description="Override model for quality gate agent")
+    max_tokens: int = Field(default=4096, description="Max tokens for Agno model responses")
+    temperature: float = Field(default=0.2, description="Temperature for Agno model responses")
+    quality_gate_threshold: float = Field(default=0.7, description="Minimum score to pass quality gate")
+    auto_resolve_conflicts: bool = Field(default=False, description="Automatically apply AI conflict resolutions")
+    coordinator_model_id: str | None = Field(default=None, description="Override model for coordinator agent")
+    memory_enabled: bool = Field(default=True, description="Enable persistent memory for Agno agents")
+    memory_db_path: str | None = Field(default=None, description="Custom path for memory DB")
+
+
 class ClaudeConfig(BaseModel):
     """Claude-specific configuration."""
 
@@ -214,6 +230,7 @@ class Config(BaseModel):
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
+    agno: AgnoConfig = Field(default_factory=AgnoConfig)
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     droid: DroidConfig = Field(default_factory=DroidConfig)

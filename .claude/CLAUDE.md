@@ -2,7 +2,7 @@
 
 Git Worktree + AI agent orchestration tool for parallel development workflows with Textual switchboard UI.
 
-## Commands (16 total)
+## Commands (20 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -20,7 +20,12 @@ Git Worktree + AI agent orchestration tool for parallel development workflows wi
 | `owt queue` | | Show optimal merge order for completed worktrees |
 | `owt queue --ship` | | Ship all completed worktrees in optimal order |
 | `owt plan "goal"` | | AI-powered task decomposition into dependency DAG |
+| `owt plan "goal" --start` | | Plan + start orchestrator in one shot |
 | `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML file (now with DAG support) |
+| `owt orchestrate plan.toml` | | Orchestrate plan into feature branch with coordination |
+| `owt orchestrate --resume` | | Resume orchestrator from saved state |
+| `owt orchestrate --stop` | | Graceful stop (worktrees kept) |
+| `owt orchestrate --status` | | Show orchestrator progress |
 | `owt wait <name>` | | Poll until agent finishes (for CI/scripts) |
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync worktree(s) with upstream |
@@ -59,11 +64,14 @@ src/open_orchestrator/
 │   ├── sync.py         # Upstream sync service
 │   ├── status.py       # AI activity status tracking (SQLite + WAL)
 │   ├── branch_namer.py # Branch name generation from task descriptions
-│   ├── merge.py        # Two-phase merge logic + merge queue + conflict guard
-│   ├── batch.py        # Autopilot loop + DAG scheduler + AI planner
+│   ├── intelligence.py # Agno intelligence layer (planner, quality gate, conflict resolver, coordinator)
+│   ├── merge.py        # Two-phase merge logic + merge queue + conflict guard + AI resolution
+│   ├── batch.py        # Autopilot loop + DAG scheduler + AI planner (Agno or subprocess)
+│   ├── orchestrator.py # Orchestrator agent (plan → execute → merge → feature branch)
 │   ├── pane_actions.py # Shared pane lifecycle (create/remove orchestration)
 │   └── agent_detector.py  # Detect installed AI coding tools
 ├── models/
+│   ├── intelligence.py     # Agno structured output models (TaskPlan, QualityVerdict, etc.)
 │   ├── worktree_info.py    # Worktree models
 │   ├── project_config.py   # Project config models
 │   ├── maintenance.py      # Cleanup/sync models
@@ -84,7 +92,7 @@ src/open_orchestrator/
 - Use `rich` for terminal output
 - Use `click` for CLI commands
 - Use `pydantic` for data models
-- Dependencies: click, pydantic, rich, textual, toml, gitpython, libtmux (7 total)
+- Dependencies: click, pydantic, rich, textual, toml, gitpython, libtmux (7 total + optional agno)
 
 ## Key Patterns
 

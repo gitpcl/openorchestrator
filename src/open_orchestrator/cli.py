@@ -612,6 +612,50 @@ def ship_worktree(worktree_name: str, base_branch: str | None, commit_message: s
         wt_repo.git.commit("-m", msg)
         console.print(f"[green]Committed:[/green] {msg}")
 
+    # Step 1.5: Quality gate (Agno, if available)
+    if not yes:
+        config = load_config()
+        if config.agno.enabled:
+            try:
+                from open_orchestrator.core.intelligence import AgnoQualityGate
+
+                diff_output = Repo(worktree.path).git.diff(f"{target}...{worktree.branch}", stat=False)
+                if diff_output:
+                    tracker = StatusTracker()
+                    status = tracker.get_status(worktree_name)
+                    task_desc = status.current_task if status else None
+
+                    # Gather active worktree context
+                    active_wts = [
+                        {"name": s.worktree_name, "branch": s.branch, "task": s.current_task or ""}
+                        for s in tracker.get_all_statuses()
+                        if s.worktree_name != worktree_name
+                        and s.activity_status in (AIActivityStatus.WORKING, AIActivityStatus.IDLE)
+                    ]
+
+                    with console.status("[bold blue]Running quality gate..."):
+                        gate = AgnoQualityGate(config.agno, repo_path=str(wt_manager.git_root))
+                        verdict = gate.review(diff_output, task_desc, active_wts)
+
+                    if verdict.passed:
+                        console.print(f"[green]Quality gate passed[/green] (score: {verdict.score:.1f}): {verdict.summary}")
+                    else:
+                        console.print(f"\n[yellow]Quality gate flagged issues[/yellow] (score: {verdict.score:.1f})")
+                        console.print(f"  {verdict.summary}")
+                        for issue in verdict.issues[:5]:
+                            console.print(f"  [yellow]•[/yellow] {issue}")
+                        if verdict.cross_worktree_conflicts:
+                            console.print("  [yellow]Cross-worktree conflicts:[/yellow]")
+                            for conflict in verdict.cross_worktree_conflicts[:3]:
+                                console.print(f"    [yellow]⚠[/yellow] {conflict}")
+                        if not click.confirm("\nShip anyway?"):
+                            console.print("[yellow]Aborted.[/yellow]")
+                            return
+            except ImportError:
+                pass
+            except Exception as e:
+                console.print(f"[dim]Quality gate skipped: {e}[/dim]")
+
     # Step 2: Kill tmux session BEFORE merge (avoids issues with agent holding locks)
     from open_orchestrator.core.pane_actions import teardown_worktree
 
@@ -878,7 +922,9 @@ def wait_for_worktree(worktree_name: str, timeout: int, poll: int, json_output: 
 @main.command("plan")
 @click.argument("goal", nargs=-1, required=True)
 @click.option("-o", "--output", "output_path", help="Output path for plan TOML (default: plan.toml).")
-@click.option("--execute", is_flag=True, help="Execute the plan immediately after generation.")
+@click.option("--execute", is_flag=True, help="Execute the plan immediately after generation (batch mode).")
+@click.option("--start", is_flag=True, help="Start orchestrator after plan generation (feature branch mode).")
+@click.option("--branch", "orch_branch", help="Feature branch name for orchestrator (used with --start).")
 @click.option("--edit", is_flag=True, help="Open plan in $EDITOR before executing.")
 @click.option("--auto-ship", is_flag=True, help="Auto-ship completed tasks during execution.")
 @click.option("--max-concurrent", type=int, default=3, help="Max parallel tasks.")
@@ -892,6 +938,8 @@ def plan_goal(
     goal: tuple[str, ...],
     output_path: str | None,
     execute: bool,
+    start: bool,
+    orch_branch: str | None,
     edit: bool,
     auto_ship: bool,
     max_concurrent: int,
@@ -905,7 +953,7 @@ def plan_goal(
     Examples:
         owt plan Build JWT auth with refresh tokens
         owt plan "Add rate limiting" --execute
-        owt plan "Refactor DB layer" --edit --execute
+        owt plan "Add auth" --start --branch feat/auth-v2
         owt plan "Fix auth bugs" --execute --auto-ship
     """
     from open_orchestrator.core.batch import (
@@ -960,7 +1008,57 @@ def plan_goal(
         config = load_batch_config(str(plan_path))
         console.print(f"\n[green]Reloaded {len(config.tasks)} task(s) after edit[/green]")
 
-    # 4. Optionally execute
+    # 4. Optionally start orchestrator (--start)
+    if start:
+        from open_orchestrator.core.branch_namer import generate_branch_name
+        from open_orchestrator.core.orchestrator import (
+            Orchestrator,
+        )
+        from open_orchestrator.core.orchestrator import (
+            OrchestratorState as _OrchestratorState,
+        )
+
+        feature_branch = orch_branch
+        if not feature_branch:
+            try:
+                feature_branch = f"orchestrator/{generate_branch_name(goal_text, prefix='').lstrip('/')}"
+            except ValueError:
+                feature_branch = "orchestrator/plan"
+
+        console.print("\n[bold]Starting orchestrator[/bold]")
+        console.print(f"  Feature branch: {feature_branch}")
+        console.print(f"  Max concurrent: {max_concurrent}")
+
+        orch = Orchestrator.from_plan(
+            plan_path=plan_path,
+            goal=goal_text,
+            feature_branch=feature_branch,
+            repo_path=str(wt_manager.git_root),
+            max_concurrent=max_concurrent,
+        )
+
+        def _orch_status(state: _OrchestratorState) -> None:
+            counts: dict[str, int] = {}
+            for t in state.tasks:
+                counts[t.status] = counts.get(t.status, 0) + 1
+            parts = [f"{v} {k}" for k, v in sorted(counts.items())]
+            console.print(f"  [dim]{' | '.join(parts)}[/dim]")
+
+        try:
+            final = orch.run(on_status=_orch_status)
+            shipped = sum(1 for t in final.tasks if t.status == "shipped")
+            failed = sum(1 for t in final.tasks if t.status == "failed")
+            console.print(
+                f"\n[bold green]Orchestration complete![/bold green] "
+                f"{shipped} shipped, {failed} failed → {feature_branch}"
+            )
+            if shipped > 0:
+                console.print(f"[dim]Ready for review. Open PR: {feature_branch} → main[/dim]")
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Orchestrator paused. Resume with: owt orchestrate --resume[/yellow]")
+        return
+
+    # 4b. Optionally execute (batch mode)
     if execute:
         import subprocess
 
@@ -982,7 +1080,10 @@ def plan_goal(
         console.print(f"\n[green]Batch launched in tmux session '{batch_session}'[/green]")
         console.print("[dim]Use 'owt' for switchboard, or: tmux attach -t owt-batch[/dim]")
     else:
-        console.print(f"\n[dim]Plan saved to {plan_path}. Use --execute to run, or: owt batch {plan_path}[/dim]")
+        console.print(
+            f"\n[dim]Plan saved to {plan_path}. Use --start to orchestrate,"
+            f" --execute for batch, or: owt batch {plan_path}[/dim]"
+        )
 
 
 # ─── owt batch ─────────────────────────────────────────────────────────────
@@ -1042,6 +1143,122 @@ def batch_run(tasks_file: str, auto_ship: bool, max_concurrent: int, json_output
         console.print(json.dumps(output, indent=2))
     else:
         _print_batch_results(results)
+
+
+# ─── owt orchestrate ───────────────────────────────────────────────────
+
+@main.command("orchestrate")
+@click.argument("plan_file", type=click.Path(exists=True), required=False)
+@click.option("--branch", "feature_branch", help="Feature branch name (required for new orchestration).")
+@click.option("--resume", is_flag=True, help="Resume from saved state.")
+@click.option("--stop", "stop_orch", is_flag=True, help="Graceful stop (worktrees kept).")
+@click.option("--status", "show_status", is_flag=True, help="Show orchestrator progress.")
+@click.option("--max-concurrent", type=int, default=3, help="Max parallel tasks.")
+def orchestrate(
+    plan_file: str | None,
+    feature_branch: str | None,
+    resume: bool,
+    stop_orch: bool,
+    show_status: bool,
+    max_concurrent: int,
+) -> None:
+    """Drive a plan end-to-end with the orchestrator agent.
+
+    Creates worktrees, coordinates agents, merges completed tasks into
+    a feature branch for review, and persists state for stop/resume.
+
+    Examples:
+        owt orchestrate plan.toml --branch feat/auth-v2
+        owt orchestrate --resume
+        owt orchestrate --stop
+        owt orchestrate --status
+    """
+    from open_orchestrator.core.orchestrator import Orchestrator, OrchestratorState
+
+    wt_manager = get_worktree_manager()
+    repo_path = str(wt_manager.git_root)
+
+    if show_status:
+        state_path = Orchestrator._state_path(repo_path)
+        if not state_path.exists():
+            console.print("[dim]No orchestrator state found.[/dim]")
+            return
+        state = OrchestratorState.model_validate_json(state_path.read_text())
+        table = Table(title=f"Orchestrator: {state.goal}", show_header=True, header_style="bold")
+        table.add_column("Task")
+        table.add_column("Status")
+        table.add_column("Worktree")
+        table.add_column("Branch")
+        for t in state.tasks:
+            icon = {"pending": "[dim]○[/dim]", "running": "[green]●[/green]",
+                    "completed": "[cyan]✓[/cyan]", "shipped": "[bold green]✓[/bold green]",
+                    "failed": "[red]✗[/red]"}.get(t.status, "?")
+            table.add_row(t.id, f"{icon} {t.status}", t.worktree_name or "", t.branch or "")
+        console.print(table)
+        console.print(f"\n[dim]Feature branch: {state.feature_branch} | Updated: {state.updated_at}[/dim]")
+        return
+
+    if stop_orch:
+        try:
+            orch = Orchestrator.resume(repo_path)
+            orch.stop()
+            console.print("[green]Orchestrator stopped.[/green] Worktrees kept. Resume with: owt orchestrate --resume")
+        except FileNotFoundError:
+            console.print("[yellow]No running orchestrator found.[/yellow]")
+        return
+
+    if resume:
+        try:
+            orch = Orchestrator.resume(repo_path)
+        except FileNotFoundError:
+            raise click.ClickException("No orchestrator state found. Start with: owt orchestrate <plan.toml> --branch <name>")
+        console.print(f"[bold]Resuming orchestrator[/bold]: {orch.state.goal}")
+        console.print(f"  Feature branch: {orch.state.feature_branch}")
+    elif plan_file:
+        if not feature_branch:
+            from open_orchestrator.core.batch import load_batch_config
+            from open_orchestrator.core.branch_namer import generate_branch_name
+
+            config = load_batch_config(plan_file)
+            goal = config.tasks[0].description if config.tasks else "plan"
+            try:
+                feature_branch = f"orchestrator/{generate_branch_name(goal, prefix='').lstrip('/')}"
+            except ValueError:
+                feature_branch = "orchestrator/plan"
+
+        goal_text = feature_branch.split("/")[-1].replace("-", " ")
+        orch = Orchestrator.from_plan(
+            plan_path=plan_file,
+            goal=goal_text,
+            feature_branch=feature_branch,
+            repo_path=repo_path,
+            max_concurrent=max_concurrent,
+        )
+        console.print("[bold]Starting orchestrator[/bold]")
+        console.print(f"  Plan: {plan_file}")
+        console.print(f"  Feature branch: {feature_branch}")
+    else:
+        raise click.ClickException("Provide a plan file, or use --resume / --status / --stop")
+
+    def _orch_status(state: OrchestratorState) -> None:
+        counts: dict[str, int] = {}
+        for t in state.tasks:
+            counts[t.status] = counts.get(t.status, 0) + 1
+        parts = [f"{v} {k}" for k, v in sorted(counts.items())]
+        console.print(f"  [dim]{' | '.join(parts)}[/dim]")
+
+    try:
+        final = orch.run(on_status=_orch_status)
+        shipped = sum(1 for t in final.tasks if t.status == "shipped")
+        failed = sum(1 for t in final.tasks if t.status == "failed")
+        console.print(
+            f"\n[bold green]Orchestration complete![/bold green] "
+            f"{shipped} shipped, {failed} failed → {final.feature_branch}"
+        )
+        if shipped > 0:
+            console.print(f"[dim]Ready for review. Open PR: {final.feature_branch} → main[/dim]")
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Orchestrator paused. Resume with: owt orchestrate --resume[/yellow]")
 
 
 # ─── owt queue ─────────────────────────────────────────────────────────────

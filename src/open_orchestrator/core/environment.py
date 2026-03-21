@@ -568,6 +568,17 @@ def inject_dag_context(
     )
 
 
+def inject_coordination_context(
+    worktree_path: str | Path,
+    messages: list[str],
+) -> None:
+    """Inject coordinator alerts into a worktree's CLAUDE.md."""
+    body = "\n".join(f"- {msg}" for msg in messages) if messages else ""
+    _inject_claude_md_section(
+        worktree_path, "COORDINATION", "Coordinator Alerts (OWT)", body,
+    )
+
+
 __all__ = [
     "EnvironmentSetup",
     "EnvironmentSetupError",
@@ -576,4 +587,5 @@ __all__ = [
     "sync_claude_md",
     "inject_shared_notes",
     "inject_dag_context",
+    "inject_coordination_context",
 ]
