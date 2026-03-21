@@ -337,6 +337,7 @@ async def _build_cards_async(
 
     if worktrees:
         # Merge: git worktrees enriched with status DB
+        valid_names = {wt.name for wt in worktrees}
         statuses: list[WorktreeAIStatus] = []
         for wt in worktrees:
             s = status_map.get(wt.name)
@@ -348,6 +349,14 @@ async def _build_cards_async(
                     activity_status=AIActivityStatus.IDLE,
                 )
             statuses.append(s)
+        # Auto-prune orphaned status entries (worktree deleted outside OWT)
+        orphan_names = set(status_map.keys()) - valid_names
+        if orphan_names:
+            try:
+                tracker.cleanup_orphans(list(valid_names))
+                logger.debug("Pruned %d orphaned status entries: %s", len(orphan_names), orphan_names)
+            except Exception as e:
+                logger.debug("Orphan cleanup failed: %s", e)
     else:
         # Fallback: use status DB directly (test environments, no git repo)
         statuses = list(status_map.values())
