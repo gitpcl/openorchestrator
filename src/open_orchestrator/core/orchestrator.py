@@ -67,6 +67,15 @@ class OrchestratorState(BaseModel):
 # ─── Orchestrator ──────────────────────────────────────────────────────────
 
 
+def _load_agno_config() -> AgnoConfig | None:
+    """Load Agno config, returning None if unavailable."""
+    try:
+        return load_config().agno
+    except (OSError, ValueError, KeyError) as e:
+        logger.debug("Agno config unavailable, intelligence features disabled: %s", e)
+        return None
+
+
 class Orchestrator:
     """Drives a plan end-to-end: start tasks, merge into feature branch, coordinate."""
 
@@ -122,13 +131,7 @@ class Orchestrator:
             tasks=tasks,
         )
 
-        agno_cfg = None
-        try:
-            agno_cfg = load_config().agno
-        except Exception:
-            pass
-
-        orch = cls(state, agno_config=agno_cfg)
+        orch = cls(state, agno_config=_load_agno_config())
         orch._save_state()
         return orch
 
@@ -140,14 +143,7 @@ class Orchestrator:
             raise FileNotFoundError(f"No orchestrator state found at {state_path}")
 
         state = OrchestratorState.model_validate_json(state_path.read_text())
-
-        agno_cfg = None
-        try:
-            agno_cfg = load_config().agno
-        except Exception:
-            pass
-
-        return cls(state, agno_config=agno_cfg)
+        return cls(state, agno_config=_load_agno_config())
 
     # ─── Main Loop ─────────────────────────────────────────────────────
 

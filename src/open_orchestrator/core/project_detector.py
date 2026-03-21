@@ -97,7 +97,7 @@ class ProjectDetector:
         if not project_root.is_dir():
             raise ValueError(f"Project path is not a directory: {project_root}")
 
-        logger.info(f"Detecting project type in: {project_root}")
+        logger.info("Detecting project type in: %s", project_root)
 
         # Try each project type in order
         for project_type, markers, manager_detector in self._detection_order:
@@ -106,7 +106,7 @@ class ProjectDetector:
 
             if detected_marker:
                 marker_file, default_manager = detected_marker
-                logger.debug(f"Found marker file: {marker_file}")
+                logger.debug("Found marker file: %s", marker_file)
 
                 # Use custom manager detector if available
                 if manager_detector:
@@ -123,7 +123,7 @@ class ProjectDetector:
                 )
 
         # No project type detected
-        logger.warning(f"Could not detect project type in: {project_root}")
+        logger.warning("Could not detect project type in: %s", project_root)
         return ProjectConfig(
             project_root=project_root,
             project_type=ProjectType.UNKNOWN,
@@ -195,7 +195,7 @@ class ProjectDetector:
                 return PackageManager.PIP
 
             except OSError as e:
-                logger.warning(f"Could not read pyproject.toml: {e}")
+                logger.warning("Could not read pyproject.toml: %s", e)
 
         # Fallbacks based on common files
         if (project_root / "requirements.txt").exists():
@@ -252,7 +252,7 @@ class ProjectDetector:
                     return PackageManager.YARN
 
             except (OSError, json.JSONDecodeError) as e:
-                logger.warning(f"Could not read package.json: {e}")
+                logger.warning("Could not read package.json: %s", e)
 
         # Default to npm
         return PackageManager.NPM
@@ -333,7 +333,7 @@ class ProjectDetector:
             env_file_path=env_file_path,
         )
 
-        logger.info(f"Detected {project_type.value} project with {package_manager.value} package manager")
+        logger.info("Detected %s project with %s package manager", project_type.value, package_manager.value)
 
         return config
 

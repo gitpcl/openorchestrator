@@ -370,8 +370,8 @@ class MergeManager:
             # Restore original branch
             try:
                 self.repo.git.checkout(original_branch)
-            except GitCommandError:
-                pass
+            except GitCommandError as restore_err:
+                logger.warning("Could not restore branch '%s' after failed merge: %s", original_branch, restore_err)
             raise MergeError(f"Phase 2 merge failed: {e}") from e
         finally:
             # Restore original branch if different
@@ -383,8 +383,8 @@ class MergeManager:
             if current != original_branch:
                 try:
                     self.repo.git.checkout(original_branch)
-                except GitCommandError:
-                    pass
+                except GitCommandError as restore_err:
+                    logger.warning("Could not restore branch '%s' in finally block: %s", original_branch, restore_err)
 
         result = MergeResult(
             status=MergeStatus.SUCCESS,

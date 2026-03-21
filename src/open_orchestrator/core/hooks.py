@@ -114,7 +114,7 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
 
     existing["hooks"] = hooks
     settings_path.write_text(json.dumps(existing, indent=2) + "\n")
-    logger.info(f"Installed Claude Code hooks in {settings_path}")
+    logger.info("Installed Claude Code hooks in %s", settings_path)
     return True
 
 
@@ -176,5 +176,5 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
 
     existing["hooks"] = hooks
     settings_path.write_text(json.dumps(existing, indent=2) + "\n")
-    logger.info(f"Installed Droid hooks in {settings_path}")
+    logger.info("Installed Droid hooks in %s", settings_path)
     return True

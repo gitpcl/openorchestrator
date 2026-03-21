@@ -300,7 +300,7 @@ def load_config(config_path: str | None = None) -> Config:
                 data = toml.load(path)
                 return Config(**data)
             except Exception as e:
-                logger.warning(f"Failed to load config from {path}: {e}")
+                logger.warning("Failed to load config from %s: %s", path, e)
                 continue
 
     return Config()

@@ -119,19 +119,19 @@ class EnvironmentSetup:
         worktree_path = Path(worktree_path).resolve()
         source_path = Path(source_path or self.config.project_root).resolve()
 
-        logger.info(f"Setting up environment for worktree: {worktree_path}")
+        logger.info("Setting up environment for worktree: %s", worktree_path)
 
         if copy_env:
             try:
                 self.setup_env_file(worktree_path, source_path)
             except EnvFileError as e:
-                logger.warning(f"Could not set up .env file: {e}")
+                logger.warning("Could not set up .env file: %s", e)
                 # Continue with setup, .env is optional
 
         if install_deps:
             self.install_dependencies(worktree_path)
 
-        logger.info(f"Environment setup complete for: {worktree_path}")
+        logger.info("Environment setup complete for: %s", worktree_path)
 
     def install_dependencies(
         self,
@@ -158,7 +158,7 @@ class EnvironmentSetup:
         install_cmd = self._install_commands.get(self.config.package_manager)
 
         if not install_cmd:
-            logger.warning(f"No install command for package manager: {self.config.package_manager}")
+            logger.warning("No install command for package manager: %s", self.config.package_manager)
             raise DependencyInstallError(f"Unknown package manager: {self.config.package_manager}")
 
         # Check if the command is available
@@ -168,7 +168,7 @@ class EnvironmentSetup:
                 f"Command not found: {executable}. Please ensure {self.config.package_manager.value} is installed."
             )
 
-        logger.info(f"Installing dependencies with {self.config.package_manager.value}: {' '.join(install_cmd)}")
+        logger.info("Installing dependencies with %s: %s", self.config.package_manager.value, ' '.join(install_cmd))
 
         try:
             # Stream output to temporary file instead of memory to prevent 3GB+ spikes
@@ -188,7 +188,7 @@ class EnvironmentSetup:
                 if result.returncode != 0:
                     output_file.seek(0)
                     output_text = output_file.read()
-                    logger.error(f"Dependency installation failed: {output_text}")
+                    logger.error("Dependency installation failed: %s", output_text)
                     raise DependencyInstallError(f"Installation failed with exit code {result.returncode}: {output_text}")
 
             logger.info("Dependencies installed successfully")
@@ -235,10 +235,10 @@ class EnvironmentSetup:
         target_env = worktree_path / ".env"
 
         if not source_env.exists():
-            logger.debug(f"No .env file found at: {source_env}")
+            logger.debug("No .env file found at: %s", source_env)
             return None
 
-        logger.info(f"Copying .env file from {source_env} to {target_env}")
+        logger.info("Copying .env file from %s to %s", source_env, target_env)
 
         try:
             if adjust_paths:
@@ -270,7 +270,7 @@ class EnvironmentSetup:
                         f"Could not set restrictive permissions on {target_env}. Manual chmod may be required for security."
                     )
 
-            logger.info(f".env file set up at: {target_env}")
+            logger.info(".env file set up at: %s", target_env)
             return target_env
 
         except OSError as e:
@@ -312,7 +312,7 @@ class EnvironmentSetup:
             adjusted = adjusted.replace(source_str, worktree_str)
 
         if adjusted != content:
-            logger.debug(f"Adjusted paths in .env: {source_str} -> {worktree_str}")
+            logger.debug("Adjusted paths in .env: %s -> %s", source_str, worktree_str)
 
         return adjusted
 
@@ -360,13 +360,17 @@ class EnvironmentSetup:
             if source_file.exists() and not target_file.exists():
                 try:
                     shutil.copy2(source_file, target_file)
+                    try:
+                        os.chmod(target_file, 0o600)
+                    except PermissionError:
+                        logger.warning("Could not set restrictive permissions on %s", target_file)
                     copied_files.append(target_file)
-                    logger.debug(f"Copied config file: {filename}")
+                    logger.debug("Copied config file: %s", filename)
                 except OSError as e:
-                    logger.warning(f"Could not copy {filename}: {e}")
+                    logger.warning("Could not copy %s: %s", filename, e)
 
         if copied_files:
-            logger.info(f"Copied {len(copied_files)} additional config files")
+            logger.info("Copied %s additional config files", len(copied_files))
 
         return copied_files
 
@@ -433,10 +437,10 @@ class EnvironmentSetup:
         for marker in markers:
             marker_path = worktree_path / marker
             if marker_path.exists():
-                logger.debug(f"Found installation marker: {marker}")
+                logger.debug("Found installation marker: %s", marker)
                 return True
 
-        logger.warning(f"Could not verify installation for {self.config.package_manager.value}")
+        logger.warning("Could not verify installation for %s", self.config.package_manager.value)
         return False
 
 
@@ -484,16 +488,25 @@ def sync_claude_md(
                 # Copy the file
                 shutil.copy2(source_file, target_file)
                 copied_files.append(target_file)
-                logger.info(f"Copied CLAUDE.md from {location}")
+                logger.info("Copied CLAUDE.md from %s", location)
             except OSError as e:
-                logger.warning(f"Could not copy {location}: {e}")
+                logger.warning("Could not copy %s: %s", location, e)
 
     if copied_files:
-        logger.info(f"Synced {len(copied_files)} CLAUDE.md file(s) to worktree")
+        logger.info("Synced %s CLAUDE.md file(s) to worktree", len(copied_files))
     else:
         logger.debug("No CLAUDE.md files found to sync")
 
     return copied_files
+
+
+def _sanitize_injection(text: str) -> str:
+    """Strip HTML comment markers from externally-sourced content.
+
+    Prevents injected notes/coordination from manipulating CLAUDE.md
+    section boundaries via marker injection.
+    """
+    return text.replace("<!--", "").replace("-->", "")
 
 
 def _inject_claude_md_section(
@@ -513,6 +526,7 @@ def _inject_claude_md_section(
         section_title: Markdown heading for the section.
         body: Pre-formatted body content (empty string to remove section).
     """
+    body = _sanitize_injection(body)
     worktree_path = Path(worktree_path).resolve()
     claude_md = worktree_path / ".claude" / "CLAUDE.md"
 
@@ -539,7 +553,7 @@ def _inject_claude_md_section(
         content = content.rstrip() + "\n" + block
 
     claude_md.write_text(content)
-    logger.info(f"Injected section '{section_title}' into {claude_md}")
+    logger.info("Injected section '%s' into %s", section_title, claude_md)
 
 
 def inject_shared_notes(

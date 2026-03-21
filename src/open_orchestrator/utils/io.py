@@ -161,7 +161,10 @@ def atomic_write_text(path: str | Path, data: str, perms: int = 0o600) -> None:
         try:
             os.chmod(dest, perms)
         except PermissionError:
-            logger.warning(f"Could not set permissions {oct(perms)} on {dest}. File was written but permissions may be insecure.")
+            logger.warning(
+                "Could not set permissions %s on %s — file may be insecure",
+                oct(perms), dest,
+            )
     finally:
         # Clean up temp file if replace failed
         if tmp_name is not None:
@@ -191,7 +194,7 @@ def safe_read_json(path: str | Path) -> dict[str, Any] | None:
                 data: dict[str, Any] = json.load(f)
                 return data
     except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Failed to read JSON from {path}: {e}")
+        logger.warning("Failed to read JSON from %s: %s", path, e)
         return None
 
 

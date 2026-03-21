@@ -392,7 +392,7 @@ owt send api-refactor "Focus on the /users endpoint first"
 
 ```bash
 uv pip install -e .
-uv run pytest
+uv run pytest              # 499 tests
 uv run ruff check src/
 uv run mypy src/
 ```
@@ -428,7 +428,8 @@ src/open_orchestrator/
 │   ├── branch_namer.py        # Task → branch name
 │   ├── project_detector.py    # Auto-detect project type
 │   ├── pane_actions.py        # Create/remove orchestration
-│   └── agent_detector.py      # Detect installed AI tools
+│   ├── agent_detector.py      # Detect installed AI tools
+│   └── theme.py               # Centralized color constants (Material Design 2)
 ├── models/
 │   ├── intelligence.py        # Agno structured output models (TaskPlan, QualityVerdict, etc.)
 │   ├── worktree_info.py       # Worktree models

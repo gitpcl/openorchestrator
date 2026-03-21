@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import collections.abc
+import logging
 import os
 import re
 import subprocess
@@ -30,6 +31,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
+from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, Static
 
@@ -39,6 +41,8 @@ from open_orchestrator.core.theme import COLORS, STATUS_COLORS
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.core.worktree import WorktreeManager
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
+
+logger = logging.getLogger(__name__)
 
 # Status light characters and colors (Rich markup)
 STATUS_LIGHTS: dict[str, tuple[str, str]] = {
@@ -267,8 +271,8 @@ def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
                 if total_dels:
                     stat_parts.append(f"-{total_dels}")
                 return files, " ".join(stat_parts)
-    except (subprocess.TimeoutExpired, OSError):
-        pass
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.debug("git diff failed for worktree: %s", e)
     return [], ""
 
 
@@ -657,7 +661,7 @@ class DetailModal(ModalScreen[None]):
             yield Static("\n".join(self._lines), classes="modal-body")
             yield Static("[dim]Esc[/dim] close", classes="modal-hint")
 
-    def on_key(self, event: object) -> None:
+    def on_key(self, event: Key) -> None:
         self.dismiss(None)
 
     def action_close(self) -> None:

@@ -111,6 +111,25 @@ def _build_memory_context(
 # ─── Codebase Tools (exposed to Agno agents) ──────────────────────────────
 
 
+def _confine_to_repo(path: str, repo_root: str | None) -> Path:
+    """Resolve path and ensure it's within the repository root.
+
+    Raises ValueError if the path escapes the repo boundary.
+    """
+    p = Path(path).resolve()
+    if repo_root:
+        root = Path(repo_root).resolve()
+        try:
+            p.relative_to(root)
+        except ValueError:
+            raise ValueError(f"Access denied — path is outside the repository: {path}")
+    return p
+
+
+# Module-level repo root set by agents before tool registration
+_active_repo_root: str | None = None
+
+
 def _read_file(path: str, max_lines: int = 200) -> str:
     """Read a file from the repository.
 
@@ -122,13 +141,15 @@ def _read_file(path: str, max_lines: int = 200) -> str:
         File contents (truncated to max_lines).
     """
     try:
-        p = Path(path)
+        p = _confine_to_repo(path, _active_repo_root)
         if not p.exists():
             return f"Error: File not found: {path}"
         lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
         if len(lines) > max_lines:
             return "\n".join(lines[:max_lines]) + f"\n\n... ({len(lines) - max_lines} more lines)"
         return "\n".join(lines)
+    except ValueError as e:
+        return f"Error: {e}"
     except Exception as e:
         return f"Error reading file: {e}"
 
@@ -143,6 +164,14 @@ def _list_directory(path: str, max_depth: int = 2) -> str:
     Returns:
         Tree-formatted directory listing.
     """
+    try:
+        root = _confine_to_repo(path, _active_repo_root)
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if not root.is_dir():
+        return f"Error: Not a directory: {path}"
+
     skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache", ".ruff_cache", "dist", "build"}
     result: list[str] = []
 
@@ -164,9 +193,6 @@ def _list_directory(path: str, max_depth: int = 2) -> str:
             if entry.is_dir():
                 _walk(entry, depth + 1, prefix + "  ")
 
-    root = Path(path)
-    if not root.is_dir():
-        return f"Error: Not a directory: {path}"
     result.append(f"{root.name}/")
     _walk(root, 1, "  ")
     return "\n".join(result)
@@ -241,7 +267,10 @@ class AgnoPlanner:
         Returns:
             Path to the generated plan.toml.
         """
-        from agno.agent import Agent  # type: ignore[import-not-found]
+        from agno.agent import Agent
+
+        global _active_repo_root  # noqa: PLW0603
+        _active_repo_root = repo_path
 
         output_path = Path(output_path) if output_path else Path(repo_path) / "plan.toml"
 
@@ -496,7 +525,10 @@ class AgnoCoordinator:
         Returns:
             List of CoordinationAction with target worktrees and messages.
         """
-        from agno.agent import Agent  # type: ignore[import-not-found]
+        from agno.agent import Agent
+
+        global _active_repo_root  # noqa: PLW0603
+        _active_repo_root = self.repo_path
 
         model_id = self.config.coordinator_model_id or self.config.model_id
         model = _resolve_model(model_id, self.config.max_tokens, self.config.temperature)

@@ -268,8 +268,8 @@ def new_worktree(
             tmux_session=session_name,
             ai_tool=ai_tool_enum,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        console.print(f"[yellow]Status tracking init failed: {e}[/yellow]")
 
     # 6. Send task description as initial prompt
     if task_description and session_name:

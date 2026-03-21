@@ -86,9 +86,6 @@ class StatusConfig:
 
     storage_path: Path | None = None
 
-    def __post_init__(self) -> None:
-        pass
-
 
 class StatusTracker:
     """
