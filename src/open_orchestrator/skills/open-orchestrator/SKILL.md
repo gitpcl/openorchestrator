@@ -150,7 +150,9 @@ The orchestrator merges completed tasks into a **feature branch** (not main), pe
 
 **Agent execution model:** Orchestrated agents run in print mode (`claude ... -p < /tmp/owt-prompt-xxx.md`) with the prompt piped from a temp file via stdin redirection (avoids tmux send-keys buffer truncation on long prompts). The agent exits automatically when done — no `/exit` needed. The pane shell cleans up the temp file and closes on exit (`rm -f ...; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
 
-**Safety nets:** Before shipping, the orchestrator (1) auto-commits any uncommitted work left by agents (`feat(auto):` prefix), and (2) refuses to ship branches with zero new commits — marking them "failed" instead of silently merging empty branches.
+**Safety nets:** Before shipping, the orchestrator (1) auto-commits any uncommitted work left by agents (`feat(auto):` prefix), (2) runs an optional Agno quality gate, (3) refuses to ship branches with zero new commits, and (4) retries failed tasks once with failure context injected into the prompt. Per-task timeouts (default 30 min) prevent hung agents from blocking the DAG.
+
+**Agent prompts:** Agents receive a structured session init protocol (orient → explore → implement → test → verify → commit) and project context (detected test/dev commands) via CLAUDE.md injection. Progress is tracked via incremental `wip:` commits visible in the switchboard.
 
 ### 7. Batch Autopilot (DAG-Aware)
 ```bash

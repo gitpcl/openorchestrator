@@ -20,6 +20,8 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
 - **Orchestrator Agent** — `owt orchestrate` drives a plan end-to-end into a feature branch with coordination, user presence detection, and stop/resume
 - **Print-mode agents** — orchestrated agents run via `claude -p` with prompts piped from temp files (stdin redirection), auto-exit when done; `OWT_AUTOMATED=1` env var lets user hooks distinguish automated from interactive sessions
+- **Session init protocol** — agents receive a structured 6-step prompt (orient → explore → implement → test → verify → commit) based on Anthropic's harness design research, with project test/dev commands auto-injected
+- **Retry + timeouts** — failed tasks retry once with failure context; 30-min default timeout prevents hung agents from blocking the DAG
 - **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops with DAG-aware scheduling
 - **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
 - **Merge Queue** — `owt queue` shows optimal merge order; `owt queue --ship` ships all completed work intelligently
@@ -324,7 +326,7 @@ owt switch auth-models
 # User opens PR: feat/auth-v2 → main
 ```
 
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in print mode (`claude -p`) with prompts piped from temp files via stdin redirection, exiting automatically when done — no manual `/exit` needed. Safety nets: auto-commits uncommitted agent work before merge, and refuses to ship branches with zero new commits.
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in print mode (`claude -p`) with a structured session init protocol prompt, exiting automatically when done. Safety nets: auto-commits uncommitted work, optional quality gate, empty-branch guard, retry with failure context, and per-task timeouts (30 min default).
 
 ### Overnight Autopilot (Batch Mode)
 ```toml
@@ -408,7 +410,7 @@ owt send api-refactor "Focus on the /users endpoint first"
 
 ```bash
 uv pip install -e .
-uv run pytest              # 533 tests
+uv run pytest              # 534 tests
 uv run ruff check src/
 uv run mypy src/
 ```
