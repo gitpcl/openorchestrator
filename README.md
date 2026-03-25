@@ -324,7 +324,7 @@ owt switch auth-models
 # User opens PR: feat/auth-v2 → main
 ```
 
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in non-interactive print mode (`claude -p`), exiting automatically when done — no manual `/exit` needed.
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in non-interactive print mode (`claude -p`), exiting automatically when done — no manual `/exit` needed. Safety nets: auto-commits uncommitted agent work before merge, and refuses to ship branches with zero new commits.
 
 ### Overnight Autopilot (Batch Mode)
 ```toml
@@ -408,7 +408,7 @@ owt send api-refactor "Focus on the /users endpoint first"
 
 ```bash
 uv pip install -e .
-uv run pytest              # 532 tests
+uv run pytest              # 528 tests
 uv run ruff check src/
 uv run mypy src/
 ```

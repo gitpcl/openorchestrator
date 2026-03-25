@@ -150,6 +150,8 @@ The orchestrator merges completed tasks into a **feature branch** (not main), pe
 
 **Agent execution model:** Orchestrated agents run in non-interactive print mode (`claude -p "prompt"`), which exits automatically when the task is complete — no `/exit` needed. The pane shell closes on exit (`; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
 
+**Safety nets:** Before shipping, the orchestrator (1) auto-commits any uncommitted work left by agents (`feat(auto):` prefix), and (2) refuses to ship branches with zero new commits — marking them "failed" instead of silently merging empty branches.
+
 ### 7. Batch Autopilot (DAG-Aware)
 ```bash
 owt batch tasks.toml               # Run batch from TOML (supports depends_on)

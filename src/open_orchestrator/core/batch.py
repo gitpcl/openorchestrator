@@ -562,17 +562,23 @@ class BatchRunner:
             except Exception:
                 pass
 
-            # Auto-commit any uncommitted work before merging
+            # Auto-commit any uncommitted work (safety net for agents
+            # that create files but exit before committing)
             merge_mgr = MergeManager(repo_path=Path(self.repo_path))
-            dirty = merge_mgr.check_uncommitted_changes(result.worktree_name)
-            if dirty:
-                from git import Repo
+            merge_mgr.auto_commit_worktree(result.worktree_name)
 
-                wt = merge_mgr.wt_manager.get(result.worktree_name)
-                wt_repo = Repo(wt.path)
-                wt_repo.git.add("-A")
-                branch_desc = wt.branch.split("/")[-1].replace("-", " ")
-                wt_repo.git.commit("-m", f"feat: {branch_desc}")
+            # Guard: refuse to ship if branch has no new commits
+            wt = merge_mgr.wt_manager.get(result.worktree_name)
+            base = merge_mgr.get_base_branch(wt.branch)
+            commits = merge_mgr.count_commits_ahead(wt.branch, base)
+            if commits == 0:
+                result.status = BatchStatus.FAILED
+                result.error = "No commits produced — nothing to ship"
+                logger.warning(
+                    "Task %d produced no commits in '%s' — not shipping",
+                    idx, result.worktree_name,
+                )
+                return
 
             merge_mgr.merge(
                 worktree_name=result.worktree_name,

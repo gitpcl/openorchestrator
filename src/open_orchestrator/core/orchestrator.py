@@ -310,17 +310,23 @@ class Orchestrator:
             except Exception:
                 pass
 
-            # Auto-commit uncommitted work
+            # Auto-commit uncommitted work (safety net for agents that
+            # create files but exit before committing)
             merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
-            dirty = merge_mgr.check_uncommitted_changes(task.worktree_name)
-            if dirty:
-                from git import Repo
+            merge_mgr.auto_commit_worktree(task.worktree_name)
 
-                wt = merge_mgr.wt_manager.get(task.worktree_name)
-                wt_repo = Repo(wt.path)
-                wt_repo.git.add("-A")
-                branch_desc = wt.branch.split("/")[-1].replace("-", " ")
-                wt_repo.git.commit("-m", f"feat: {branch_desc}")
+            # Guard: refuse to ship if branch has no new commits.
+            # Prevents data-loss scenario where empty branches are merged
+            # and worktrees deleted, losing uncommitted agent work.
+            wt = merge_mgr.wt_manager.get(task.worktree_name)
+            commits = merge_mgr.count_commits_ahead(wt.branch, self.state.feature_branch)
+            if commits == 0:
+                task.status = "failed"
+                logger.warning(
+                    "Task '%s' produced no commits in '%s' — not shipping",
+                    task.id, task.worktree_name,
+                )
+                return
 
             merge_mgr.merge(
                 worktree_name=task.worktree_name,
@@ -329,7 +335,7 @@ class Orchestrator:
             )
             self.tracker.remove_status(task.worktree_name)
             task.status = "shipped"
-            logger.info("Shipped task '%s' into '%s'", task.id, self.state.feature_branch)
+            logger.info("Shipped task '%s' (%d commits) into '%s'", task.id, commits, self.state.feature_branch)
         except Exception as e:
             logger.error("Merge failed for task '%s': %s", task.id, e)
             task.status = "failed"

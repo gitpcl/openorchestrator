@@ -97,6 +97,29 @@ class TestCheckUncommittedChanges:
         git_repo.git.worktree("remove", str(wt_path), "--force")
 
 
+class TestAutoCommitWorktree:
+    def test_clean_worktree_returns_zero(self, merge_manager: MergeManager, git_repo: Repo):
+        wt_path = Path(git_repo.working_dir).parent / "wt-clean"
+        git_repo.git.worktree("add", str(wt_path), "-b", "feat/clean")
+        assert merge_manager.auto_commit_worktree("clean") == 0
+        git_repo.git.worktree("remove", str(wt_path), "--force")
+
+    def test_dirty_worktree_commits_and_returns_count(self, merge_manager: MergeManager, git_repo: Repo):
+        wt_path = Path(git_repo.working_dir).parent / "wt-autocommit"
+        git_repo.git.worktree("add", str(wt_path), "-b", "feat/autocommit")
+        # Create untracked files
+        (wt_path / "new_file.py").write_text("print('hello')")
+        (wt_path / "another.txt").write_text("data")
+        count = merge_manager.auto_commit_worktree("autocommit")
+        assert count == 2
+        # Verify the commit was made
+        wt_repo = Repo(wt_path)
+        assert "feat(auto)" in wt_repo.head.commit.message
+        # Verify worktree is now clean
+        assert merge_manager.check_uncommitted_changes("autocommit") == []
+        git_repo.git.worktree("remove", str(wt_path), "--force")
+
+
 class TestMerge:
     def test_simple_merge(self, merge_manager: MergeManager, git_repo: Repo):
         base = git_repo.active_branch.name

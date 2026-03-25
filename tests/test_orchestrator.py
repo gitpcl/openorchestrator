@@ -356,6 +356,53 @@ class TestOrchestrator:
             assert "git add -A && git commit" in instructions
             assert "/commit" not in instructions
 
+    def test_merge_skips_branch_with_no_commits(self):
+        """Issue 10: don't ship branches with 0 new commits."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        tasks = [TaskState(id="a", description="Do X", status="completed", worktree_name="wt-a", branch="feat/x")]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        mock_wt = MagicMock()
+        mock_wt.branch = "feat/x"
+
+        with patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM, \
+             patch.object(orch.tmux, "session_exists", return_value=False):
+            mm = MockMM.return_value
+            mm.auto_commit_worktree.return_value = 0
+            mm.wt_manager.get.return_value = mock_wt
+            mm.count_commits_ahead.return_value = 0
+
+            orch._merge_to_feature_branch(state.tasks[0])
+
+        assert state.tasks[0].status == "failed"
+        mm.merge.assert_not_called()
+
+    def test_merge_ships_branch_with_commits(self):
+        """Branches with new commits should be shipped."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        tasks = [TaskState(id="a", description="Do X", status="completed", worktree_name="wt-a", branch="feat/x")]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        mock_wt = MagicMock()
+        mock_wt.branch = "feat/x"
+
+        with patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM, \
+             patch.object(orch.tmux, "session_exists", return_value=False), \
+             patch.object(orch.tracker, "remove_status"):
+            mm = MockMM.return_value
+            mm.auto_commit_worktree.return_value = 0
+            mm.wt_manager.get.return_value = mock_wt
+            mm.count_commits_ahead.return_value = 3
+
+            orch._merge_to_feature_branch(state.tasks[0])
+
+        assert state.tasks[0].status == "shipped"
+        mm.merge.assert_called_once()
+
     def test_start_task_prompt_includes_commit_instruction(self):
         """Prompt should instruct agent to commit (exit is handled by print mode)."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState

@@ -143,6 +143,31 @@ class MergeManager:
                 result.append(f)
         return result
 
+    def auto_commit_worktree(self, worktree_name: str) -> int:
+        """Auto-commit any uncommitted work in a worktree.
+
+        Safety net for orchestrator/batch: ensures agent-created files
+        are committed before merge so they are not lost on cleanup.
+
+        Returns:
+            Number of files committed (0 if worktree is clean).
+        """
+        dirty = self.check_uncommitted_changes(worktree_name)
+        if not dirty:
+            return 0
+
+        worktree = self.wt_manager.get(worktree_name)
+        wt_repo = Repo(worktree.path)
+        wt_repo.git.add("-A")
+        branch_desc = worktree.branch.split("/")[-1].replace("-", " ")
+        wt_repo.git.commit("-m", f"feat(auto): {branch_desc}")
+        logger.info(
+            "Auto-committed %d file(s) in '%s': %s",
+            len(dirty), worktree_name,
+            ", ".join(dirty[:5]) + ("..." if len(dirty) > 5 else ""),
+        )
+        return len(dirty)
+
     def get_modified_files(self, branch: str, base: str) -> list[str]:
         """Get files modified on branch vs base."""
         try:
