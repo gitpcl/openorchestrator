@@ -1086,10 +1086,11 @@ class SwitchboardApp(App[None]):
         self._cards, self._file_map = await _build_cards_async(self._tracker, self._wt_manager)
 
         # Periodic orphan cleanup (~every 20s)
+        # Pass current card names as valid — entries not in this list are pruned.
+        # When no cards exist, all status entries are orphans and get cleaned up.
         if self._heavy_refresh_count % 10 == 0:
             valid_names = [c.name for c in self._cards]
-            if valid_names:
-                self._tracker.cleanup_orphans(valid_names)
+            self._tracker.cleanup_orphans(valid_names)
 
         # Cache statuses for light-tick elapsed updates
         self._cached_statuses = {
