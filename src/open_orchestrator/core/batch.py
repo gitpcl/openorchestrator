@@ -23,7 +23,7 @@ from typing import Any
 import toml
 
 from open_orchestrator.config import AITool
-from open_orchestrator.core.pane_actions import PaneActionError, create_pane
+from open_orchestrator.core.pane_actions import PaneActionError, build_agent_prompt, create_pane
 from open_orchestrator.core.status import StatusTracker
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.models.status import AIActivityStatus
@@ -62,6 +62,8 @@ class BatchResult:
     worktree_name: str | None = None
     status: BatchStatus = BatchStatus.PENDING
     error: str | None = None
+    retry_count: int = 0
+    max_retries: int = 1
     completion_summary: str | None = None
     parent_summaries: list[str] = field(default_factory=list)
 
@@ -515,17 +517,19 @@ class BatchRunner:
                 result.status = BatchStatus.FAILED
                 result.error = f"Unknown ai_tool: {task.ai_tool!r}"
                 return
+            retry_context = None
+            if result.retry_count > 0 and result.error:
+                retry_context = (
+                    f"RETRY ATTEMPT {result.retry_count}: "
+                    f"Previous attempt failed: {result.error}"
+                )
             pane = create_pane(
                 session_name=f"batch-{idx}",
                 repo_path=self.repo_path,
                 branch=branch,
                 ai_tool=ai_tool_enum,
                 plan_mode=task.plan_mode,
-                ai_instructions=(
-                    task.description
-                    + "\n\nWhen you have completed all changes, stage and commit:"
-                    + " git add -A && git commit -m 'feat: <description>'"
-                ),
+                ai_instructions=build_agent_prompt(task.description, retry_context),
             )
             result.worktree_name = pane.worktree_name
             result.status = BatchStatus.RUNNING
@@ -542,6 +546,27 @@ class BatchRunner:
         except PaneActionError as e:
             result.status = BatchStatus.FAILED
             result.error = str(e)
+
+    def _handle_batch_failure(self, idx: int, reason: str) -> None:
+        """Handle a batch task failure with optional retry."""
+        result = self.results[idx]
+        result.error = reason
+        if result.retry_count < result.max_retries:
+            result.retry_count += 1
+            logger.info(
+                "Task %d failed (%s) — retrying (%d/%d)",
+                idx, reason, result.retry_count, result.max_retries,
+            )
+            if result.worktree_name:
+                from open_orchestrator.core.pane_actions import teardown_worktree
+
+                teardown_worktree(result.worktree_name, repo_path=self.repo_path)
+                self.tracker.remove_status(result.worktree_name)
+            result.worktree_name = None
+            result.status = BatchStatus.PENDING
+        else:
+            result.status = BatchStatus.FAILED
+            logger.warning("Task %d failed permanently: %s", idx, reason)
 
     def _ship_task(self, idx: int) -> None:
         """Ship a completed batch task."""
@@ -572,12 +597,7 @@ class BatchRunner:
             base = merge_mgr.get_base_branch(wt.branch)
             commits = merge_mgr.count_commits_ahead(wt.branch, base)
             if commits == 0:
-                result.status = BatchStatus.FAILED
-                result.error = "No commits produced — nothing to ship"
-                logger.warning(
-                    "Task %d produced no commits in '%s' — not shipping",
-                    idx, result.worktree_name,
-                )
+                self._handle_batch_failure(idx, "No commits produced — nothing to ship")
                 return
 
             merge_mgr.merge(
@@ -587,5 +607,4 @@ class BatchRunner:
             self.tracker.remove_status(result.worktree_name)
             result.status = BatchStatus.SHIPPED
         except Exception as e:
-            result.status = BatchStatus.FAILED
-            result.error = f"Ship failed: {e}"
+            self._handle_batch_failure(idx, f"Ship failed: {e}")

@@ -323,6 +323,31 @@ class ProjectDetector:
         if env_candidate.exists():
             env_file_path = env_candidate
 
+        # Determine test and dev commands
+        test_commands: dict[tuple[ProjectType, PackageManager], str] = {
+            (ProjectType.PYTHON, PackageManager.UV): "uv run pytest",
+            (ProjectType.PYTHON, PackageManager.POETRY): "poetry run pytest",
+            (ProjectType.PYTHON, PackageManager.PIPENV): "pipenv run pytest",
+            (ProjectType.PYTHON, PackageManager.PIP): "pytest",
+            (ProjectType.NODE, PackageManager.NPM): "npm test",
+            (ProjectType.NODE, PackageManager.YARN): "yarn test",
+            (ProjectType.NODE, PackageManager.PNPM): "pnpm test",
+            (ProjectType.NODE, PackageManager.BUN): "bun test",
+            (ProjectType.RUST, PackageManager.CARGO): "cargo test",
+            (ProjectType.GO, PackageManager.GO): "go test ./...",
+            (ProjectType.PHP, PackageManager.COMPOSER): "composer test",
+        }
+        dev_commands: dict[tuple[ProjectType, PackageManager], str] = {
+            (ProjectType.NODE, PackageManager.NPM): "npm run dev",
+            (ProjectType.NODE, PackageManager.YARN): "yarn dev",
+            (ProjectType.NODE, PackageManager.PNPM): "pnpm dev",
+            (ProjectType.NODE, PackageManager.BUN): "bun run dev",
+            (ProjectType.PHP, PackageManager.COMPOSER): "php artisan serve",
+            (ProjectType.RUST, PackageManager.CARGO): "cargo run",
+            (ProjectType.GO, PackageManager.GO): "go run .",
+        }
+        key = (project_type, package_manager)
+
         config = ProjectConfig(
             project_root=project_root,
             project_type=project_type,
@@ -331,6 +356,8 @@ class ProjectDetector:
             lock_file_path=lock_file_path,
             manifest_file_path=manifest_path,
             env_file_path=env_file_path,
+            test_command=test_commands.get(key),
+            dev_command=dev_commands.get(key),
         )
 
         logger.info("Detected %s project with %s package manager", project_type.value, package_manager.value)

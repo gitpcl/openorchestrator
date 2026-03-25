@@ -7,6 +7,7 @@ AgnoCoordinator, and inject_coordination_context.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -356,11 +357,12 @@ class TestOrchestrator:
             assert "git add -A && git commit" in instructions
             assert "/commit" not in instructions
 
-    def test_merge_skips_branch_with_no_commits(self):
-        """Issue 10: don't ship branches with 0 new commits."""
+    def test_empty_branch_retries_then_fails(self):
+        """Issue 10: empty branch triggers retry, then fails permanently."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
-        tasks = [TaskState(id="a", description="Do X", status="completed", worktree_name="wt-a", branch="feat/x")]
+        tasks = [TaskState(id="a", description="Do X", status="completed",
+                           worktree_name="wt-a", branch="feat/x")]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
@@ -368,22 +370,33 @@ class TestOrchestrator:
         mock_wt.branch = "feat/x"
 
         with patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM, \
-             patch.object(orch.tmux, "session_exists", return_value=False):
+             patch("open_orchestrator.core.orchestrator.teardown_worktree"), \
+             patch.object(orch.tmux, "session_exists", return_value=False), \
+             patch.object(orch.tracker, "remove_status"):
             mm = MockMM.return_value
             mm.auto_commit_worktree.return_value = 0
             mm.wt_manager.get.return_value = mock_wt
             mm.count_commits_ahead.return_value = 0
 
+            # First call: should retry (max_retries=1 default)
             orch._merge_to_feature_branch(state.tasks[0])
+            assert state.tasks[0].status == "pending"
+            assert state.tasks[0].retry_count == 1
 
-        assert state.tasks[0].status == "failed"
+            # Simulate re-running after retry
+            state.tasks[0].status = "completed"
+            state.tasks[0].worktree_name = "wt-a-retry"
+            orch._merge_to_feature_branch(state.tasks[0])
+            assert state.tasks[0].status == "failed"  # no more retries
+
         mm.merge.assert_not_called()
 
     def test_merge_ships_branch_with_commits(self):
         """Branches with new commits should be shipped."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
-        tasks = [TaskState(id="a", description="Do X", status="completed", worktree_name="wt-a", branch="feat/x")]
+        tasks = [TaskState(id="a", description="Do X", status="completed",
+                           worktree_name="wt-a", branch="feat/x")]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
@@ -402,6 +415,26 @@ class TestOrchestrator:
 
         assert state.tasks[0].status == "shipped"
         mm.merge.assert_called_once()
+
+    def test_timeout_triggers_retry(self):
+        """Tasks that exceed timeout should be retried then failed."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        past = (datetime.now(timezone.utc) - timedelta(seconds=3600)).isoformat()
+        tasks = [TaskState(id="a", description="Slow task", status="running",
+                           worktree_name="wt-a", started_at=past)]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        with patch("open_orchestrator.core.orchestrator.teardown_worktree"), \
+             patch.object(orch, "_user_in_worktree", return_value=False), \
+             patch.object(orch, "_update_running_progress"), \
+             patch.object(orch.tracker, "get_status", return_value=None), \
+             patch.object(orch.tracker, "remove_status"):
+            orch._poll_running_tasks()
+
+        assert state.tasks[0].status == "pending"  # retried
+        assert state.tasks[0].retry_count == 1
 
     def test_start_task_prompt_includes_commit_instruction(self):
         """Prompt should instruct agent to commit (exit is handled by print mode)."""

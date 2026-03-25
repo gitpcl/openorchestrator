@@ -58,6 +58,8 @@ class ProjectConfig(BaseModel):
     manifest_file_path: Path | None = Field(default=None, description="Path to the project manifest file")
     env_file_path: Path | None = Field(default=None, description="Path to the .env file if detected")
     install_command: str = Field(default="", description="Command to install dependencies")
+    test_command: str | None = Field(default=None, description="Command to run tests")
+    dev_command: str | None = Field(default=None, description="Command to start dev server")
 
     def get_install_command(self) -> str:
         """Get the appropriate install command for this project."""

@@ -35,6 +35,45 @@ class PaneActionError(Exception):
     """Raised when a pane action fails."""
 
 
+def build_agent_prompt(
+    task_description: str,
+    retry_context: str | None = None,
+) -> str:
+    """Build the structured session init protocol prompt for an automated agent.
+
+    Encodes the session init protocol from Anthropic's harness design
+    research: orient → explore → implement → test → verify → commit.
+
+    Args:
+        task_description: The task for the agent to complete.
+        retry_context: Optional context from a previous failed attempt.
+    """
+    retry_block = f"\n{retry_context}" if retry_context else ""
+    return f"""\
+You are an AI coding agent working in an isolated git worktree.
+
+PROTOCOL — follow these steps in order:
+1. ORIENT: Read README.md and .claude/CLAUDE.md to understand the project
+2. EXPLORE: Read the source files relevant to your task
+3. IMPLEMENT: Make changes following existing code patterns
+4. TEST: Run the project's test suite and fix failures
+5. VERIFY: Run `git diff` to review all your changes
+6. COMMIT: git add -A && git commit -m 'feat: <what you did>'
+
+If you reach a good milestone before finishing everything, commit progress:
+  git add -A && git commit -m 'wip: <what you completed so far>'
+Then continue with the remaining work.
+
+TASK: {task_description}
+
+RULES:
+- You MUST commit your work. Uncommitted work is lost when this session ends.
+- If you can only partially complete the task, commit what you have with a
+  clear message about what remains.
+- Do NOT create stub files or placeholder implementations.
+{retry_block}"""
+
+
 def popup_result_path(workspace_name: str) -> str:
     """Get the temp file path for popup picker results."""
     import tempfile
@@ -126,6 +165,7 @@ def create_pane(
         raise PaneActionError(f"Failed to create worktree: {e}") from e
 
     # 2. Set up environment
+    project_config = None
     try:
         project_config = ProjectDetector().detect(str(worktree.path))
         if project_config:
@@ -137,6 +177,15 @@ def create_pane(
             )
     except EnvironmentSetupError as e:
         logger.warning("Environment setup issue: %s", e)
+
+    # 2b. Inject project context (test/dev commands) into CLAUDE.md
+    if project_config and (project_config.test_command or project_config.dev_command):
+        try:
+            from open_orchestrator.core.environment import inject_project_context
+
+            inject_project_context(str(worktree.path), project_config)
+        except Exception as e:
+            logger.debug("Project context injection skipped: %s", e)
 
     # 3. Create tmux session with print-mode prompt for automated sessions.
     #    The AI tool runs non-interactively and exits when done, causing the

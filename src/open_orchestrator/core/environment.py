@@ -567,6 +567,26 @@ def inject_shared_notes(
     )
 
 
+def inject_project_context(
+    worktree_path: str | Path,
+    project_config: "ProjectConfig",
+) -> None:
+    """Inject detected project commands into a worktree's CLAUDE.md.
+
+    Gives agents immediate knowledge of how to build and test the project,
+    eliminating wasted tokens on discovery (init.sh pattern).
+    """
+    lines = [f"- Type: {project_config.project_type.value}"]
+    lines.append(f"- Package manager: {project_config.package_manager.value}")
+    if project_config.test_command:
+        lines.append(f"- Test: `{project_config.test_command}`")
+    if project_config.dev_command:
+        lines.append(f"- Dev: `{project_config.dev_command}`")
+    _inject_claude_md_section(
+        worktree_path, "PROJECT-CONTEXT", "Project Commands (OWT)", "\n".join(lines),
+    )
+
+
 def inject_dag_context(
     worktree_path: str | Path,
     parent_summaries: list[str],

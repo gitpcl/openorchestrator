@@ -28,7 +28,7 @@ from open_orchestrator.core.batch import (
     load_batch_config,
 )
 from open_orchestrator.core.merge import MergeManager
-from open_orchestrator.core.pane_actions import PaneActionError, create_pane
+from open_orchestrator.core.pane_actions import PaneActionError, build_agent_prompt, create_pane, teardown_worktree
 from open_orchestrator.core.status import StatusTracker
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.models.status import AIActivityStatus
@@ -48,6 +48,10 @@ class TaskState(BaseModel):
     status: str = "pending"  # pending | running | completed | shipped | failed
     worktree_name: str | None = None
     branch: str | None = None
+    retry_count: int = 0
+    max_retries: int = 1
+    failure_reason: str | None = None
+    started_at: str | None = None
 
 
 class OrchestratorState(BaseModel):
@@ -59,6 +63,8 @@ class OrchestratorState(BaseModel):
     plan_path: str
     max_concurrent: int = 3
     poll_interval: int = 30
+    default_max_retries: int = 1
+    default_task_timeout: int = 1800  # 30 minutes
     tasks: list[TaskState]
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -239,20 +245,23 @@ class Orchestrator:
                 branch = f"orchestrator/{task.id}"
 
         try:
+            retry_context = None
+            if task.retry_count > 0 and task.failure_reason:
+                retry_context = (
+                    f"RETRY ATTEMPT {task.retry_count}/{task.max_retries}: "
+                    f"Previous attempt failed: {task.failure_reason}"
+                )
             pane = create_pane(
                 session_name=f"orch-{task.id}",
                 repo_path=self.state.repo_path,
                 branch=branch,
                 ai_tool=AITool.CLAUDE,
-                ai_instructions=(
-                    task.description
-                    + "\n\nWhen you have completed all changes, stage and commit:"
-                    + " git add -A && git commit -m 'feat: <description>'"
-                ),
+                ai_instructions=build_agent_prompt(task.description, retry_context),
             )
             task.worktree_name = pane.worktree_name
             task.branch = pane.branch
             task.status = "running"
+            task.started_at = datetime.now(timezone.utc).isoformat()
             logger.info("Started task '%s' in worktree '%s'", task.id, pane.worktree_name)
         except PaneActionError as e:
             task.status = "failed"
@@ -271,6 +280,18 @@ class Orchestrator:
                 logger.debug("User present in '%s', skipping auto-actions", task.worktree_name)
                 continue
 
+            # Timeout check — fail tasks that exceed the time limit
+            if task.started_at:
+                elapsed = (
+                    datetime.now(timezone.utc)
+                    - datetime.fromisoformat(task.started_at)
+                ).total_seconds()
+                if elapsed > self.state.default_task_timeout:
+                    self._handle_task_failure(
+                        task, f"Timed out after {int(elapsed)}s",
+                    )
+                    continue
+
             status = self.tracker.get_status(task.worktree_name)
             if not status:
                 continue
@@ -281,8 +302,7 @@ class Orchestrator:
                 self._merge_to_feature_branch(task)
 
             elif status.activity_status == AIActivityStatus.ERROR:
-                task.status = "failed"
-                logger.warning("Task '%s' errored in '%s'", task.id, task.worktree_name)
+                self._handle_task_failure(task, "Agent reported error")
 
             elif status.activity_status == AIActivityStatus.WORKING:
                 # Fallback: if status is WORKING but the AI process has exited
@@ -295,6 +315,34 @@ class Orchestrator:
                         task.id, task.worktree_name,
                     )
                     self._merge_to_feature_branch(task)
+
+        # Progress tracking: update status with latest commit message
+        self._update_running_progress()
+
+    def _handle_task_failure(self, task: TaskState, reason: str) -> None:
+        """Handle a task failure with optional retry.
+
+        If retries remain, tears down the worktree and resets to pending.
+        Otherwise marks as permanently failed.
+        """
+        task.failure_reason = reason
+        if task.retry_count < task.max_retries:
+            task.retry_count += 1
+            logger.info(
+                "Task '%s' failed (%s) — retrying (%d/%d)",
+                task.id, reason, task.retry_count, task.max_retries,
+            )
+            # Tear down the failed worktree so a fresh one is created on retry
+            if task.worktree_name:
+                teardown_worktree(task.worktree_name, repo_path=self.state.repo_path)
+                self.tracker.remove_status(task.worktree_name)
+            task.worktree_name = None
+            task.branch = None
+            task.started_at = None
+            task.status = "pending"
+        else:
+            task.status = "failed"
+            logger.warning("Task '%s' failed permanently: %s", task.id, reason)
 
     def _merge_to_feature_branch(self, task: TaskState) -> None:
         """Merge a completed task's worktree into the feature branch."""
@@ -315,17 +363,38 @@ class Orchestrator:
             merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
             merge_mgr.auto_commit_worktree(task.worktree_name)
 
-            # Guard: refuse to ship if branch has no new commits.
-            # Prevents data-loss scenario where empty branches are merged
-            # and worktrees deleted, losing uncommitted agent work.
+            # Quality gate (if Agno is available)
+            if self.agno_config and self.agno_config.enabled:
+                try:
+                    from open_orchestrator.core.intelligence import AgnoQualityGate
+
+                    wt = merge_mgr.wt_manager.get(task.worktree_name)
+                    diff = merge_mgr.repo.git.diff(
+                        f"{self.state.feature_branch}...{wt.branch}"
+                    )
+                    if diff:
+                        gate = AgnoQualityGate(
+                            self.agno_config, repo_path=self.state.repo_path,
+                        )
+                        verdict = gate.review(
+                            diff=diff, task_description=task.description,
+                        )
+                        if not verdict.passed:
+                            self._handle_task_failure(
+                                task,
+                                f"Quality gate ({verdict.score:.1f}): {verdict.summary}",
+                            )
+                            return
+                except ImportError:
+                    pass
+                except Exception as e:
+                    logger.debug("Quality gate skipped: %s", e)
+
+            # Guard: refuse to ship if branch has no new commits
             wt = merge_mgr.wt_manager.get(task.worktree_name)
             commits = merge_mgr.count_commits_ahead(wt.branch, self.state.feature_branch)
             if commits == 0:
-                task.status = "failed"
-                logger.warning(
-                    "Task '%s' produced no commits in '%s' — not shipping",
-                    task.id, task.worktree_name,
-                )
+                self._handle_task_failure(task, "No commits produced")
                 return
 
             merge_mgr.merge(
@@ -337,8 +406,36 @@ class Orchestrator:
             task.status = "shipped"
             logger.info("Shipped task '%s' (%d commits) into '%s'", task.id, commits, self.state.feature_branch)
         except Exception as e:
-            logger.error("Merge failed for task '%s': %s", task.id, e)
-            task.status = "failed"
+            self._handle_task_failure(task, f"Merge failed: {e}")
+
+    # ─── Progress ──────────────────────────────────────────────────────
+
+    def _update_running_progress(self) -> None:
+        """Poll git log for running tasks and push latest commit to status tracker."""
+        import subprocess
+
+        try:
+            merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
+        except Exception:
+            return
+
+        for task in self.state.tasks:
+            if task.status != "running" or not task.worktree_name or not task.branch:
+                continue
+            try:
+                wt = merge_mgr.wt_manager.get(task.worktree_name)
+                result = subprocess.run(
+                    ["git", "log", "--oneline", "-1",
+                     f"{self.state.feature_branch}..{task.branch}"],
+                    capture_output=True, text=True,
+                    cwd=str(wt.path), timeout=5,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    self.tracker.update_task(
+                        task.worktree_name, result.stdout.strip()[:100],
+                    )
+            except Exception:
+                pass
 
     # ─── User Presence ─────────────────────────────────────────────────
 
