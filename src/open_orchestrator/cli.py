@@ -459,7 +459,18 @@ def send_to_worktree(
 @click.option("--base", "base_branch", help="Target branch to merge into.")
 @click.option("--keep", is_flag=True, help="Keep the worktree after merging.")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
-def merge_worktree(worktree_name: str, base_branch: str | None, keep: bool, yes: bool) -> None:
+@click.option("--leave-conflicts", is_flag=True, help="Leave merge in-progress for manual resolution.")
+@click.option("--strategy", type=click.Choice(["ours", "theirs"]), help="Conflict resolution strategy (-X).")
+@click.option("--rebase", is_flag=True, help="Rebase onto base before merging (linear history).")
+def merge_worktree(
+    worktree_name: str,
+    base_branch: str | None,
+    keep: bool,
+    yes: bool,
+    leave_conflicts: bool,
+    strategy: str | None,
+    rebase: bool,
+) -> None:
     """Merge a worktree branch into its base and clean up.
 
     Two-phase merge with conflict detection. After success,
@@ -511,12 +522,19 @@ def merge_worktree(worktree_name: str, base_branch: str | None, keep: bool, yes:
                 worktree_name=worktree_name,
                 base_branch=base_branch,
                 delete_worktree=not keep,
+                leave_conflicts=leave_conflicts,
+                strategy=strategy,
+                rebase=rebase,
             )
     except MergeConflictError as e:
         console.print(f"\n[red]Merge conflicts:[/red] {e}")
         for conflict in e.conflicts:
             console.print(f"  [yellow]C[/yellow] {conflict}")
-        console.print(f"\n[dim]Resolve in: {worktree.path}[/dim]")
+        if leave_conflicts:
+            console.print(f"\n[bold]{'Rebase' if rebase else 'Merge'} left in-progress.[/bold] Resolve in: {worktree.path}")
+            console.print(f"[dim]After resolving: git add <files> && git {'rebase --continue' if rebase else 'commit'}[/dim]")
+        else:
+            console.print("\n[dim]Re-run with --leave-conflicts to resolve manually.[/dim]")
         raise SystemExit(1)
     except MergeError as e:
         raise click.ClickException(str(e)) from e
@@ -551,7 +569,18 @@ def merge_worktree(worktree_name: str, base_branch: str | None, keep: bool, yes:
 @click.option("--base", "base_branch", help="Target branch to merge into.")
 @click.option("-m", "--message", "commit_message", help="Commit message for uncommitted changes.")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
-def ship_worktree(worktree_name: str, base_branch: str | None, commit_message: str | None, yes: bool) -> None:
+@click.option("--leave-conflicts", is_flag=True, help="Leave merge in-progress for manual resolution.")
+@click.option("--strategy", type=click.Choice(["ours", "theirs"]), help="Conflict resolution strategy (-X).")
+@click.option("--rebase", is_flag=True, help="Rebase onto base before merging (linear history).")
+def ship_worktree(
+    worktree_name: str,
+    base_branch: str | None,
+    commit_message: str | None,
+    yes: bool,
+    leave_conflicts: bool,
+    strategy: str | None,
+    rebase: bool,
+) -> None:
     """Commit, merge, and clean up a worktree in one shot.
 
     Auto-commits any uncommitted changes, merges the branch into
@@ -678,12 +707,19 @@ def ship_worktree(worktree_name: str, base_branch: str | None, commit_message: s
                 worktree_name=worktree_name,
                 base_branch=target,
                 delete_worktree=True,
+                leave_conflicts=leave_conflicts,
+                strategy=strategy,
+                rebase=rebase,
             )
     except MergeConflictError as e:
         console.print(f"\n[red]Merge conflicts:[/red] {e}")
         for conflict in e.conflicts:
             console.print(f"  [yellow]C[/yellow] {conflict}")
-        console.print(f"\n[dim]Resolve in: {worktree.path}[/dim]")
+        if leave_conflicts:
+            console.print(f"\n[bold]{'Rebase' if rebase else 'Merge'} left in-progress.[/bold] Resolve in: {worktree.path}")
+            console.print(f"[dim]After resolving: git add <files> && git {'rebase --continue' if rebase else 'commit'}[/dim]")
+        else:
+            console.print("\n[dim]Re-run with --leave-conflicts to resolve manually.[/dim]")
         raise SystemExit(1)
     except MergeError as e:
         raise click.ClickException(str(e)) from e
@@ -745,6 +781,7 @@ def delete_worktree(identifier: str, force: bool, yes: bool) -> None:
         kill_tmux=True,
         delete_git_worktree=True,
         clean_status=True,
+        force=force,
     )
 
     git_errors = [e for e in errors if "git worktree" in e]
@@ -844,7 +881,7 @@ def cleanup_worktrees(force: bool, days: int, json_output: bool) -> None:
     worktree_paths = [str(wt.path) for wt in worktrees]
 
     with console.status("[bold blue]Scanning worktrees...") if not json_output else nullcontext():
-        report = service.cleanup(worktree_paths, dry_run=not force)
+        report = service.cleanup(worktree_paths, dry_run=not force, force=force)
 
     if json_output:
         console.print(json.dumps(report.model_dump(mode="json"), indent=2, default=str))

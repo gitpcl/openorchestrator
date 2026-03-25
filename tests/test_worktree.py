@@ -503,3 +503,59 @@ class TestParseWorktreeEntry:
         # Assert
         assert wt_info.is_main is True
         assert wt_info.path == git_repo
+
+
+class TestCWDDetection:
+    """Test that WorktreeManager resolves git_root to the main repo even from a child worktree."""
+
+    def test_git_root_from_worktree_cwd(self, git_repo: Path, temp_directory: Path) -> None:
+        """WorktreeManager initialized from a child worktree should resolve git_root to the main repo."""
+        import subprocess
+
+        wt_path = temp_directory / "child-worktree"
+        subprocess.run(
+            ["git", "worktree", "add", "-b", "feat/cwd-test", str(wt_path)],
+            cwd=git_repo,
+            capture_output=True,
+        )
+
+        # Initialize WorktreeManager from the child worktree path
+        manager = WorktreeManager(wt_path)
+
+        # git_root should point to the main repo, not the worktree
+        assert manager.git_root == git_repo
+
+        # Cleanup
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(wt_path)],
+            cwd=git_repo,
+            capture_output=True,
+        )
+
+    def test_is_main_correct_from_worktree(self, git_repo: Path, temp_directory: Path) -> None:
+        """is_main should be True only for the actual main repo, not the worktree."""
+        import subprocess
+
+        wt_path = temp_directory / "child-wt-main"
+        subprocess.run(
+            ["git", "worktree", "add", "-b", "feat/main-test", str(wt_path)],
+            cwd=git_repo,
+            capture_output=True,
+        )
+
+        manager = WorktreeManager(wt_path)
+        worktrees = manager.list_all()
+
+        main_wts = [wt for wt in worktrees if wt.is_main]
+        child_wts = [wt for wt in worktrees if not wt.is_main]
+
+        assert len(main_wts) == 1
+        assert main_wts[0].path == git_repo
+        assert any(wt.path == wt_path for wt in child_wts)
+
+        # Cleanup
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(wt_path)],
+            cwd=git_repo,
+            capture_output=True,
+        )

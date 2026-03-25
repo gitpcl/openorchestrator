@@ -192,7 +192,8 @@ class TestDeleteCommand:
 
         result = cli_runner.invoke(main, ["delete", "feature/test", "--force", "--yes"])
         assert result.exit_code == 0
-        mock_pa_wt_manager.return_value.delete.assert_called_once()
+        # Verify --force is passed through to git worktree remove
+        mock_pa_wt_manager.return_value.delete.assert_called_once_with("test-worktree", force=True)
 
     @patch("open_orchestrator.cli.WorktreeManager")
     def test_delete_nonexistent_worktree(

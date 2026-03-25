@@ -314,7 +314,7 @@ class CleanupService:
                 report.cleaned_paths.append(stats.worktree_path)
             else:
                 try:
-                    self._delete_worktree(stats.worktree_path)
+                    self._delete_worktree(stats.worktree_path, force=force)
                     self.usage_tracker.remove_stats(stats.worktree_path)
                     report.worktrees_cleaned += 1
                     report.cleaned_paths.append(stats.worktree_path)
@@ -323,7 +323,7 @@ class CleanupService:
 
         return report
 
-    def _delete_worktree(self, worktree_path: str) -> None:
+    def _delete_worktree(self, worktree_path: str, force: bool = False) -> None:
         """Delete a worktree and clean up all associated resources.
 
         Delegates to ``teardown_worktree`` which handles tmux, status DB,
@@ -334,7 +334,7 @@ class CleanupService:
         worktree_name = Path(worktree_path).name
         # Use parent dir as repo_path — worktrees are siblings of the main repo
         repo_path = str(Path(worktree_path).parent)
-        errors = teardown_worktree(worktree_name, repo_path=repo_path)
+        errors = teardown_worktree(worktree_name, repo_path=repo_path, force=force)
         git_errors = [e for e in errors if "git worktree" in e]
         if git_errors:
             raise RuntimeError(git_errors[0])

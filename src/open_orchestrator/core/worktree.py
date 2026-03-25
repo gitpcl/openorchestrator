@@ -42,7 +42,14 @@ class WorktreeManager:
         self.repo_path = repo_path or Path.cwd()
         try:
             self.repo = Repo(self.repo_path, search_parent_directories=True)
-            self.git_root = Path(self.repo.working_dir)
+            # Use --git-common-dir to always resolve to the main repo root,
+            # even when CWD is inside a child worktree.
+            try:
+                raw: str = self.repo.git.rev_parse("--git-common-dir")
+                resolved = (Path(self.repo.working_dir) / raw).resolve()
+                self.git_root: Path = resolved.parent if resolved.name == ".git" else resolved
+            except GitCommandError:
+                self.git_root = Path(self.repo.working_dir)
         except InvalidGitRepositoryError as e:
             raise NotAGitRepositoryError(f"Not a git repository: {self.repo_path}") from e
 

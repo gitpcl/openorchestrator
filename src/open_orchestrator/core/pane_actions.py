@@ -241,6 +241,7 @@ def teardown_worktree(
     kill_tmux: bool = True,
     delete_git_worktree: bool = True,
     clean_status: bool = True,
+    force: bool = False,
 ) -> list[str]:
     """Best-effort cleanup of all worktree resources.
 
@@ -279,7 +280,7 @@ def teardown_worktree(
     if delete_git_worktree and repo_path:
         try:
             wt_manager = WorktreeManager(repo_path=Path(repo_path))
-            wt_manager.delete(worktree_name)
+            wt_manager.delete(worktree_name, force=force)
         except WorktreeError as e:
             msg = f"Could not delete git worktree '{worktree_name}': {e}"
             logger.warning(msg)

@@ -72,6 +72,15 @@ class MergeManager:
         self.wt_manager = WorktreeManager(repo_path)
         self.repo = self.wt_manager.repo
 
+    @staticmethod
+    def _get_conflict_files(repo: "Repo") -> list[str]:
+        """Get list of conflicted files from a repo."""
+        try:
+            output = repo.git.diff("--name-only", "--diff-filter=U").strip()
+            return [f for f in output.split("\n") if f]
+        except GitCommandError:
+            return []
+
     def get_base_branch(self, worktree_branch: str) -> str:
         """Detect the base branch for a worktree branch.
 
@@ -232,6 +241,9 @@ class MergeManager:
         worktree_name: str,
         base_branch: str | None = None,
         delete_worktree: bool = True,
+        leave_conflicts: bool = False,
+        strategy: str | None = None,
+        rebase: bool = False,
     ) -> MergeResult:
         """Execute a two-phase merge for a worktree branch.
 
@@ -242,6 +254,9 @@ class MergeManager:
             worktree_name: The worktree identifier.
             base_branch: Target branch to merge into. Auto-detected if None.
             delete_worktree: Whether to delete the worktree after successful merge.
+            leave_conflicts: If True, leave merge in-progress for manual resolution.
+            strategy: Merge strategy option (e.g. "ours", "theirs") passed as -X.
+            rebase: If True, rebase feature onto base instead of merging (Phase 1).
 
         Returns:
             MergeResult with the outcome.
@@ -289,70 +304,88 @@ class MergeManager:
         except GitCommandError:
             pass  # Fetch failure is non-fatal; we'll try with local refs
 
+        # Use remote ref if available, fall back to local branch
         try:
-            # Use remote ref if available, fall back to local branch
+            wt_repo.git.rev_parse("--verify", f"origin/{target_branch}")
+            merge_ref = f"origin/{target_branch}"
+        except GitCommandError:
+            merge_ref = target_branch
+
+        if rebase:
+            # Phase 1 (rebase): Rebase feature onto base for linear history
             try:
-                wt_repo.git.rev_parse("--verify", f"origin/{target_branch}")
-                merge_ref = f"origin/{target_branch}"
+                wt_repo.git.rebase(merge_ref)
             except GitCommandError:
-                merge_ref = target_branch
-            wt_repo.git.merge(merge_ref, "--no-edit")
-        except GitCommandError as e:
-            # Check for conflicts
-            try:
-                conflicts = wt_repo.git.diff("--name-only", "--diff-filter=U").strip().split("\n")
-                conflicts = [c for c in conflicts if c]
-            except GitCommandError:
-                conflicts = []
-
-            if conflicts:
-                # Try AI-powered conflict resolution before aborting
-                resolved = False
-                try:
-                    from open_orchestrator.config import load_config
-
-                    config = load_config()
-                    if config.agno.enabled and config.agno.auto_resolve_conflicts:
-                        from open_orchestrator.core.intelligence import AgnoConflictResolver
-
-                        conflicted_contents: dict[str, str] = {}
-                        for cf in conflicts:
-                            cf_path = Path(worktree.path) / cf
-                            if cf_path.exists():
-                                conflicted_contents[cf] = cf_path.read_text(encoding="utf-8", errors="replace")
-
-                        if conflicted_contents:
-                            resolution = AgnoConflictResolver(config.agno, repo_path=str(worktree.path)).resolve(
-                                conflicted_files=conflicted_contents,
-                                source_branch=source_branch,
-                                target_branch=target_branch,
-                            )
-                            if resolution.confidence > 0.8 and not resolution.requires_human and resolution.resolutions:
-                                for file_path, content in resolution.resolutions.items():
-                                    resolved_path = Path(worktree.path) / file_path
-                                    resolved_path.write_text(content, encoding="utf-8")
-                                    wt_repo.git.add(file_path)
-                                wt_repo.git.commit("-m", f"fix: auto-resolve merge conflicts ({resolution.explanation[:60]})")
-                                resolved = True
-                                logger.info("AI resolved %d conflict(s): %s", len(conflicts), resolution.explanation)
-                except ImportError:
-                    pass
-                except Exception as exc:
-                    logger.debug("AI conflict resolution failed: %s", exc)
-
-                if not resolved:
-                    # Abort the merge so the worktree isn't left in a broken state
+                conflicts = self._get_conflict_files(wt_repo)
+                if not leave_conflicts:
                     try:
-                        wt_repo.git.merge("--abort")
+                        wt_repo.git.rebase("--abort")
                     except GitCommandError:
                         pass
+                raise MergeConflictError(
+                    f"Rebase conflicts rebasing '{source_branch}' onto '{target_branch}'"
+                    + (" (rebase left in-progress for manual resolution)" if leave_conflicts else ""),
+                    conflicts=conflicts,
+                )
+        else:
+            # Phase 1 (merge): Merge base into feature branch
+            try:
+                merge_args = [merge_ref, "--no-edit"]
+                if strategy:
+                    merge_args.extend(["-X", strategy])
+                wt_repo.git.merge(*merge_args)
+            except GitCommandError as e:
+                conflicts = self._get_conflict_files(wt_repo)
 
-                    raise MergeConflictError(
-                        f"Merge conflicts detected when merging '{target_branch}' into '{source_branch}'",
-                        conflicts=conflicts,
-                    )
+                if conflicts:
+                    # Try AI-powered conflict resolution before aborting
+                    resolved = False
+                    try:
+                        from open_orchestrator.config import load_config
 
-            raise MergeError(f"Phase 1 merge failed: {e}") from e
+                        config = load_config()
+                        if config.agno.enabled and config.agno.auto_resolve_conflicts:
+                            from open_orchestrator.core.intelligence import AgnoConflictResolver
+
+                            conflicted_contents: dict[str, str] = {}
+                            for cf in conflicts:
+                                cf_path = Path(worktree.path) / cf
+                                if cf_path.exists():
+                                    conflicted_contents[cf] = cf_path.read_text(encoding="utf-8", errors="replace")
+
+                            if conflicted_contents:
+                                resolution = AgnoConflictResolver(config.agno, repo_path=str(worktree.path)).resolve(
+                                    conflicted_files=conflicted_contents,
+                                    source_branch=source_branch,
+                                    target_branch=target_branch,
+                                )
+                                if resolution.confidence > 0.8 and not resolution.requires_human and resolution.resolutions:
+                                    for file_path, content in resolution.resolutions.items():
+                                        resolved_path = Path(worktree.path) / file_path
+                                        resolved_path.write_text(content, encoding="utf-8")
+                                        wt_repo.git.add(file_path)
+                                    wt_repo.git.commit("-m", f"fix: auto-resolve merge conflicts ({resolution.explanation[:60]})")
+                                    resolved = True
+                                    logger.info("AI resolved %d conflict(s): %s", len(conflicts), resolution.explanation)
+                    except ImportError:
+                        pass
+                    except Exception as exc:
+                        logger.debug("AI conflict resolution failed: %s", exc)
+
+                    if not resolved:
+                        if not leave_conflicts:
+                            try:
+                                wt_repo.git.merge("--abort")
+                            except GitCommandError:
+                                pass
+
+                        raise MergeConflictError(
+                            f"Merge conflicts detected when merging '{target_branch}' into '{source_branch}'"
+                            + (" (merge left in-progress for manual resolution)" if leave_conflicts else ""),
+                            conflicts=conflicts,
+                        )
+
+                raise MergeError(f"Phase 1 merge failed: {e}") from e
 
         # Phase 2: Merge feature branch into base (from main repo)
         # Switch to base branch in the main repo
@@ -363,6 +396,13 @@ class MergeManager:
                 "Main repository is in detached HEAD state. "
                 "Checkout a branch before running merge."
             )
+
+        # Auto-stash main repo if dirty (prevents checkout failure)
+        main_stashed = False
+        if self.repo.is_dirty(untracked_files=True):
+            self.repo.git.stash("push", "-m", "owt-merge-autostash")
+            main_stashed = True
+
         try:
             self.repo.git.checkout(target_branch)
             self.repo.git.merge(source_branch, "--no-edit")
@@ -385,6 +425,12 @@ class MergeManager:
                     self.repo.git.checkout(original_branch)
                 except GitCommandError as restore_err:
                     logger.warning("Could not restore branch '%s' in finally block: %s", original_branch, restore_err)
+            # Pop stash after restoring branch
+            if main_stashed:
+                try:
+                    self.repo.git.stash("pop")
+                except GitCommandError as stash_err:
+                    logger.warning("Could not pop stash: %s. Run 'git stash pop' manually.", stash_err)
 
         result = MergeResult(
             status=MergeStatus.SUCCESS,

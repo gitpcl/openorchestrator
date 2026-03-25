@@ -276,6 +276,29 @@ class TestCleanupService:
         assert report.worktrees_cleaned == 1
         assert report.worktrees_skipped == 0
 
+    def test_cleanup_force_deletes_dirty_worktrees(self, service, mock_tracker):
+        old_date = datetime.now() - timedelta(days=20)
+
+        with patch.object(service, "get_stale_worktrees") as mock_stale:
+            mock_stale.return_value = [
+                WorktreeUsageStats(
+                    worktree_path="/path/dirty-worktree",
+                    branch_name="test",
+                    created_at=old_date,
+                    last_accessed=old_date,
+                    has_uncommitted_changes=True,
+                    has_unpushed_commits=False,
+                )
+            ]
+
+            with patch.object(service, "_delete_worktree") as mock_delete:
+                report = service.cleanup(["/path/dirty-worktree"], dry_run=False, force=True)
+
+        # force=True should bypass protection AND actually delete
+        mock_delete.assert_called_once_with("/path/dirty-worktree", force=True)
+        assert report.worktrees_cleaned == 1
+        assert report.worktrees_skipped == 0
+
     def test_cleanup_report_structure(self, service, mock_tracker):
         with patch.object(service, "get_stale_worktrees") as mock_stale:
             mock_stale.return_value = []
