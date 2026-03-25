@@ -138,7 +138,8 @@ def create_pane(
     except EnvironmentSetupError as e:
         logger.warning("Environment setup issue: %s", e)
 
-    # 3. Create tmux session
+    # 3. Create tmux session (auto_exit for automated sessions so the pane
+    #    closes when the AI tool exits, enabling reliable completion detection)
     tmux_manager = TmuxManager()
     try:
         tmux_session = tmux_manager.create_worktree_session(
@@ -146,6 +147,7 @@ def create_pane(
             worktree_path=str(worktree.path),
             ai_tool=ai_tool_enum,
             plan_mode=plan_mode,
+            auto_exit=bool(ai_instructions),
         )
         pane_index = 0
     except TmuxError as e:

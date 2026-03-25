@@ -728,6 +728,131 @@ class TestOpenCodeConfig:
         assert "opencode" in sent_command
 
 
+class TestAutoExit:
+    """Tests for auto_exit flag support."""
+
+    def test_session_config_auto_exit_default_false(self, temp_dir: Path):
+        """Test that auto_exit defaults to False."""
+        config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir))
+        assert config.auto_exit is False
+
+    def test_session_config_auto_exit_true(self, temp_dir: Path):
+        """Test setting auto_exit to True."""
+        config = TmuxSessionConfig(
+            session_name="test", working_directory=str(temp_dir), auto_exit=True
+        )
+        assert config.auto_exit is True
+
+    @patch.object(AITool, "get_executable_path", return_value="claude")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_auto_exit_appends_exit_to_command(
+        self, mock_server_prop, mock_is_installed, mock_get_path,
+        temp_dir: Path, mock_libtmux_session: MagicMock,
+    ):
+        """Test that auto_exit appends '; exit' to the AI tool command."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.CLAUDE,
+            auto_start_ai=True,
+            auto_exit=True,
+        )
+
+        manager.create_session(config)
+
+        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
+        sent_command = call_args[0][0]
+        assert sent_command.endswith("; exit")
+        assert "claude" in sent_command
+
+    @patch.object(AITool, "get_executable_path", return_value="claude")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_no_auto_exit_no_suffix(
+        self, mock_server_prop, mock_is_installed, mock_get_path,
+        temp_dir: Path, mock_libtmux_session: MagicMock,
+    ):
+        """Test that without auto_exit, no '; exit' is appended."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.CLAUDE,
+            auto_start_ai=True,
+            auto_exit=False,
+        )
+
+        manager.create_session(config)
+
+        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
+        sent_command = call_args[0][0]
+        assert not sent_command.endswith("; exit")
+
+
+class TestIsAiRunningInSession:
+    """Tests for is_ai_running_in_session method."""
+
+    @patch("subprocess.run")
+    def test_returns_false_when_session_gone(self, mock_run):
+        """Test returns False when tmux session doesn't exist."""
+        manager = TmuxManager()
+        with patch.object(manager, "session_exists", return_value=False):
+            assert manager.is_ai_running_in_session("owt-test") is False
+
+    @patch("subprocess.run")
+    def test_returns_false_when_pane_runs_shell(self, mock_run):
+        """Test returns False when pane is running a shell (AI exited)."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="zsh\n")
+        manager = TmuxManager()
+        with patch.object(manager, "session_exists", return_value=True):
+            assert manager.is_ai_running_in_session("owt-test") is False
+
+    @patch("subprocess.run")
+    def test_returns_true_when_pane_runs_ai(self, mock_run):
+        """Test returns True when pane is running an AI tool."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="node\n")
+        manager = TmuxManager()
+        with patch.object(manager, "session_exists", return_value=True):
+            assert manager.is_ai_running_in_session("owt-test") is True
+
+    @patch("subprocess.run")
+    def test_returns_false_on_subprocess_error(self, mock_run):
+        """Test returns False when tmux command fails."""
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        manager = TmuxManager()
+        with patch.object(manager, "session_exists", return_value=True):
+            assert manager.is_ai_running_in_session("owt-test") is False
+
+    @patch("subprocess.run")
+    def test_returns_false_on_timeout(self, mock_run):
+        """Test returns False on subprocess timeout."""
+        import subprocess as sp
+        mock_run.side_effect = sp.TimeoutExpired(cmd="tmux", timeout=5)
+        manager = TmuxManager()
+        with patch.object(manager, "session_exists", return_value=True):
+            assert manager.is_ai_running_in_session("owt-test") is False
+
+    @patch("subprocess.run")
+    def test_multiple_shells_returns_false(self, mock_run):
+        """Test returns False when all panes run shells."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="bash\nzsh\n")
+        manager = TmuxManager()
+        with patch.object(manager, "session_exists", return_value=True):
+            assert manager.is_ai_running_in_session("owt-test") is False
+
+
 class TestToolInstallationCheck:
     """Tests for AI tool installation checking."""
 

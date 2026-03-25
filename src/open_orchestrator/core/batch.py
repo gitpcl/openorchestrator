@@ -25,6 +25,7 @@ import toml
 from open_orchestrator.config import AITool
 from open_orchestrator.core.pane_actions import PaneActionError, create_pane
 from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.models.status import AIActivityStatus
 
 logger = logging.getLogger(__name__)
@@ -311,6 +312,7 @@ class BatchRunner:
             BatchResult(task=t) for t in config.tasks
         ]
         self.tracker = StatusTracker()
+        self._tmux = TmuxManager()
         self._task_index = _build_task_index(config.tasks)
         self._topo_order = _validate_dag(config.tasks, self._task_index)
         self._has_deps = any(t.depends_on for t in config.tasks)
@@ -421,6 +423,23 @@ class BatchRunner:
                     elif status and status.activity_status == AIActivityStatus.ERROR:
                         result.status = BatchStatus.FAILED
                         result.error = "Agent reported error"
+                    elif status and status.activity_status == AIActivityStatus.WORKING:
+                        # Fallback: if status is WORKING but the AI process
+                        # has exited (hook failed to fire), detect via tmux.
+                        session_name = self._tmux.generate_session_name(
+                            result.worktree_name
+                        )
+                        if not self._tmux.is_ai_running_in_session(session_name):
+                            if self._has_deps:
+                                result.completion_summary = self._capture_summary(
+                                    result.worktree_name
+                                )
+                            if result.task.auto_ship or self.config.auto_ship:
+                                self._ship_task(idx)
+                            else:
+                                result.status = BatchStatus.COMPLETED
+                        else:
+                            still_running.append(idx)
                     else:
                         still_running.append(idx)
                 else:
@@ -504,7 +523,9 @@ class BatchRunner:
                 plan_mode=task.plan_mode,
                 ai_instructions=(
                     task.description
-                    + "\n\nIMPORTANT: When done, use /commit to commit your changes."
+                    + "\n\nIMPORTANT: When you have completed all changes:"
+                    + "\n1. Stage and commit: git add -A && git commit -m 'feat: <description>'"
+                    + "\n2. Exit immediately: /exit"
                 ),
             )
             result.worktree_name = pane.worktree_name

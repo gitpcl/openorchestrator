@@ -39,6 +39,7 @@ class TmuxSessionConfig:
     droid_skip_permissions: bool = False
     opencode_config: str | None = None
     plan_mode: bool = False
+    auto_exit: bool = False
     window_name: str | None = None
     mouse_mode: bool = True
     prefix_key: str | None = None
@@ -159,6 +160,7 @@ class TmuxManager:
                     droid_skip_permissions=config.droid_skip_permissions,
                     opencode_config=config.opencode_config,
                     plan_mode=config.plan_mode,
+                    auto_exit=config.auto_exit,
                 )
 
             if config.mouse_mode:
@@ -199,8 +201,15 @@ class TmuxManager:
         droid_skip_permissions: bool = False,
         opencode_config: str | None = None,
         plan_mode: bool = False,
+        auto_exit: bool = False,
     ) -> None:
-        """Start the specified AI tool in the pane."""
+        """Start the specified AI tool in the pane.
+
+        Args:
+            auto_exit: If True, the shell exits after the AI tool exits,
+                       causing the tmux pane (and session) to close.
+                       Used by orchestrator/batch for reliable completion detection.
+        """
         if not AITool.is_installed(ai_tool):
             hint = AITool.get_install_hint(ai_tool)
             raise TmuxError(f"AI tool '{ai_tool.value}' is not installed. {hint}")
@@ -214,6 +223,8 @@ class TmuxManager:
             opencode_config=opencode_config,
             plan_mode=plan_mode,
         )
+        if auto_exit:
+            command = f"{command}; exit"
         pane.send_keys(command, enter=True)
 
     @staticmethod
@@ -290,6 +301,7 @@ class TmuxManager:
         droid_skip_permissions: bool = False,
         opencode_config: str | None = None,
         plan_mode: bool = False,
+        auto_exit: bool = False,
         mouse_mode: bool = True,
     ) -> TmuxSessionInfo:
         """Create a tmux session for a worktree."""
@@ -305,6 +317,7 @@ class TmuxManager:
             droid_skip_permissions=droid_skip_permissions,
             opencode_config=opencode_config,
             plan_mode=plan_mode,
+            auto_exit=auto_exit,
             window_name=worktree_name,
             mouse_mode=mouse_mode,
         )
@@ -347,6 +360,29 @@ class TmuxManager:
             pane.send_keys(keys, enter=True)
         except (libtmux.exc.LibTmuxException, IndexError) as e:
             raise TmuxError(f"Failed to send keys to pane: {e}") from e
+
+    def is_ai_running_in_session(self, session_name: str) -> bool:
+        """Check if an AI tool process is still running in the session's pane.
+
+        Returns False if the session is gone or the pane has fallen back to a
+        shell (meaning the AI tool exited).  Used by the orchestrator as a
+        fallback completion signal when hooks fail to fire.
+        """
+        if not self.session_exists(session_name):
+            return False
+        try:
+            result = subprocess.run(
+                ["tmux", "list-panes", "-t", session_name,
+                 "-F", "#{pane_current_command}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return False
+            shells = {"bash", "zsh", "fish", "sh", "dash", "login"}
+            commands = [c.strip() for c in result.stdout.strip().split("\n") if c.strip()]
+            return bool(commands) and not all(c in shells for c in commands)
+        except (subprocess.TimeoutExpired, OSError):
+            return False
 
     def get_pane_count(self, session_name: str) -> int:
         """Get the number of panes in a session."""

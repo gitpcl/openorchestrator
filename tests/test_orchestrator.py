@@ -14,6 +14,7 @@ import pytest
 
 from open_orchestrator.config import AgnoConfig
 from open_orchestrator.models.intelligence import CoordinationAction
+from open_orchestrator.models.status import AIActivityStatus
 
 # ─── Agno mock fixtures ──────────────────────────────────────────────────
 
@@ -295,6 +296,82 @@ class TestOrchestrator:
         assert not orch._in_cooldown("test-event")
         orch._set_cooldown("test-event")
         assert orch._in_cooldown("test-event")
+
+    def test_poll_fallback_detects_exited_process(self):
+        """Issue 4: when status is WORKING but AI process has exited,
+        the orchestrator should detect completion via tmux inspection."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        tasks = [TaskState(id="a", description="Task A", status="running", worktree_name="wt-a")]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        # Status says WORKING, but the AI process has exited
+        mock_status = MagicMock()
+        mock_status.activity_status = AIActivityStatus.WORKING
+
+        with patch.object(orch, "_user_in_worktree", return_value=False), \
+             patch.object(orch.tracker, "get_status", return_value=mock_status), \
+             patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
+             patch.object(orch.tmux, "is_ai_running_in_session", return_value=False), \
+             patch.object(orch, "_merge_to_feature_branch"):
+            orch._poll_running_tasks()
+
+        assert state.tasks[0].status == "completed"
+
+    def test_poll_no_fallback_when_ai_still_running(self):
+        """When status is WORKING and AI process is still running, task stays running."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        tasks = [TaskState(id="a", description="Task A", status="running", worktree_name="wt-a")]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        mock_status = MagicMock()
+        mock_status.activity_status = AIActivityStatus.WORKING
+
+        with patch.object(orch, "_user_in_worktree", return_value=False), \
+             patch.object(orch.tracker, "get_status", return_value=mock_status), \
+             patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
+             patch.object(orch.tmux, "is_ai_running_in_session", return_value=True):
+            orch._poll_running_tasks()
+
+        assert state.tasks[0].status == "running"
+
+    def test_start_task_prompt_uses_git_commit(self):
+        """Issue 3: prompt should instruct agent to commit with git, not /commit."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        tasks = [TaskState(id="a", description="Implement feature X")]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        with patch("open_orchestrator.core.orchestrator.create_pane") as mock_create, \
+             patch("open_orchestrator.core.branch_namer.generate_branch_name", return_value="feat/x"):
+            mock_create.return_value = MagicMock(worktree_name="wt-a", branch="feat/x")
+            orch._start_task(state.tasks[0])
+
+            call_kwargs = mock_create.call_args[1]
+            instructions = call_kwargs["ai_instructions"]
+            assert "git add -A && git commit" in instructions
+            assert "/commit" not in instructions
+
+    def test_start_task_prompt_includes_exit(self):
+        """Issue 5: prompt should instruct agent to /exit when done."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        tasks = [TaskState(id="a", description="Implement feature X")]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        with patch("open_orchestrator.core.orchestrator.create_pane") as mock_create, \
+             patch("open_orchestrator.core.branch_namer.generate_branch_name", return_value="feat/x"):
+            mock_create.return_value = MagicMock(worktree_name="wt-a", branch="feat/x")
+            orch._start_task(state.tasks[0])
+
+            call_kwargs = mock_create.call_args[1]
+            instructions = call_kwargs["ai_instructions"]
+            assert "/exit" in instructions
 
 
 # ─── AgnoCoordinator ─────────────────────────────────────────────────────

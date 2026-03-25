@@ -246,7 +246,9 @@ class Orchestrator:
                 ai_tool=AITool.CLAUDE,
                 ai_instructions=(
                     task.description
-                    + "\n\nIMPORTANT: When done, use /commit to commit your changes."
+                    + "\n\nIMPORTANT: When you have completed all changes:"
+                    + "\n1. Stage and commit: git add -A && git commit -m 'feat: <description>'"
+                    + "\n2. Exit immediately: /exit"
                 ),
             )
             task.worktree_name = pane.worktree_name
@@ -282,6 +284,18 @@ class Orchestrator:
             elif status.activity_status == AIActivityStatus.ERROR:
                 task.status = "failed"
                 logger.warning("Task '%s' errored in '%s'", task.id, task.worktree_name)
+
+            elif status.activity_status == AIActivityStatus.WORKING:
+                # Fallback: if status is WORKING but the AI process has exited
+                # (hook failed to fire), detect via tmux pane inspection.
+                session_name = self.tmux.generate_session_name(task.worktree_name)
+                if not self.tmux.is_ai_running_in_session(session_name):
+                    task.status = "completed"
+                    logger.info(
+                        "Task '%s' completed (process exited) in '%s'",
+                        task.id, task.worktree_name,
+                    )
+                    self._merge_to_feature_branch(task)
 
     def _merge_to_feature_branch(self, task: TaskState) -> None:
         """Merge a completed task's worktree into the feature branch."""
