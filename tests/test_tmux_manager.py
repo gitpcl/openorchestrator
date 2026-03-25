@@ -866,8 +866,9 @@ class TestAutoExit:
         manager.create_session(config)
 
         sent_command = mock_send_cmd.call_args[0][1]
-        # Should use stdin redirect from temp file, not inline prompt
-        assert "< " in sent_command
+        # Should pipe temp file via cat, not inline prompt
+        assert "cat " in sent_command
+        assert "| " in sent_command
         assert "owt-prompt-" in sent_command
         assert "-p" in sent_command
         assert "OWT_AUTOMATED=1" in sent_command
@@ -904,7 +905,8 @@ class TestAutoExit:
         manager.create_session(config)
 
         sent_command = mock_send_cmd.call_args[0][1]
-        assert "< " in sent_command
+        assert "cat " in sent_command
+        assert "| " in sent_command
         assert "owt-prompt-" in sent_command
         assert not sent_command.endswith("; exit")
         assert "rm -f" in sent_command

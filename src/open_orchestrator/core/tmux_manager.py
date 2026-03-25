@@ -236,20 +236,21 @@ class TmuxManager:
             prompt=prompt,
         )
 
-        # For Claude with a prompt, write to a temp file and pipe via stdin.
-        # This avoids tmux send-keys buffer truncation on long prompts and
-        # ensures -p mode receives the complete prompt for tool execution.
+        # For Claude with a prompt, write to a temp file and pipe via cat.
+        # Using `cat file | claude -p` rather than `claude -p < file` because
+        # pipe-based stdin is the confirmed working pattern (file redirects
+        # fail silently inside tmux panes on some configurations).
         if prompt and ai_tool == AITool.CLAUDE:
             prompt_path = self._write_prompt_file(prompt)
             quoted_path = shlex.quote(prompt_path)
             if auto_exit:
                 command = (
                     f"export OWT_AUTOMATED=1; "
-                    f"{command} < {quoted_path}; "
+                    f"cat {quoted_path} | {command}; "
                     f"rm -f {quoted_path}; exit"
                 )
             else:
-                command = f"{command} < {quoted_path}; rm -f {quoted_path}"
+                command = f"cat {quoted_path} | {command}; rm -f {quoted_path}"
         elif auto_exit:
             # OWT_AUTOMATED lets user hooks distinguish automated agents
             # from interactive sessions (e.g. skip commit-blocking hooks).
@@ -259,38 +260,44 @@ class TmuxManager:
         self._wait_for_shell_ready(pane)
         self._send_command_to_pane(pane, command)
 
+    @staticmethod
+    def _pane_target(pane: libtmux.Pane) -> str:
+        """Build a ``session:window.pane`` target string for tmux commands."""
+        return f"{pane.session.name}:{pane.window.index}.{pane.pane_index}"
+
     def _wait_for_shell_ready(
         self, pane: libtmux.Pane, timeout: float = 3.0,
     ) -> None:
         """Wait for the shell in a newly created pane to finish initializing.
 
-        Polls ``pane_current_command`` until it reports a known shell name.
-        Without this, commands sent immediately after session creation can be
-        lost because the shell hasn't started reading from the pty yet.
+        Uses ``tmux display-message -p -t <pane>`` to poll the pane's current
+        command.  Without this, commands sent immediately after session creation
+        can be lost because the shell hasn't started reading from the pty yet.
         """
         shells = {"bash", "zsh", "fish", "sh", "dash", "login"}
+        target = self._pane_target(pane)
         start = time.monotonic()
         while time.monotonic() - start < timeout:
             try:
                 result = subprocess.run(
-                    ["tmux", "list-panes", "-t", str(pane.id),
-                     "-F", "#{pane_current_command}"],
+                    ["tmux", "display-message", "-p", "-t", target,
+                     "#{pane_current_command}"],
                     capture_output=True, text=True, timeout=2,
                 )
                 cmd = result.stdout.strip()
                 if cmd and cmd in shells:
-                    logger.debug("Shell ready in pane %s (%s)", pane.id, cmd)
+                    logger.debug("Shell ready in %s (%s)", target, cmd)
                     return
             except (subprocess.TimeoutExpired, OSError):
                 pass
             time.sleep(0.1)
         logger.warning(
-            "Shell readiness timeout (%.1fs) for pane %s — sending anyway",
-            timeout, pane.id,
+            "Shell readiness timeout (%.1fs) for %s — sending anyway",
+            timeout, target,
         )
 
-    @staticmethod
-    def _send_command_to_pane(pane: libtmux.Pane, command: str) -> None:
+    @classmethod
+    def _send_command_to_pane(cls, pane: libtmux.Pane, command: str) -> None:
         """Send a command to a pane using set-buffer + paste-buffer.
 
         This is more reliable than ``pane.send_keys()`` (libtmux's native
@@ -298,7 +305,7 @@ class TmuxManager:
         atomically rather than character-by-character, avoiding truncation
         or dropped characters on freshly created sessions.
         """
-        target = f"{pane.session.name}:{pane.window.index}.{pane.pane_index}"
+        target = cls._pane_target(pane)
         buf_name = "owt-init"
         subprocess.run(
             ["tmux", "set-buffer", "-b", buf_name, "--", command],
