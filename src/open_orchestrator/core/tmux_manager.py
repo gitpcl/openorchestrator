@@ -5,11 +5,13 @@ This module handles tmux session creation, management, and integration
 with git worktrees for parallel development workflows.
 """
 
+import logging
 import os
 import re
 import shlex
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -18,6 +20,8 @@ from libtmux.constants import PaneDirection
 
 from open_orchestrator.config import AITool, DroidAutoLevel
 from open_orchestrator.core.theme import COLORS
+
+logger = logging.getLogger(__name__)
 
 
 class TmuxLayout(Enum):
@@ -251,7 +255,63 @@ class TmuxManager:
             # from interactive sessions (e.g. skip commit-blocking hooks).
             command = f"export OWT_AUTOMATED=1; {command}; exit"
 
-        pane.send_keys(command, enter=True)
+        logger.debug("AI tool command for pane: %s", command)
+        self._wait_for_shell_ready(pane)
+        self._send_command_to_pane(pane, command)
+
+    def _wait_for_shell_ready(
+        self, pane: libtmux.Pane, timeout: float = 3.0,
+    ) -> None:
+        """Wait for the shell in a newly created pane to finish initializing.
+
+        Polls ``pane_current_command`` until it reports a known shell name.
+        Without this, commands sent immediately after session creation can be
+        lost because the shell hasn't started reading from the pty yet.
+        """
+        shells = {"bash", "zsh", "fish", "sh", "dash", "login"}
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
+            try:
+                result = subprocess.run(
+                    ["tmux", "list-panes", "-t", str(pane.id),
+                     "-F", "#{pane_current_command}"],
+                    capture_output=True, text=True, timeout=2,
+                )
+                cmd = result.stdout.strip()
+                if cmd and cmd in shells:
+                    logger.debug("Shell ready in pane %s (%s)", pane.id, cmd)
+                    return
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            time.sleep(0.1)
+        logger.warning(
+            "Shell readiness timeout (%.1fs) for pane %s — sending anyway",
+            timeout, pane.id,
+        )
+
+    @staticmethod
+    def _send_command_to_pane(pane: libtmux.Pane, command: str) -> None:
+        """Send a command to a pane using set-buffer + paste-buffer.
+
+        This is more reliable than ``pane.send_keys()`` (libtmux's native
+        send-keys wrapper) because paste-buffer delivers the full text
+        atomically rather than character-by-character, avoiding truncation
+        or dropped characters on freshly created sessions.
+        """
+        target = f"{pane.session.name}:{pane.window.index}.{pane.pane_index}"
+        buf_name = "owt-init"
+        subprocess.run(
+            ["tmux", "set-buffer", "-b", buf_name, "--", command],
+            check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            ["tmux", "paste-buffer", "-b", buf_name, "-d", "-t", target],
+            check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            ["tmux", "send-keys", "-t", target, "Enter"],
+            check=True, capture_output=True, text=True,
+        )
 
     @staticmethod
     def _write_prompt_file(prompt: str) -> str:

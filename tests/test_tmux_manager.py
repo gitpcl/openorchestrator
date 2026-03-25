@@ -497,11 +497,14 @@ class TestAIToolSupport:
         config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir), ai_tool=AITool.DROID)
         assert config.ai_tool == AITool.DROID
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "get_executable_path", return_value="opencode")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_start_ai_tool_opencode(
-        self, mock_server_prop, mock_is_installed, mock_get_path, temp_dir: Path, mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, mock_get_path,
+        mock_wait, mock_send_cmd, temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test starting OpenCode instead of Claude."""
         mock_server = MagicMock()
@@ -516,14 +519,18 @@ class TestAIToolSupport:
 
         manager.create_session(config)
 
-        # Verify opencode command was sent
-        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with("opencode", enter=True)
+        # Verify opencode command was sent via reliable delivery
+        mock_send_cmd.assert_called_once()
+        assert mock_send_cmd.call_args[0][1] == "opencode"
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "get_executable_path", return_value="droid")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_start_ai_tool_droid(
-        self, mock_server_prop, mock_is_installed, mock_get_path, temp_dir: Path, mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, mock_get_path,
+        mock_wait, mock_send_cmd, temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test starting Droid instead of Claude."""
         mock_server = MagicMock()
@@ -538,11 +545,17 @@ class TestAIToolSupport:
 
         manager.create_session(config)
 
-        # Verify droid command was sent
-        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with("droid --skip-permissions-unsafe", enter=True)
+        # Verify droid command was sent via reliable delivery
+        mock_send_cmd.assert_called_once()
+        assert mock_send_cmd.call_args[0][1] == "droid --skip-permissions-unsafe"
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
-    def test_no_ai_tool_when_disabled(self, mock_server_prop, temp_dir: Path, mock_libtmux_session: MagicMock):
+    def test_no_ai_tool_when_disabled(
+        self, mock_server_prop, mock_wait, mock_send_cmd,
+        temp_dir: Path, mock_libtmux_session: MagicMock,
+    ):
         """Test no AI tool is started when auto_start_ai is False."""
         mock_server = MagicMock()
         mock_server.has_session.return_value = False
@@ -557,13 +570,16 @@ class TestAIToolSupport:
         manager.create_session(config)
 
         # Verify no command was sent to the pane
-        mock_libtmux_session.active_window.active_pane.send_keys.assert_not_called()
+        mock_send_cmd.assert_not_called()
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "get_executable_path", return_value="opencode")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_worktree_session_with_ai_tool(
-        self, mock_server_prop, mock_is_installed, mock_get_path, temp_dir: Path, mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, mock_get_path,
+        mock_wait, mock_send_cmd, temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test creating worktree session with custom AI tool."""
         mock_server = MagicMock()
@@ -577,7 +593,8 @@ class TestAIToolSupport:
         )
 
         assert isinstance(result, TmuxSessionInfo)
-        mock_libtmux_session.active_window.active_pane.send_keys.assert_called_with("opencode", enter=True)
+        mock_send_cmd.assert_called_once()
+        assert mock_send_cmd.call_args[0][1] == "opencode"
 
     @patch.object(AITool, "get_known_paths", return_value=[])
     @patch("shutil.which", return_value=None)
@@ -658,10 +675,13 @@ class TestDroidAutoLevel:
         assert config.droid_auto == DroidAutoLevel.MEDIUM
         assert config.droid_skip_permissions is True
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_with_droid_auto(
-        self, mock_server_prop, mock_is_installed, temp_dir: Path, mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, mock_wait, mock_send_cmd,
+        temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test creating session with Droid auto level."""
         from open_orchestrator.config import DroidAutoLevel
@@ -683,8 +703,7 @@ class TestDroidAutoLevel:
         manager.create_session(config)
 
         # Verify droid command with auto level was sent
-        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
-        sent_command = call_args[0][0]
+        sent_command = mock_send_cmd.call_args[0][1]
         assert "droid" in sent_command
         assert "--auto high" in sent_command
 
@@ -713,10 +732,13 @@ class TestOpenCodeConfig:
         assert config.ai_tool == AITool.OPENCODE
         assert config.opencode_config == "/custom/config.json"
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_with_opencode_config(
-        self, mock_server_prop, mock_is_installed, temp_dir: Path, mock_libtmux_session: MagicMock
+        self, mock_server_prop, mock_is_installed, mock_wait, mock_send_cmd,
+        temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test creating session with OpenCode config path."""
         mock_server = MagicMock()
@@ -736,8 +758,7 @@ class TestOpenCodeConfig:
         manager.create_session(config)
 
         # Verify opencode command with config was sent
-        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
-        sent_command = call_args[0][0]
+        sent_command = mock_send_cmd.call_args[0][1]
         assert "OPENCODE_CONFIG=/my/config.json" in sent_command
         assert "opencode" in sent_command
 
@@ -757,12 +778,14 @@ class TestAutoExit:
         )
         assert config.auto_exit is True
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "get_executable_path", return_value="claude")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_auto_exit_appends_exit_to_command(
         self, mock_server_prop, mock_is_installed, mock_get_path,
-        temp_dir: Path, mock_libtmux_session: MagicMock,
+        mock_wait, mock_send_cmd, temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test that auto_exit appends '; exit' to the AI tool command."""
         mock_server = MagicMock()
@@ -781,17 +804,18 @@ class TestAutoExit:
 
         manager.create_session(config)
 
-        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
-        sent_command = call_args[0][0]
+        sent_command = mock_send_cmd.call_args[0][1]
         assert sent_command.endswith("; exit")
         assert "claude" in sent_command
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "get_executable_path", return_value="claude")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_no_auto_exit_no_suffix(
         self, mock_server_prop, mock_is_installed, mock_get_path,
-        temp_dir: Path, mock_libtmux_session: MagicMock,
+        mock_wait, mock_send_cmd, temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test that without auto_exit, no '; exit' is appended."""
         mock_server = MagicMock()
@@ -810,17 +834,18 @@ class TestAutoExit:
 
         manager.create_session(config)
 
-        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
-        sent_command = call_args[0][0]
+        sent_command = mock_send_cmd.call_args[0][1]
         assert not sent_command.endswith("; exit")
 
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "get_executable_path", return_value="claude")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_prompt_with_auto_exit_uses_stdin_redirect(
         self, mock_server_prop, mock_is_installed, mock_get_path,
-        temp_dir: Path, mock_libtmux_session: MagicMock,
+        mock_wait, mock_send_cmd, temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test that prompt + auto_exit writes a temp file and pipes via stdin."""
         mock_server = MagicMock()
@@ -840,8 +865,7 @@ class TestAutoExit:
 
         manager.create_session(config)
 
-        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
-        sent_command = call_args[0][0]
+        sent_command = mock_send_cmd.call_args[0][1]
         # Should use stdin redirect from temp file, not inline prompt
         assert "< " in sent_command
         assert "owt-prompt-" in sent_command
@@ -852,12 +876,14 @@ class TestAutoExit:
         # Inline prompt text must NOT appear in command
         assert "Implement a feature" not in sent_command
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
     @patch.object(AITool, "get_executable_path", return_value="claude")
     @patch.object(AITool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_prompt_without_auto_exit_still_uses_stdin_redirect(
         self, mock_server_prop, mock_is_installed, mock_get_path,
-        temp_dir: Path, mock_libtmux_session: MagicMock,
+        mock_wait, mock_send_cmd, temp_dir: Path, mock_libtmux_session: MagicMock,
     ):
         """Test that prompt without auto_exit still uses temp file piping."""
         mock_server = MagicMock()
@@ -877,8 +903,7 @@ class TestAutoExit:
 
         manager.create_session(config)
 
-        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
-        sent_command = call_args[0][0]
+        sent_command = mock_send_cmd.call_args[0][1]
         assert "< " in sent_command
         assert "owt-prompt-" in sent_command
         assert not sent_command.endswith("; exit")
