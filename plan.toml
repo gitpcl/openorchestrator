@@ -1,0 +1,45 @@
+[batch]
+max_concurrent = 3
+auto_ship = true
+
+[[tasks]]
+id = "fix-fd-bug"
+description = "Fix critical file descriptor bug in src/open_orchestrator/core/environment.py around line 257. The except block calls os.get_inheritable(fd) on an already-closed fd, causing OSError. Fix: track fd state with a boolean flag (fd_closed = False), set it True after os.close(fd) at line 254, and in the except block check the flag instead of calling os.get_inheritable(). Also add a unit test in tests/test_environment.py covering the exception path (e.g., mock os.replace to raise, verify tmp file is cleaned up and fd is not double-closed)."
+ai_tool = "claude"
+depends_on = []
+
+[[tasks]]
+id = "fix-type-errors-core"
+description = "Fix all mypy strict-mode errors in core/ modules. Specific fixes: (1) core/hooks.py — 6 errors with 'object' indexed assignment: add proper dict[str, Any] type annotations to the config parameters. (2) core/merge.py — fix missing dict type params at line 42, fix 'Any' return at line 100, fix list[str|None] vs list[str] at line 128, fix None assignment at line 333. (3) core/pane_actions.py — add dict type params at line 47, convert repo_path str to Path at lines 100 and 237. (4) core/batch.py — add dict type params at line 77, fix int|None assignment at line 371, add 'types-toml' to dev dependencies in pyproject.toml. (5) core/worktree.py — fix WorktreeTemplate missing attrs tmux_layout and auto_commands at lines 292-301. Run 'uv run mypy src/open_orchestrator/core/' to verify zero errors when done."
+ai_tool = "claude"
+depends_on = []
+
+[[tasks]]
+id = "fix-type-errors-ui"
+description = "Fix all mypy strict-mode errors outside core/. Specific fixes: (1) cli.py lines 33,42 — add type params to list (list[BatchResult]). (2) switchboard.py line 570 — fix render() return type to match textual's expected type (use RenderableType or Text). (3) popup/picker.py — fix missing get_active_theme attr at line 40, fix Any return at line 42, add dict type params at lines 56 and 223. (4) tmux_manager.py line 100 — fix __exit__ return type (use None or Literal[False]), add missing argument type annotations. (5) utils/io.py line 191 — fix Any return. (6) config.py line 18 — add types-toml stub or use type: ignore[import-untyped] with comment. Run 'uv run mypy src/open_orchestrator/' excluding core/ to verify zero errors."
+ai_tool = "claude"
+depends_on = []
+
+[[tasks]]
+id = "fix-silent-exceptions"
+description = "Replace all bare except-pass patterns with logged warnings across the codebase. All affected files already have logger = logging.getLogger(__name__). Specific locations: (1) core/pane_actions.py line 58-59: except OSError: pass → logger.warning('Failed to close fd: %s', e). (2) core/pane_actions.py line 246-247: except Exception: pass → logger.warning('Failed to remove status entry: %s', e). (3) core/merge.py lines 282-283, 292-293, 299-300, 325-326, 337-338: all except GitCommandError: pass → logger.debug with descriptive message (these are non-fatal git operations). Keep the exception handling behavior the same (still pass after logging), just add visibility. Run existing tests to verify nothing breaks."
+ai_tool = "claude"
+depends_on = []
+
+[[tasks]]
+id = "test-merge"
+description = "Create tests/test_merge.py for src/open_orchestrator/core/merge.py. Follow existing test patterns (see tests/test_worktree.py for style). Test cases needed: (1) successful two-phase merge (fetch + merge), (2) merge with conflicts detected — verify conflict guard aborts and returns conflict list, (3) merge queue ordering — verify optimal merge order based on branch age/size, (4) merge abort cleanup — verify working directory is restored after failed merge, (5) merge with auto-cleanup — verify worktree deletion after successful merge. Use unittest.mock to mock git operations (GitPython's Repo). Aim for 10+ test cases covering edge cases."
+ai_tool = "claude"
+depends_on = []
+
+[[tasks]]
+id = "test-pane-actions"
+description = "Create tests/test_pane_actions.py for src/open_orchestrator/core/pane_actions.py. Follow existing test patterns (see tests/test_tmux_manager.py for style). Test cases needed: (1) create_pane with valid worktree — verify tmux pane created and status updated, (2) create_pane with missing worktree — verify error handling, (3) remove_pane — verify tmux pane killed and status cleaned up, (4) remove_pane with already-dead pane — verify graceful handling, (5) pane creation with agent detection — verify correct AI tool launched, (6) pane lifecycle end-to-end — create then remove, verify clean state. Use unittest.mock to mock TmuxManager and StatusTracker. Aim for 8+ test cases."
+ai_tool = "claude"
+depends_on = []
+
+[[tasks]]
+id = "test-untested-modules"
+description = "Create tests for the two remaining untested utility modules. (1) Create tests/test_agent_detector.py for src/open_orchestrator/core/agent_detector.py — test detection of claude, opencode, droid when each is/isn't on PATH. Mock shutil.which to control which tools appear available. Test fallback behavior when no AI tool found. Aim for 6+ tests. (2) Create tests/test_branch_namer.py for src/open_orchestrator/core/branch_namer.py — test branch name generation from various task descriptions (short, long, special characters, unicode). Test that output follows git branch naming rules (no spaces, valid chars). Aim for 6+ tests. Follow existing test patterns in tests/."
+ai_tool = "claude"
+depends_on = []
