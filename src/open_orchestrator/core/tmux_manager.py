@@ -7,7 +7,9 @@ with git worktrees for parallel development workflows.
 
 import os
 import re
+import shlex
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -229,11 +231,38 @@ class TmuxManager:
             plan_mode=plan_mode,
             prompt=prompt,
         )
-        if auto_exit:
+
+        # For Claude with a prompt, write to a temp file and pipe via stdin.
+        # This avoids tmux send-keys buffer truncation on long prompts and
+        # ensures -p mode receives the complete prompt for tool execution.
+        if prompt and ai_tool == AITool.CLAUDE:
+            prompt_path = self._write_prompt_file(prompt)
+            quoted_path = shlex.quote(prompt_path)
+            if auto_exit:
+                command = (
+                    f"export OWT_AUTOMATED=1; "
+                    f"{command} < {quoted_path}; "
+                    f"rm -f {quoted_path}; exit"
+                )
+            else:
+                command = f"{command} < {quoted_path}; rm -f {quoted_path}"
+        elif auto_exit:
             # OWT_AUTOMATED lets user hooks distinguish automated agents
             # from interactive sessions (e.g. skip commit-blocking hooks).
             command = f"export OWT_AUTOMATED=1; {command}; exit"
+
         pane.send_keys(command, enter=True)
+
+    @staticmethod
+    def _write_prompt_file(prompt: str) -> str:
+        """Write a prompt to a temp file for stdin piping to AI tools.
+
+        Returns the path to the temp file.  Caller is responsible for cleanup.
+        """
+        fd, path = tempfile.mkstemp(prefix="owt-prompt-", suffix=".md")
+        with os.fdopen(fd, "w") as f:
+            f.write(prompt)
+        return path
 
     @staticmethod
     def _set_pane_title(pane: libtmux.Pane, title: str) -> None:

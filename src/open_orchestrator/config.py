@@ -87,13 +87,15 @@ class AITool(str, Enum):
 
         if tool == cls.CLAUDE:
             cmd_parts = [binary]
-            if prompt:
-                # Non-interactive mode: run prompt and exit when done
-                cmd_parts.extend(["-p", shlex.quote(prompt)])
             if plan_mode:
                 cmd_parts.append("--permission-mode plan")
             else:
                 cmd_parts.append("--dangerously-skip-permissions")
+            if prompt:
+                # -p (print mode) without inline prompt — caller pipes
+                # the prompt via stdin from a temp file to avoid tmux
+                # send-keys buffer truncation on long prompts.
+                cmd_parts.append("-p")
             return " ".join(cmd_parts)
 
         if tool == cls.DROID:

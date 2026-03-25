@@ -148,7 +148,7 @@ owt orchestrate --status                                  # Show progress table
 
 The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected.
 
-**Agent execution model:** Orchestrated agents run in non-interactive print mode (`claude -p "prompt"`), which exits automatically when the task is complete — no `/exit` needed. The pane shell closes on exit (`; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
+**Agent execution model:** Orchestrated agents run in print mode (`claude ... -p < /tmp/owt-prompt-xxx.md`) with the prompt piped from a temp file via stdin redirection (avoids tmux send-keys buffer truncation on long prompts). The agent exits automatically when done — no `/exit` needed. The pane shell cleans up the temp file and closes on exit (`rm -f ...; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
 
 **Safety nets:** Before shipping, the orchestrator (1) auto-commits any uncommitted work left by agents (`feat(auto):` prefix), and (2) refuses to ship branches with zero new commits — marking them "failed" instead of silently merging empty branches.
 

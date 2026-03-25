@@ -470,6 +470,18 @@ class TestAIToolSupport:
         assert AITool.get_command(AITool.OPENCODE) == "opencode"
         assert AITool.get_command(AITool.DROID) == "droid --skip-permissions-unsafe"
 
+    def test_ai_tool_get_command_with_prompt(self):
+        """Test that prompt adds -p flag without inline prompt text."""
+        cmd = AITool.get_command(AITool.CLAUDE, prompt="Do something")
+        assert cmd == "claude --dangerously-skip-permissions -p"
+        # Prompt text must NOT appear in command (piped via stdin instead)
+        assert "Do something" not in cmd
+
+    def test_ai_tool_get_command_plan_mode_with_prompt(self):
+        """Test plan mode flag ordering with prompt."""
+        cmd = AITool.get_command(AITool.CLAUDE, plan_mode=True, prompt="Plan this")
+        assert cmd == "claude --permission-mode plan -p"
+
     def test_session_config_default_ai_tool(self, temp_dir: Path):
         """Test default AI tool is Claude."""
         config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir))
@@ -801,6 +813,88 @@ class TestAutoExit:
         call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
         sent_command = call_args[0][0]
         assert not sent_command.endswith("; exit")
+
+
+    @patch.object(AITool, "get_executable_path", return_value="claude")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_prompt_with_auto_exit_uses_stdin_redirect(
+        self, mock_server_prop, mock_is_installed, mock_get_path,
+        temp_dir: Path, mock_libtmux_session: MagicMock,
+    ):
+        """Test that prompt + auto_exit writes a temp file and pipes via stdin."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.CLAUDE,
+            auto_start_ai=True,
+            auto_exit=True,
+            prompt="Implement a feature",
+        )
+
+        manager.create_session(config)
+
+        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
+        sent_command = call_args[0][0]
+        # Should use stdin redirect from temp file, not inline prompt
+        assert "< " in sent_command
+        assert "owt-prompt-" in sent_command
+        assert "-p" in sent_command
+        assert "OWT_AUTOMATED=1" in sent_command
+        assert sent_command.endswith("; exit")
+        assert "rm -f" in sent_command
+        # Inline prompt text must NOT appear in command
+        assert "Implement a feature" not in sent_command
+
+    @patch.object(AITool, "get_executable_path", return_value="claude")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_prompt_without_auto_exit_still_uses_stdin_redirect(
+        self, mock_server_prop, mock_is_installed, mock_get_path,
+        temp_dir: Path, mock_libtmux_session: MagicMock,
+    ):
+        """Test that prompt without auto_exit still uses temp file piping."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.CLAUDE,
+            auto_start_ai=True,
+            auto_exit=False,
+            prompt="Implement a feature",
+        )
+
+        manager.create_session(config)
+
+        call_args = mock_libtmux_session.active_window.active_pane.send_keys.call_args
+        sent_command = call_args[0][0]
+        assert "< " in sent_command
+        assert "owt-prompt-" in sent_command
+        assert not sent_command.endswith("; exit")
+        assert "rm -f" in sent_command
+
+    def test_write_prompt_file_creates_temp_file(self):
+        """Test that _write_prompt_file writes prompt to a readable temp file."""
+        prompt = "Build a REST API with authentication"
+        path = TmuxManager._write_prompt_file(prompt)
+        try:
+            assert os.path.exists(path)
+            assert "owt-prompt-" in os.path.basename(path)
+            with open(path) as f:
+                assert f.read() == prompt
+        finally:
+            os.unlink(path)
 
 
 class TestIsAiRunningInSession:

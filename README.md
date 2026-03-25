@@ -19,7 +19,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
 - **Orchestrator Agent** — `owt orchestrate` drives a plan end-to-end into a feature branch with coordination, user presence detection, and stop/resume
-- **Print-mode agents** — orchestrated agents run via `claude -p` (non-interactive), auto-exit when done; `OWT_AUTOMATED=1` env var lets user hooks distinguish automated from interactive sessions
+- **Print-mode agents** — orchestrated agents run via `claude -p` with prompts piped from temp files (stdin redirection), auto-exit when done; `OWT_AUTOMATED=1` env var lets user hooks distinguish automated from interactive sessions
 - **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops with DAG-aware scheduling
 - **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
 - **Merge Queue** — `owt queue` shows optimal merge order; `owt queue --ship` ships all completed work intelligently
@@ -250,7 +250,7 @@ Open Orchestrator auto-detects installed AI tools and offers a picker when multi
 
 | Tool | Binary | Notes |
 |------|--------|-------|
-| Claude Code | `claude` | Default, `--dangerously-skip-permissions`; orchestrated agents use `-p` (print mode) |
+| Claude Code | `claude` | Default, `--dangerously-skip-permissions`; orchestrated agents use `-p` with stdin-piped prompts |
 | OpenCode | `opencode` | Go-based |
 | Droid | `droid` | `--skip-permissions-unsafe` by default |
 
@@ -324,7 +324,7 @@ owt switch auth-models
 # User opens PR: feat/auth-v2 → main
 ```
 
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in non-interactive print mode (`claude -p`), exiting automatically when done — no manual `/exit` needed. Safety nets: auto-commits uncommitted agent work before merge, and refuses to ship branches with zero new commits.
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in print mode (`claude -p`) with prompts piped from temp files via stdin redirection, exiting automatically when done — no manual `/exit` needed. Safety nets: auto-commits uncommitted agent work before merge, and refuses to ship branches with zero new commits.
 
 ### Overnight Autopilot (Batch Mode)
 ```toml
@@ -408,7 +408,7 @@ owt send api-refactor "Focus on the /users endpoint first"
 
 ```bash
 uv pip install -e .
-uv run pytest              # 528 tests
+uv run pytest              # 533 tests
 uv run ruff check src/
 uv run mypy src/
 ```
