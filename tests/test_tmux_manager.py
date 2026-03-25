@@ -379,21 +379,23 @@ class TestTmuxManager:
 
         assert result is None
 
+    @patch("open_orchestrator.core.tmux_manager.subprocess")
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
-    def test_send_keys_to_pane(self, mock_server_prop, mock_libtmux_session):
-        """Test sending keys to a pane."""
+    def test_send_keys_to_pane(self, mock_server_prop, mock_subprocess, mock_libtmux_session):
+        """Test sending keys to a pane via tmux buffer."""
         mock_server = MagicMock()
         mock_server.has_session.return_value = True
-
-        sessions_mock = MagicMock()
-        sessions_mock.filter.return_value = [mock_libtmux_session]
-        mock_server.sessions = sessions_mock
         mock_server_prop.return_value = mock_server
 
         manager = TmuxManager()
         manager.send_keys_to_pane("test-session", "echo hello")
 
-        mock_libtmux_session.windows[0].panes[0].send_keys.assert_called_once_with("echo hello", enter=True)
+        # Should use set-buffer + paste-buffer + send-keys Enter
+        assert mock_subprocess.run.call_count == 3
+        calls = mock_subprocess.run.call_args_list
+        assert calls[0][0][0] == ["tmux", "set-buffer", "-b", "owt-send", "--", "echo hello"]
+        assert calls[1][0][0] == ["tmux", "paste-buffer", "-b", "owt-send", "-d", "-t", "test-session:0.0"]
+        assert calls[2][0][0] == ["tmux", "send-keys", "-t", "test-session:0.0", "Enter"]
 
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_send_keys_session_not_found(self, mock_server_prop):

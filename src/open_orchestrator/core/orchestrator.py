@@ -246,9 +246,8 @@ class Orchestrator:
                 ai_tool=AITool.CLAUDE,
                 ai_instructions=(
                     task.description
-                    + "\n\nIMPORTANT: When you have completed all changes:"
-                    + "\n1. Stage and commit: git add -A && git commit -m 'feat: <description>'"
-                    + "\n2. Exit immediately: /exit"
+                    + "\n\nWhen you have completed all changes, stage and commit:"
+                    + " git add -A && git commit -m 'feat: <description>'"
                 ),
             )
             task.worktree_name = pane.worktree_name

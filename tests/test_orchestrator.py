@@ -356,8 +356,8 @@ class TestOrchestrator:
             assert "git add -A && git commit" in instructions
             assert "/commit" not in instructions
 
-    def test_start_task_prompt_includes_exit(self):
-        """Issue 5: prompt should instruct agent to /exit when done."""
+    def test_start_task_prompt_includes_commit_instruction(self):
+        """Prompt should instruct agent to commit (exit is handled by print mode)."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
         tasks = [TaskState(id="a", description="Implement feature X")]
@@ -371,7 +371,8 @@ class TestOrchestrator:
 
             call_kwargs = mock_create.call_args[1]
             instructions = call_kwargs["ai_instructions"]
-            assert "/exit" in instructions
+            assert "git add -A && git commit" in instructions
+            assert "/exit" not in instructions
 
 
 # ─── AgnoCoordinator ─────────────────────────────────────────────────────

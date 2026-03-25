@@ -75,12 +75,21 @@ class AITool(str, Enum):
         droid_skip_permissions: bool = False,
         opencode_config: str | None = None,
         plan_mode: bool = False,
+        prompt: str | None = None,
     ) -> str:
-        """Get the shell command for an AI tool with options."""
+        """Get the shell command for an AI tool with options.
+
+        Args:
+            prompt: If provided, run in non-interactive (print) mode.
+                    The tool executes the prompt and exits automatically.
+        """
         binary = shlex.quote(executable_path) if executable_path else tool.value
 
         if tool == cls.CLAUDE:
             cmd_parts = [binary]
+            if prompt:
+                # Non-interactive mode: run prompt and exit when done
+                cmd_parts.extend(["-p", shlex.quote(prompt)])
             if plan_mode:
                 cmd_parts.append("--permission-mode plan")
             else:

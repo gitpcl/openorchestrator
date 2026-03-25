@@ -40,6 +40,7 @@ class TmuxSessionConfig:
     opencode_config: str | None = None
     plan_mode: bool = False
     auto_exit: bool = False
+    prompt: str | None = None
     window_name: str | None = None
     mouse_mode: bool = True
     prefix_key: str | None = None
@@ -161,6 +162,7 @@ class TmuxManager:
                     opencode_config=config.opencode_config,
                     plan_mode=config.plan_mode,
                     auto_exit=config.auto_exit,
+                    prompt=config.prompt,
                 )
 
             if config.mouse_mode:
@@ -202,6 +204,7 @@ class TmuxManager:
         opencode_config: str | None = None,
         plan_mode: bool = False,
         auto_exit: bool = False,
+        prompt: str | None = None,
     ) -> None:
         """Start the specified AI tool in the pane.
 
@@ -209,6 +212,8 @@ class TmuxManager:
             auto_exit: If True, the shell exits after the AI tool exits,
                        causing the tmux pane (and session) to close.
                        Used by orchestrator/batch for reliable completion detection.
+            prompt: If provided, run the AI tool in non-interactive mode with
+                    this prompt. The tool will exit automatically when done.
         """
         if not AITool.is_installed(ai_tool):
             hint = AITool.get_install_hint(ai_tool)
@@ -222,9 +227,12 @@ class TmuxManager:
             droid_skip_permissions=droid_skip_permissions,
             opencode_config=opencode_config,
             plan_mode=plan_mode,
+            prompt=prompt,
         )
         if auto_exit:
-            command = f"{command}; exit"
+            # OWT_AUTOMATED lets user hooks distinguish automated agents
+            # from interactive sessions (e.g. skip commit-blocking hooks).
+            command = f"export OWT_AUTOMATED=1; {command}; exit"
         pane.send_keys(command, enter=True)
 
     @staticmethod
@@ -302,6 +310,7 @@ class TmuxManager:
         opencode_config: str | None = None,
         plan_mode: bool = False,
         auto_exit: bool = False,
+        prompt: str | None = None,
         mouse_mode: bool = True,
     ) -> TmuxSessionInfo:
         """Create a tmux session for a worktree."""
@@ -318,6 +327,7 @@ class TmuxManager:
             opencode_config=opencode_config,
             plan_mode=plan_mode,
             auto_exit=auto_exit,
+            prompt=prompt,
             window_name=worktree_name,
             mouse_mode=mouse_mode,
         )
@@ -350,15 +360,29 @@ class TmuxManager:
             return None
 
     def send_keys_to_pane(self, session_name: str, keys: str, pane_index: int = 0, window_index: int = 0) -> None:
-        """Send keys to a specific pane in a session."""
+        """Send keys to a specific pane in a session.
+
+        Uses tmux set-buffer + paste-buffer for reliable delivery of
+        messages of any length (avoids truncation with send-keys).
+        """
         if not self.session_exists(session_name):
             raise TmuxSessionNotFoundError(f"Session '{session_name}' not found.")
+        target = f"{session_name}:{window_index}.{pane_index}"
         try:
-            session = self.server.sessions.filter(session_name=session_name)[0]
-            window = session.windows[window_index]
-            pane = window.panes[pane_index]
-            pane.send_keys(keys, enter=True)
-        except (libtmux.exc.LibTmuxException, IndexError) as e:
+            buf_name = "owt-send"
+            subprocess.run(
+                ["tmux", "set-buffer", "-b", buf_name, "--", keys],
+                check=True, capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["tmux", "paste-buffer", "-b", buf_name, "-d", "-t", target],
+                check=True, capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["tmux", "send-keys", "-t", target, "Enter"],
+                check=True, capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError as e:
             raise TmuxError(f"Failed to send keys to pane: {e}") from e
 
     def is_ai_running_in_session(self, session_name: str) -> bool:
