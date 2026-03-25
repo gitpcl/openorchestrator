@@ -19,7 +19,7 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
 | `owt send --all "msg"` | | Broadcast to ALL worktrees |
 | `owt send --working "msg"` | | Broadcast to WORKING worktrees only |
-| `owt merge <name>` | `owt m` | Two-phase merge + conflict guard + auto-cleanup |
+| `owt merge <name>` | `owt m` | Two-phase merge + conflict guard + auto-cleanup (`--rebase`, `--strategy`, `--leave-conflicts`) |
 | `owt ship <name>` | | Commit + merge + delete in one shot |
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux session + status |
 | `owt queue` | | Show optimal merge order for completed worktrees |
@@ -120,6 +120,9 @@ owt queue              # Show optimal merge order
 owt queue --ship       # Ship all completed, smallest first
 owt ship auth-jwt      # Commit + merge + delete in one shot
 owt merge auth-jwt     # Two-phase merge + conflict guard + cleanup
+owt merge auth-jwt --rebase           # Rebase for linear history
+owt merge auth-jwt --strategy theirs  # Auto-resolve conflicts
+owt merge auth-jwt --leave-conflicts  # Leave in-progress for manual resolution
 owt delete fix-login   # Delete worktree + session + status
 owt cleanup --force    # Delete stale worktrees
 ```
@@ -144,6 +147,8 @@ owt orchestrate --status                                  # Show progress table
 ```
 
 The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected.
+
+**Agent execution model:** Orchestrated agents run in non-interactive print mode (`claude -p "prompt"`), which exits automatically when the task is complete — no `/exit` needed. The pane shell closes on exit (`; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
 
 ### 7. Batch Autopilot (DAG-Aware)
 ```bash

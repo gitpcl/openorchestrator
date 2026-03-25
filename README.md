@@ -19,6 +19,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
 - **Orchestrator Agent** — `owt orchestrate` drives a plan end-to-end into a feature branch with coordination, user presence detection, and stop/resume
+- **Print-mode agents** — orchestrated agents run via `claude -p` (non-interactive), auto-exit when done; `OWT_AUTOMATED=1` env var lets user hooks distinguish automated from interactive sessions
 - **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops with DAG-aware scheduling
 - **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
 - **Merge Queue** — `owt queue` shows optimal merge order; `owt queue --ship` ships all completed work intelligently
@@ -28,7 +29,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Quality Gate** — `owt ship` optionally runs AI quality review before merging (with Agno); checks code quality, cross-worktree conflicts
 - **AI Conflict Resolution** — merge conflicts can be resolved semantically by an AI agent before falling back to manual resolution
 - **Ship in one shot** — `owt ship` auto-commits, merges to main, and tears down worktree + session
-- **Two-phase merge** — `owt merge` catches conflicts early with file overlap warnings, then auto-cleans
+- **Two-phase merge** — `owt merge` catches conflicts early with file overlap warnings, then auto-cleans. Supports `--rebase` for linear history, `--strategy ours|theirs` for auto-resolution, and `--leave-conflicts` for manual resolution
 - **Full teardown** — `owt delete` kills tmux session + removes worktree + cleans status
 - **Live status detection** — switchboard detects when agents are waiting for input or blocked
 - **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
@@ -95,7 +96,7 @@ owt ship auth-jwt
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
 | `owt send --all "msg"` | | Broadcast to ALL worktrees |
 | `owt send --working "msg"` | | Broadcast to WORKING worktrees only |
-| `owt merge <name>` | `owt m` | Two-phase merge + conflict guard + cleanup |
+| `owt merge <name>` | `owt m` | Two-phase merge + conflict guard + cleanup (`--rebase`, `--strategy`, `--leave-conflicts`) |
 | `owt ship <name>` | | Commit + merge + delete in one shot |
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux + status |
 | `owt queue` | | Show optimal merge order for completed worktrees |
@@ -237,13 +238,19 @@ auto_install_deps = true
 copy_env_file = true
 ```
 
+### Environment Variables
+
+| Variable | Set by | Purpose |
+|----------|--------|---------|
+| `OWT_AUTOMATED` | OWT (in orchestrated panes) | Lets user hooks distinguish automated agents from interactive sessions. Check `[ -n "$OWT_AUTOMATED" ]` in hooks to skip restrictions for agents. |
+
 ## AI Tool Support
 
 Open Orchestrator auto-detects installed AI tools and offers a picker when multiple are found:
 
 | Tool | Binary | Notes |
 |------|--------|-------|
-| Claude Code | `claude` | Default, `--dangerously-skip-permissions` by default |
+| Claude Code | `claude` | Default, `--dangerously-skip-permissions`; orchestrated agents use `-p` (print mode) |
 | OpenCode | `opencode` | Go-based |
 | Droid | `droid` | `--skip-permissions-unsafe` by default |
 
@@ -317,7 +324,7 @@ owt switch auth-models
 # User opens PR: feat/auth-v2 → main
 ```
 
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback).
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in non-interactive print mode (`claude -p`), exiting automatically when done — no manual `/exit` needed.
 
 ### Overnight Autopilot (Batch Mode)
 ```toml
@@ -368,6 +375,15 @@ owt queue --ship       # Ship all completed worktrees, smallest first
 owt queue --ship --yes # No confirmation
 ```
 
+### Merge Strategies
+```bash
+owt merge auth-jwt                     # Standard merge + auto-cleanup
+owt merge auth-jwt --rebase            # Rebase for linear history
+owt merge auth-jwt --strategy theirs   # Auto-resolve conflicts (ours|theirs)
+owt merge auth-jwt --leave-conflicts   # Keep merge in-progress for manual resolution
+owt merge auth-jwt --keep              # Keep worktree after merging
+```
+
 ### CI/CD Headless Mode
 ```bash
 owt new "Run security audit" --headless
@@ -392,7 +408,7 @@ owt send api-refactor "Focus on the /users endpoint first"
 
 ```bash
 uv pip install -e .
-uv run pytest              # 499 tests
+uv run pytest              # 532 tests
 uv run ruff check src/
 uv run mypy src/
 ```

@@ -14,7 +14,7 @@ Git Worktree + AI agent orchestration tool for parallel development workflows wi
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
 | `owt send --all "msg"` | | Broadcast to ALL worktrees |
 | `owt send --working "msg"` | | Broadcast to WORKING worktrees only |
-| `owt merge <name>` | `owt m` | Two-phase merge + conflict guard + auto-cleanup |
+| `owt merge <name>` | `owt m` | Two-phase merge + conflict guard + auto-cleanup (`--rebase`, `--strategy`, `--leave-conflicts`) |
 | `owt ship <name>` | | Commit + merge + delete in one shot |
 | `owt delete <name>` | `owt rm` | Delete worktree + tmux session + status |
 | `owt queue` | | Show optimal merge order for completed worktrees |
@@ -52,8 +52,8 @@ uv run mypy src/
 
 ```
 src/open_orchestrator/
-├── cli.py              # CLI entry point (click, ~660 LOC)
-├── config.py           # Configuration management (~300 LOC)
+├── cli.py              # CLI entry point (click, ~1465 LOC)
+├── config.py           # Configuration management (~327 LOC)
 ├── core/
 │   ├── worktree.py     # Git worktree operations
 │   ├── tmux_manager.py # tmux session management (SINGLE + MAIN_VERTICAL layouts)
@@ -109,9 +109,17 @@ worktree = manager.create(branch="feature/new-feature", base_branch="main")
 from open_orchestrator.core.tmux_manager import TmuxManager
 
 tmux = TmuxManager()
+# Interactive session (user-facing)
 session = tmux.create_worktree_session(
     worktree_name="my-feature",
     worktree_path="/path/to/worktree",
+)
+# Automated session (orchestrator/batch — runs prompt, exits when done)
+session = tmux.create_worktree_session(
+    worktree_name="my-feature",
+    worktree_path="/path/to/worktree",
+    auto_exit=True,
+    prompt="Implement auth and commit when done",
 )
 ```
 
