@@ -443,19 +443,25 @@ class BatchRunner:
                             result.worktree_name
                         )
                         if not self._tmux.is_ai_running_in_session(session_name):
-                            # Guard: premature exit detection. claude -p can
-                            # exit silently in <10s — don't treat as completion.
-                            elapsed = (
+                            task_elapsed = (
                                 time.monotonic() - result.started_at
                                 if result.started_at else 0
                             )
-                            if elapsed < 60:
-                                self._handle_batch_failure(
-                                    idx,
-                                    f"Agent exited after {int(elapsed)}s "
-                                    f"(minimum 60s) — likely a silent failure",
-                                )
-                            else:
+                            # Check for commits before declaring failure —
+                            # a fast agent with commits is a success.
+                            has_commits = False
+                            try:
+                                from open_orchestrator.core.merge import MergeManager
+
+                                merge_mgr = MergeManager(repo_path=Path(self.repo_path))
+                                merge_mgr.auto_commit_worktree(result.worktree_name)
+                                wt = merge_mgr.wt_manager.get(result.worktree_name)
+                                base = merge_mgr.get_base_branch(wt.branch)
+                                has_commits = merge_mgr.count_commits_ahead(wt.branch, base) > 0
+                            except Exception:
+                                pass
+
+                            if has_commits:
                                 if self._has_deps:
                                     result.completion_summary = (
                                         self._capture_summary(result.worktree_name)
@@ -464,6 +470,17 @@ class BatchRunner:
                                     self._ship_task(idx)
                                 else:
                                     result.status = BatchStatus.COMPLETED
+                            elif task_elapsed < 60:
+                                self._handle_batch_failure(
+                                    idx,
+                                    f"Agent exited after {int(task_elapsed)}s "
+                                    f"with no commits — likely a silent failure",
+                                )
+                            else:
+                                self._handle_batch_failure(
+                                    idx,
+                                    f"No commits produced after {int(task_elapsed)}s",
+                                )
                         else:
                             still_running.append(idx)
                     else:

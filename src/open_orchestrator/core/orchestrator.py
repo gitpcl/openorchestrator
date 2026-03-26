@@ -328,23 +328,37 @@ class Orchestrator:
                 # (hook failed to fire), detect via tmux pane inspection.
                 session_name = self.tmux.generate_session_name(task.worktree_name)
                 if not self.tmux.is_ai_running_in_session(session_name):
-                    # Guard: don't declare completion if agent ran too briefly.
-                    # claude -p can exit silently in <10s on some versions —
-                    # treat premature exit as a failure, not completion.
-                    if elapsed < self.state.min_agent_runtime:
-                        self._handle_task_failure(
-                            task,
-                            f"Agent exited after {int(elapsed)}s "
-                            f"(minimum {self.state.min_agent_runtime}s) — "
-                            f"likely a silent failure",
-                        )
-                    else:
+                    # Check if the agent produced commits before declaring
+                    # premature failure.  A fast agent that finishes in 25s
+                    # with commits is a success, not a silent failure.
+                    has_commits = False
+                    try:
+                        merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
+                        merge_mgr.auto_commit_worktree(task.worktree_name)
+                        wt = merge_mgr.wt_manager.get(task.worktree_name)
+                        has_commits = merge_mgr.count_commits_ahead(
+                            wt.branch, self.state.feature_branch,
+                        ) > 0
+                    except Exception:
+                        pass
+
+                    if has_commits:
                         logger.info(
                             "Task '%s' completed (process exited, %ds) in '%s'",
                             task.id, int(elapsed), task.worktree_name,
                         )
                         task.status = "completed"
                         self._merge_to_feature_branch(task)
+                    elif elapsed < self.state.min_agent_runtime:
+                        self._handle_task_failure(
+                            task,
+                            f"Agent exited after {int(elapsed)}s with no "
+                            f"commits — likely a silent failure",
+                        )
+                    else:
+                        self._handle_task_failure(
+                            task, f"No commits produced after {int(elapsed)}s",
+                        )
 
         # Progress tracking: update status with latest commit message
         self._update_running_progress()
