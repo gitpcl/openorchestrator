@@ -13,6 +13,7 @@ from typing import Any
 from git import Repo
 from git.exc import GitCommandError
 
+from open_orchestrator.core.status import runtime_status_config
 from open_orchestrator.core.worktree import WorktreeManager, WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus
 
@@ -191,15 +192,15 @@ class MergeManager:
         Returns:
             Dict mapping overlapping file paths to list of other worktree names.
         """
-        from open_orchestrator.core.status import StatusTracker
-
         worktree = self.wt_manager.get(worktree_name)
         target = base_branch or self.get_base_branch(worktree.branch)
         my_files = set(self.get_modified_files(worktree.branch, target))
         if not my_files:
             return {}
 
-        tracker = StatusTracker()
+        from open_orchestrator.core.status import StatusTracker
+
+        tracker = StatusTracker(runtime_status_config(self.wt_manager.git_root))
         overlaps: dict[str, list[str]] = {}
         for s in tracker.get_all_statuses():
             if s.worktree_name == worktree_name:
@@ -245,7 +246,7 @@ class MergeManager:
         """
         from open_orchestrator.core.status import StatusTracker
 
-        tracker = StatusTracker()
+        tracker = StatusTracker(runtime_status_config(self.wt_manager.git_root))
         statuses = tracker.get_all_statuses()
 
         candidates: list[tuple[str, int, int]] = []

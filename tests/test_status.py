@@ -7,11 +7,12 @@ import sqlite3
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from open_orchestrator.config import AITool
-from open_orchestrator.core.status import StatusConfig, StatusTracker
+from open_orchestrator.core.status import StatusConfig, StatusTracker, runtime_status_config
 from open_orchestrator.models.status import AIActivityStatus
 
 
@@ -43,6 +44,22 @@ class TestStatusConfig:
         config = StatusConfig()
         assert config.storage_path is None
 
+    @patch("open_orchestrator.core.status._resolve_repo_root")
+    @patch("open_orchestrator.core.status._is_writable_sqlite_target")
+    def test_runtime_status_config_falls_back_to_repo_root(
+        self,
+        mock_writable: MagicMock,
+        mock_repo_root: MagicMock,
+        temp_directory: Path,
+    ) -> None:
+        repo_root = temp_directory / "repo"
+        mock_repo_root.return_value = repo_root
+        mock_writable.side_effect = [False, True]
+
+        config = runtime_status_config(repo_root / "worktree")
+
+        assert config.storage_path == repo_root / ".open-orchestrator" / "status.db"
+
 
 class TestStatusTrackerInit:
     """Test StatusTracker initialization."""
@@ -61,7 +78,11 @@ class TestStatusTrackerInit:
             assert tracker._storage_path == default_path
         else:
             assert tracker._storage_path.name == "status.db"
-            assert str(tracker._storage_path).startswith(tempfile.gettempdir())
+            repo_local = Path.cwd() / ".open-orchestrator" / "status.db"
+            assert (
+                str(tracker._storage_path).startswith(tempfile.gettempdir())
+                or tracker._storage_path == repo_local
+            )
 
     def test_migrate_existing_json(self, status_file: Path, status_config: StatusConfig) -> None:
         """Test migrating an existing JSON status store into SQLite."""

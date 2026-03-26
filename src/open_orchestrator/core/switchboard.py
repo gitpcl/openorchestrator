@@ -20,7 +20,6 @@ import asyncio
 import collections.abc
 import logging
 import os
-import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -36,9 +35,20 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Label, Static
 
 from open_orchestrator.config import AITool
-from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.status import StatusTracker, runtime_status_config
 from open_orchestrator.core.theme import COLORS, STATUS_COLORS
-from open_orchestrator.core.tmux_manager import TmuxManager
+from open_orchestrator.core.tmux_manager import (
+    TMUX_ALLOW_PROMPT_RE,
+    TMUX_ANSI_RE,
+    TMUX_BLOCKED_PROMPT_RE,
+    TMUX_INTERRUPTED_RE,
+    TMUX_PROMPT_RE,
+    TMUX_SEPARATOR_RE,
+    TMUX_STATUS_BAR_RE,
+    TMUX_TOOL_HEADER_RE,
+    TmuxManager,
+    detect_activity_from_pane_output,
+)
 from open_orchestrator.core.worktree import WorktreeManager
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
@@ -69,36 +79,14 @@ HOOK_TRUST_MAX_SECONDS = 15  # After 15s with no hook update, let scraper recove
 
 # Pre-compiled regex patterns for pane status detection
 # Must match actual permission prompts, NOT agent thinking text like "Allow me to..."
-_BLOCKED_RE = re.compile(
-    r"\(y/N\)|\(Y/n\)|Do you want to proceed|Press Enter to continue",
-    re.IGNORECASE,
-)
-# Stricter "Allow" check — only match "Allow <Tool>:" or "Allow <Tool> /" patterns
-_ALLOW_PROMPT_RE = re.compile(
-    r"Allow\s+(Read|Write|Edit|Bash|Glob|Grep|Agent|WebFetch|WebSearch|NotebookEdit|mcp_)",
-)
-# Lines to skip — Claude Code status bar is always visible and contains
-# words like "permissions" that would false-trigger BLOCKED detection.
-_STATUS_BAR_RE = re.compile(
-    r"ctx:\s*\d+%|bypass permissions|shift\+tab|permissions\s+on",
-    re.IGNORECASE,
-)
-# Box-drawing separator lines (U+2500–U+257F) carry no semantic info
-_SEPARATOR_RE = re.compile(r"^[\u2500-\u257F\s]{5,}$")
-_PROMPT_RE = re.compile(
-    r"^[>❯›»\)]\s*$|^\$\s*$|What would you like|How can I help",
-    re.IGNORECASE,
-)
-# High-confidence working signal — Claude Code tool execution headers
-_TOOL_HEADER_RE = re.compile(
-    r"^(Read|Write|Edit|Bash|Glob|Grep|Agent|WebFetch|WebSearch|NotebookEdit)\s*[:/]",
-)
-# High-confidence idle signal — agent was interrupted/stopped, never appears during thinking
-_INTERRUPTED_RE = re.compile(
-    r"Interrupted|What should Claude do instead",
-    re.IGNORECASE,
-)
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+_BLOCKED_RE = TMUX_BLOCKED_PROMPT_RE
+_ALLOW_PROMPT_RE = TMUX_ALLOW_PROMPT_RE
+_STATUS_BAR_RE = TMUX_STATUS_BAR_RE
+_SEPARATOR_RE = TMUX_SEPARATOR_RE
+_PROMPT_RE = TMUX_PROMPT_RE
+_TOOL_HEADER_RE = TMUX_TOOL_HEADER_RE
+_INTERRUPTED_RE = TMUX_INTERRUPTED_RE
+_ANSI_RE = TMUX_ANSI_RE
 
 
 def _tmux_session_exists_raw(session_name: str) -> bool:
@@ -163,53 +151,7 @@ def _detect_pane_status(tmux_session: str | None) -> tuple[AIActivityStatus, boo
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
-
-    lines = result.stdout.rstrip("\n").split("\n")
-    if not lines:
-        return None
-
-    # Get last non-empty lines for analysis
-    tail = []
-    for line in reversed(lines):
-        stripped = line.strip()
-        if stripped:
-            tail.append(stripped)
-        if len(tail) >= 8:
-            break
-    if not tail:
-        return None
-
-    # Filter out Claude Code status bar lines before analysis
-    content_lines = [
-        line for line in tail
-        if not _STATUS_BAR_RE.search(line) and not _SEPARATOR_RE.match(line)
-    ]
-    content_text = "\n".join(reversed(content_lines)) if content_lines else ""
-
-    # BLOCKED detection: only scan the last 2 non-empty content lines.
-    # Old permission prompts that scrolled up should NOT trigger BLOCKED.
-    blocked_window = content_lines[:2]
-    blocked_text = "\n".join(blocked_window)
-    if blocked_text and (_BLOCKED_RE.search(blocked_text) or _ALLOW_PROMPT_RE.search(blocked_text)):
-        return AIActivityStatus.BLOCKED, True
-
-    # TOOL_HEADER detection in last 2 content lines → high-confidence WORKING.
-    for line in content_lines[:2]:
-        if _TOOL_HEADER_RE.search(line):
-            return AIActivityStatus.WORKING, True
-
-    # Check for high-confidence idle signals (Interrupted, etc.)
-    has_interrupted = bool(content_text and _INTERRUPTED_RE.search(content_text))
-
-    # WAITING detection: prompt char on the VERY LAST non-empty content line.
-    # Strip ANSI escape sequences and trailing whitespace before checking.
-    if content_lines:
-        last_line = _ANSI_RE.sub("", content_lines[0]).strip()
-        if len(last_line) < 15 and _PROMPT_RE.search(last_line):
-            return AIActivityStatus.WAITING, has_interrupted
-
-    # No prompt visible — agent is doing something
-    return AIActivityStatus.WORKING, False
+    return detect_activity_from_pane_output(result.stdout)
 
 
 # Files that are commonly touched by all worktrees and should not count as
@@ -1020,7 +962,7 @@ class SwitchboardApp(App[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        self._tracker = StatusTracker()
+        self._tracker = StatusTracker(runtime_status_config())
         self._tmux = TmuxManager()
         try:
             self._wt_manager: WorktreeManager | None = WorktreeManager()

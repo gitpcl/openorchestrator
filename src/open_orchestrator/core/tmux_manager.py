@@ -20,8 +20,78 @@ from libtmux.constants import PaneDirection
 
 from open_orchestrator.config import AITool, DroidAutoLevel
 from open_orchestrator.core.theme import COLORS
+from open_orchestrator.models.status import AIActivityStatus
 
 logger = logging.getLogger(__name__)
+
+
+TMUX_BLOCKED_PROMPT_RE = re.compile(
+    r"\(y/N\)|\(Y/n\)|Do you want to proceed|Press Enter to continue",
+    re.IGNORECASE,
+)
+TMUX_ALLOW_PROMPT_RE = re.compile(
+    r"Allow\s+(Read|Write|Edit|Bash|Glob|Grep|Agent|WebFetch|WebSearch|NotebookEdit|mcp_)",
+)
+TMUX_STATUS_BAR_RE = re.compile(
+    r"ctx:\s*\d+%|bypass permissions|shift\+tab|permissions\s+on",
+    re.IGNORECASE,
+)
+TMUX_SEPARATOR_RE = re.compile(r"^[\u2500-\u257F\s]{5,}$")
+TMUX_PROMPT_RE = re.compile(
+    r"^[>❯›»\)]\s*$|^\$\s*$|What would you like|How can I help",
+    re.IGNORECASE,
+)
+TMUX_TOOL_HEADER_RE = re.compile(
+    r"^(Read|Write|Edit|Bash|Glob|Grep|Agent|WebFetch|WebSearch|NotebookEdit)\s*[:/]",
+)
+TMUX_INTERRUPTED_RE = re.compile(
+    r"Interrupted|What should Claude do instead",
+    re.IGNORECASE,
+)
+TMUX_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def detect_activity_from_pane_output(output: str) -> tuple[AIActivityStatus, bool] | None:
+    """Infer agent activity from captured tmux pane output."""
+    lines = output.rstrip("\n").split("\n")
+    if not lines:
+        return None
+
+    tail: list[str] = []
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped:
+            tail.append(stripped)
+        if len(tail) >= 8:
+            break
+    if not tail:
+        return None
+
+    content_lines = [
+        line for line in tail
+        if not TMUX_STATUS_BAR_RE.search(line) and not TMUX_SEPARATOR_RE.match(line)
+    ]
+    content_text = "\n".join(reversed(content_lines)) if content_lines else ""
+
+    blocked_text = "\n".join(content_lines[:2])
+    if blocked_text and (
+        TMUX_BLOCKED_PROMPT_RE.search(blocked_text)
+        or TMUX_ALLOW_PROMPT_RE.search(blocked_text)
+    ):
+        return AIActivityStatus.BLOCKED, True
+
+    for line in content_lines[:2]:
+        if TMUX_TOOL_HEADER_RE.search(line):
+            return AIActivityStatus.WORKING, True
+
+    has_interrupted = bool(content_text and TMUX_INTERRUPTED_RE.search(content_text))
+
+    if content_lines:
+        last_line = TMUX_ANSI_RE.sub("", content_lines[0]).strip()
+        if len(last_line) < 15 and TMUX_PROMPT_RE.search(last_line):
+            return AIActivityStatus.WAITING, has_interrupted
+
+    return AIActivityStatus.WORKING, False
 
 
 class TmuxLayout(Enum):
@@ -46,6 +116,7 @@ class TmuxSessionConfig:
     opencode_config: str | None = None
     plan_mode: bool = False
     auto_exit: bool = False
+    automated: bool = False
     prompt: str | None = None
     window_name: str | None = None
     mouse_mode: bool = True
@@ -168,6 +239,7 @@ class TmuxManager:
                     opencode_config=config.opencode_config,
                     plan_mode=config.plan_mode,
                     auto_exit=config.auto_exit,
+                    automated=config.automated,
                     prompt=config.prompt,
                 )
 
@@ -210,6 +282,7 @@ class TmuxManager:
         opencode_config: str | None = None,
         plan_mode: bool = False,
         auto_exit: bool = False,
+        automated: bool = False,
         prompt: str | None = None,
     ) -> None:
         """Start the specified AI tool in the pane.
@@ -243,18 +316,20 @@ class TmuxManager:
         if prompt and ai_tool == AITool.CLAUDE:
             prompt_path = self._write_prompt_file(prompt)
             quoted_path = shlex.quote(prompt_path)
+            prefix = "export OWT_AUTOMATED=1; " if automated or auto_exit else ""
             if auto_exit:
                 command = (
-                    f"export OWT_AUTOMATED=1; "
-                    f"cat {quoted_path} | {command}; "
+                    f"{prefix}cat {quoted_path} | {command}; "
                     f"rm -f {quoted_path}; exit"
                 )
             else:
-                command = f"cat {quoted_path} | {command}; rm -f {quoted_path}"
+                command = f"{prefix}cat {quoted_path} | {command}; rm -f {quoted_path}"
         elif auto_exit:
             # OWT_AUTOMATED lets user hooks distinguish automated agents
             # from interactive sessions (e.g. skip commit-blocking hooks).
             command = f"export OWT_AUTOMATED=1; {command}; exit"
+        elif automated:
+            command = f"export OWT_AUTOMATED=1; {command}"
 
         logger.debug("AI tool command for pane: %s", command)
         self._wait_for_shell_ready(pane)
@@ -404,6 +479,7 @@ class TmuxManager:
         opencode_config: str | None = None,
         plan_mode: bool = False,
         auto_exit: bool = False,
+        automated: bool = False,
         prompt: str | None = None,
         mouse_mode: bool = True,
     ) -> TmuxSessionInfo:
@@ -421,6 +497,7 @@ class TmuxManager:
             opencode_config=opencode_config,
             plan_mode=plan_mode,
             auto_exit=auto_exit,
+            automated=automated,
             prompt=prompt,
             window_name=worktree_name,
             mouse_mode=mouse_mode,
@@ -489,6 +566,22 @@ class TmuxManager:
             return bool(commands) and not all(c in shells for c in commands)
         except (subprocess.TimeoutExpired, OSError):
             return False
+
+    def detect_session_activity(self, session_name: str) -> tuple[AIActivityStatus, bool] | None:
+        """Capture pane output for a session and infer agent activity."""
+        if not self.session_exists(session_name):
+            return None
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", session_name, "-p", "-J"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=2,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            return None
+        return detect_activity_from_pane_output(result.stdout)
 
     def get_pane_count(self, session_name: str) -> int:
         """Get the number of panes in a session."""

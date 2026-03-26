@@ -13,13 +13,23 @@ from open_orchestrator.models.status import AIActivityStatus
 
 
 class _FakeTmux:
-    def __init__(self, running: bool = False):
+    def __init__(
+        self,
+        running: bool = False,
+        pane_activity: tuple[AIActivityStatus, bool] | None = None,
+    ):
         self.running = running
+        self.pane_activity = pane_activity
         self.calls = 0
+        self.detect_calls = 0
 
     def is_ai_running_in_session(self, session_name: str) -> bool:
         self.calls += 1
         return self.running
+
+    def detect_session_activity(self, session_name: str) -> tuple[AIActivityStatus, bool] | None:
+        self.detect_calls += 1
+        return self.pane_activity
 
 
 class TestTaskRuntimeCoordinator:
@@ -82,6 +92,48 @@ class TestTaskRuntimeCoordinator:
         assert decision.classification == "process_exited_with_commits"
         assert decision.commit_inspection is not None
         assert decision.commit_inspection.commit_count == 2
+
+    def test_live_waiting_session_completes_without_commit_probe(self):
+        tmux = _FakeTmux(
+            running=True,
+            pane_activity=(AIActivityStatus.WAITING, True),
+        )
+        coordinator = TaskRuntimeCoordinator(tmux=tmux, merge_manager_factory=MagicMock())
+
+        with patch.object(coordinator, "inspect_worktree_commits") as mock_commits:
+            decision = coordinator.evaluate_completion(
+                worktree_name="wt-a",
+                base_ref="main",
+                session_name="owt-wt-a",
+                elapsed_seconds=25,
+                activity_status=AIActivityStatus.WORKING,
+                startup_grace_period=10,
+                min_agent_runtime=60,
+            )
+
+        assert decision.outcome == RuntimeOutcome.COMPLETED
+        assert decision.classification == "pane_waiting"
+        assert mock_commits.call_count == 0
+
+    def test_live_blocked_session_stays_running(self):
+        tmux = _FakeTmux(
+            running=True,
+            pane_activity=(AIActivityStatus.BLOCKED, True),
+        )
+        coordinator = TaskRuntimeCoordinator(tmux=tmux, merge_manager_factory=MagicMock())
+
+        decision = coordinator.evaluate_completion(
+            worktree_name="wt-a",
+            base_ref="main",
+            session_name="owt-wt-a",
+            elapsed_seconds=25,
+            activity_status=AIActivityStatus.WORKING,
+            startup_grace_period=10,
+            min_agent_runtime=60,
+        )
+
+        assert decision.outcome == RuntimeOutcome.RUNNING
+        assert decision.classification == "pane_blocked"
 
     def test_process_exit_without_commits_before_min_runtime_fails(self):
         tmux = _FakeTmux(running=False)

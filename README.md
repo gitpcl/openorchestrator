@@ -19,7 +19,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
 - **Orchestrator Agent** — `owt orchestrate` drives a plan end-to-end into a feature branch with coordination, user presence detection, and stop/resume
-- **Print-mode agents** — orchestrated agents run via `claude -p` with prompts piped from temp files (cat pipe), auto-exit when done; `OWT_AUTOMATED=1` env var lets user hooks distinguish automated from interactive sessions
+- **Patchable automated sessions** — orchestrated and batch agents run in live tmux-backed provider sessions, receive their task automatically, stay patchable from the switchboard, and still export `OWT_AUTOMATED=1` so hooks can treat them as automation
 - **MCP Peer Communication** — agents discover each other via `list_peers`, exchange messages via `send_message`/`check_messages`, and coordinate file edits via `get_peer_files` — all through native MCP tools backed by shared SQLite
 - **Session init protocol** — agents receive a structured 6-step prompt (orient → explore → implement → test → verify → commit) based on Anthropic's harness design research, with project test/dev commands auto-injected
 - **Retry + timeouts** — failed tasks retry once with failure context; 30-min default timeout prevents hung agents from blocking the DAG
@@ -378,7 +378,7 @@ owt switch auth-models
 # User opens PR: feat/auth-v2 → main
 ```
 
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in print mode (`cat prompt.md | claude -p`) with a structured session init protocol prompt, exiting automatically when done. Batch mode and orchestrator mode share the same runtime completion evaluator, so startup grace periods, premature-exit detection, commit checks, and retry semantics stay aligned. Safety nets: auto-commits uncommitted work, optional quality gate, empty-branch guard, retry with failure context, and per-task timeouts (30 min default).
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated and batch agents now start as live provider sessions, receive the structured session-init prompt through tmux, and remain patchable from the switchboard while the shared runtime evaluator watches both hook updates and pane state to detect waiting, blocked, exited, and silent-failure cases. Safety nets: auto-commits uncommitted work, optional quality gate, empty-branch guard, retry with failure context, and per-task timeouts (30 min default).
 
 ### Overnight Autopilot (Batch Mode)
 ```toml

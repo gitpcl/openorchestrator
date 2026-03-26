@@ -16,7 +16,9 @@ from open_orchestrator.core.tmux_manager import (
     TmuxSessionExistsError,
     TmuxSessionInfo,
     TmuxSessionNotFoundError,
+    detect_activity_from_pane_output,
 )
+from open_orchestrator.models.status import AIActivityStatus
 
 
 class TestTmuxLayout:
@@ -40,6 +42,7 @@ class TestTmuxSessionConfig:
         assert config.layout == TmuxLayout.SINGLE
         assert config.pane_count == 1
         assert config.auto_start_ai is True
+        assert config.automated is False
         assert config.window_name is None
 
     def test_custom_values(self, temp_dir: Path):
@@ -770,6 +773,15 @@ class TestAutoExit:
         config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir))
         assert config.auto_exit is False
 
+    def test_session_config_automated_flag(self, temp_dir: Path):
+        """Test automated sessions can be flagged independently from auto-exit."""
+        config = TmuxSessionConfig(
+            session_name="test",
+            working_directory=str(temp_dir),
+            automated=True,
+        )
+        assert config.automated is True
+
     def test_session_config_auto_exit_true(self, temp_dir: Path):
         """Test setting auto_exit to True."""
         config = TmuxSessionConfig(
@@ -910,6 +922,36 @@ class TestAutoExit:
         assert not sent_command.endswith("; exit")
         assert "rm -f" in sent_command
 
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
+    @patch.object(AITool, "get_executable_path", return_value="claude")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_automated_without_auto_exit_sets_env_var(
+        self, mock_server_prop, mock_is_installed, mock_get_path,
+        mock_wait, mock_send_cmd, temp_dir: Path, mock_libtmux_session: MagicMock,
+    ):
+        """Test live automated sessions still export OWT_AUTOMATED."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool=AITool.CLAUDE,
+            auto_start_ai=True,
+            automated=True,
+        )
+
+        manager.create_session(config)
+
+        sent_command = mock_send_cmd.call_args[0][1]
+        assert sent_command.startswith("export OWT_AUTOMATED=1; ")
+        assert not sent_command.endswith("; exit")
+
     def test_write_prompt_file_creates_temp_file(self):
         """Test that _write_prompt_file writes prompt to a readable temp file."""
         prompt = "Build a REST API with authentication"
@@ -973,6 +1015,20 @@ class TestIsAiRunningInSession:
         manager = TmuxManager()
         with patch.object(manager, "session_exists", return_value=True):
             assert manager.is_ai_running_in_session("owt-test") is False
+
+
+class TestDetectActivityFromPaneOutput:
+    """Tests for shared pane activity inference."""
+
+    def test_detects_waiting_prompt(self):
+        status = detect_activity_from_pane_output("Done implementing\n❯\n")
+        assert status == (AIActivityStatus.WAITING, False)
+
+    def test_detects_blocked_prompt(self):
+        status = detect_activity_from_pane_output(
+            "Need approval\nDo you want to proceed? (y/N)\n"
+        )
+        assert status == (AIActivityStatus.BLOCKED, True)
 
 
 class TestToolInstallationCheck:

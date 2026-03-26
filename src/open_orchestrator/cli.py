@@ -17,7 +17,7 @@ from rich.table import Table
 from open_orchestrator.config import AITool, load_config
 from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
 from open_orchestrator.core.project_detector import ProjectDetector
-from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.status import StatusTracker, runtime_status_config
 from open_orchestrator.core.tmux_manager import (
     TmuxError,
     TmuxManager,
@@ -66,6 +66,11 @@ def get_worktree_manager(repo_path: Path | None = None) -> WorktreeManager:
         return WorktreeManager(repo_path)
     except NotAGitRepositoryError as e:
         raise click.ClickException(str(e)) from e
+
+
+def _get_status_tracker(repo_path: Path | None = None) -> StatusTracker:
+    """Build a status tracker anchored to the current repo when possible."""
+    return StatusTracker(runtime_status_config(repo_path))
 
 
 @click.group(invoke_without_command=True)
@@ -230,7 +235,13 @@ def new_worktree(
     # 3. Install AI tool hooks for status reporting
     from open_orchestrator.core.hooks import install_hooks
 
-    hooks_installed = install_hooks(worktree.path, worktree.name, ai_tool_enum)
+    tracker = _get_status_tracker(wt_manager.git_root)
+    hooks_installed = install_hooks(
+        worktree.path,
+        worktree.name,
+        ai_tool_enum,
+        db_path=tracker.storage_path,
+    )
     if hooks_installed:
         console.print(f"[green]Hooks installed:[/green] {ai_tool_enum.value} → owt status")
 
@@ -260,7 +271,6 @@ def new_worktree(
 
     # 5. Initialize status tracking
     try:
-        tracker = StatusTracker()
         tracker.initialize_status(
             worktree_name=worktree.name,
             worktree_path=str(worktree.path),
@@ -277,7 +287,6 @@ def new_worktree(
         try:
             tmux_manager.send_keys_to_pane(session_name=session_name, keys=task_description)
             console.print(f"[cyan]Sent task:[/cyan] {task_description[:80]}{'...' if len(task_description) > 80 else ''}")
-            tracker = StatusTracker()
             tracker.update_task(worktree.name, task_description[:100])
         except Exception as e:
             console.print(f"[yellow]Could not send prompt: {e}[/yellow]")
@@ -316,7 +325,7 @@ def list_worktrees(show_all: bool) -> None:
         console.print("[dim]No worktrees found.[/dim]")
         return
 
-    tracker = StatusTracker()
+    tracker = _get_status_tracker(wt_manager.git_root)
     tmux = TmuxManager()
 
     table = Table(show_header=True, header_style="bold")
@@ -406,7 +415,7 @@ def send_to_worktree(
     """
     msg = " ".join(message)
     tmux = TmuxManager()
-    tracker = StatusTracker()
+    tracker = _get_status_tracker()
 
     if send_all or send_working:
         # Broadcast mode
@@ -650,7 +659,7 @@ def ship_worktree(
 
                 diff_output = Repo(worktree.path).git.diff(f"{target}...{worktree.branch}", stat=False)
                 if diff_output:
-                    tracker = StatusTracker()
+                    tracker = _get_status_tracker(wt_manager.git_root)
                     status = tracker.get_status(worktree_name)
                     task_desc = status.current_task if status else None
 
@@ -919,7 +928,7 @@ def wait_for_worktree(worktree_name: str, timeout: int, poll: int, json_output: 
         owt wait my-feature --timeout 1200
         owt wait my-feature --json
     """
-    tracker = StatusTracker()
+    tracker = _get_status_tracker()
     elapsed = 0
     status: WorktreeAIStatus | None = None
     terminal_states = {AIActivityStatus.COMPLETED, AIActivityStatus.ERROR}
@@ -1365,7 +1374,7 @@ def merge_queue(base_branch: str | None, auto_ship: bool, yes: bool) -> None:
                             tmux.kill_session(session_name)
                     except TmuxError:
                         pass
-                    StatusTracker().remove_status(name)
+                    _get_status_tracker().remove_status(name)
                     console.print(f"  [green]✓ Shipped {name}[/green]")
                 else:
                     console.print(f"  [yellow]{result.message}[/yellow]")
@@ -1396,7 +1405,7 @@ def shared_note(message: tuple[str, ...], clear: bool) -> None:
     """
     from open_orchestrator.core.environment import inject_shared_notes
 
-    tracker = StatusTracker()
+    tracker = _get_status_tracker()
     tracker.reload()
 
     if clear:
@@ -1441,7 +1450,7 @@ def hook_event(event: str, worktree: str) -> None:
     }
 
     try:
-        tracker = StatusTracker()
+        tracker = _get_status_tracker()
         wt_status = tracker.get_status(worktree)
         if wt_status:
             wt_status.activity_status = status_map[event]

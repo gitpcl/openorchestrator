@@ -31,6 +31,9 @@ htmlcov/
 # Ruff
 .ruff_cache/
 
+# Open Orchestrator runtime state
+.open-orchestrator/
+
 # OS files
 .DS_Store
 Thumbs.db

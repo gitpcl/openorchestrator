@@ -137,6 +137,25 @@ class TaskRuntimeCoordinator:
             )
 
         if self._tmux.is_ai_running_in_session(session_name):
+            pane_activity = self._tmux.detect_session_activity(session_name)
+            if pane_activity is not None:
+                detected_status, _high_confidence = pane_activity
+                if detected_status in (
+                    AIActivityStatus.WAITING,
+                    AIActivityStatus.COMPLETED,
+                ):
+                    return RuntimeDecision(
+                        outcome=RuntimeOutcome.COMPLETED,
+                        classification="pane_waiting",
+                        elapsed_seconds=elapsed_seconds,
+                        reason=f"Agent is waiting for input after {int(elapsed_seconds)}s",
+                    )
+                if detected_status == AIActivityStatus.BLOCKED:
+                    return RuntimeDecision(
+                        outcome=RuntimeOutcome.RUNNING,
+                        classification="pane_blocked",
+                        elapsed_seconds=elapsed_seconds,
+                    )
             return RuntimeDecision(
                 outcome=RuntimeOutcome.RUNNING,
                 classification="ai_process_running",

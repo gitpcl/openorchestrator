@@ -442,6 +442,7 @@ class BatchRunner:
                         if result.task.auto_ship or self.config.auto_ship:
                             self._ship_task(idx)
                         else:
+                            self.tracker.mark_completed(result.worktree_name)
                             result.status = BatchStatus.COMPLETED
                     elif status.activity_status == AIActivityStatus.ERROR:
                         result.status = BatchStatus.FAILED
@@ -478,6 +479,7 @@ class BatchRunner:
                             if result.task.auto_ship or self.config.auto_ship:
                                 self._ship_task(idx)
                             else:
+                                self.tracker.mark_completed(result.worktree_name)
                                 result.status = BatchStatus.COMPLETED
                         else:
                             self._handle_batch_failure(
@@ -571,6 +573,7 @@ class BatchRunner:
                 ai_tool=ai_tool_enum,
                 plan_mode=task.plan_mode,
                 ai_instructions=build_agent_prompt(task.description, retry_context),
+                display_task=task.description,
                 status_tracker=self.tracker,
             )
             result.worktree_name = pane.worktree_name

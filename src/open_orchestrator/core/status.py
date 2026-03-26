@@ -135,28 +135,41 @@ def _temp_status_path(repo_name: str | None = None) -> Path:
     return user_tmp / DEFAULT_STATUS_FILENAME
 
 
+def _resolve_repo_root(repo_path: str | Path | None = None) -> Path | None:
+    """Resolve the common git root for a repo or worktree path."""
+    from open_orchestrator.core.worktree import WorktreeManager
+
+    candidate = Path(repo_path) if repo_path is not None else Path.cwd()
+    try:
+        return WorktreeManager(candidate).git_root
+    except Exception:
+        return None
+
+
 def runtime_status_config(repo_path: str | Path | None = None) -> StatusConfig:
     """Build a status config suitable for orchestrator/batch runtime use.
 
     Production flows keep using the shared default DB path so hooks, MCP,
-    and other CLI surfaces stay in sync. Test-only or synthetic repo paths
-    that do not exist get a temp-backed DB instead of failing on a global
-    home-directory write.
+    and other CLI surfaces stay in sync. When the shared home-directory DB
+    is unavailable, repo-bound commands fall back to a repo-local DB rooted
+    at the common git dir so worktrees, hooks, switchboard, and orchestration
+    keep reading the same state.
     """
     shared_path = default_status_path()
     if _is_writable_sqlite_target(shared_path):
         return StatusConfig(storage_path=shared_path)
 
+    repo_root = _resolve_repo_root(repo_path)
+    if repo_root is not None:
+        repo_local = repo_root / ".open-orchestrator" / DEFAULT_STATUS_FILENAME
+        if _is_writable_sqlite_target(repo_local):
+            return StatusConfig(storage_path=repo_local)
+        return StatusConfig(storage_path=_temp_status_path(repo_root.name))
+
     if repo_path is None:
         return StatusConfig(storage_path=_temp_status_path())
 
     repo = Path(repo_path)
-    if repo.exists():
-        repo_local = repo / ".open-orchestrator" / DEFAULT_STATUS_FILENAME
-        if _is_writable_sqlite_target(repo_local):
-            return StatusConfig(storage_path=repo_local)
-        return StatusConfig(storage_path=_temp_status_path(repo.name))
-
     safe_name = repo.name or "repo"
     return StatusConfig(storage_path=_temp_status_path(safe_name))
 

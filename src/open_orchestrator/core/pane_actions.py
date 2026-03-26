@@ -7,13 +7,18 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from open_orchestrator.config import AITool, load_config
 from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
 from open_orchestrator.core.project_detector import ProjectDetector
-from open_orchestrator.core.status import StatusConfig, StatusTracker
+from open_orchestrator.core.status import (
+    StatusConfig,
+    StatusTracker,
+    runtime_status_config,
+)
 from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
 from open_orchestrator.core.worktree import WorktreeAlreadyExistsError, WorktreeError, WorktreeManager
 
@@ -112,6 +117,7 @@ def create_pane(
     template_name: str | None = None,
     plan_mode: bool = False,
     ai_instructions: str | None = None,
+    display_task: str | None = None,
     status_tracker: StatusTracker | None = None,
     status_config: StatusConfig | None = None,
 ) -> PaneResult:
@@ -132,6 +138,7 @@ def create_pane(
         template_name: Optional worktree template name.
         plan_mode: Start Claude in plan mode.
         ai_instructions: Optional AI instructions to send after creation.
+        display_task: Optional short task label for status cards.
         status_tracker: Optional shared status tracker for the caller.
         status_config: Optional status storage configuration.
 
@@ -196,9 +203,7 @@ def create_pane(
         except Exception as e:
             logger.debug("Project context injection skipped: %s", e)
 
-    # 3. Create tmux session with print-mode prompt for automated sessions.
-    #    The AI tool runs non-interactively and exits when done, causing the
-    #    pane (and session) to close — enabling reliable completion detection.
+    # 3. Create a live provider session so users can patch into automated work.
     tmux_manager = TmuxManager()
     try:
         tmux_session = tmux_manager.create_worktree_session(
@@ -206,15 +211,15 @@ def create_pane(
             worktree_path=str(worktree.path),
             ai_tool=ai_tool_enum,
             plan_mode=plan_mode,
-            auto_exit=bool(ai_instructions),
-            prompt=ai_instructions,
+            automated=bool(ai_instructions),
         )
         pane_index = 0
     except TmuxError as e:
         raise PaneActionError(f"Failed to create session: {e}") from e
 
     # 4. Install AI tool hooks for status reporting
-    tracker = status_tracker or StatusTracker(status_config)
+    tracker_config = status_config or runtime_status_config(repo_path)
+    tracker = status_tracker or StatusTracker(tracker_config)
     try:
         from open_orchestrator.core.hooks import install_hooks
 
@@ -242,11 +247,26 @@ def create_pane(
 
             tracker.update_task(
                 worktree.name,
-                (ai_instructions or "")[:100],
+                (display_task or ai_instructions or "")[:100],
                 AIActivityStatus.WORKING,
             )
     except Exception as e:
         logger.debug("Status tracking init skipped: %s", e)
+
+    if ai_instructions:
+        time.sleep(2)
+        try:
+            tmux_manager.send_keys_to_pane(
+                session_name=tmux_session.session_name,
+                keys=ai_instructions,
+            )
+        except Exception as e:
+            teardown_worktree(
+                worktree.name,
+                repo_path=repo_path,
+                force=True,
+            )
+            raise PaneActionError(f"Failed to send initial AI instructions: {e}") from e
 
     return PaneResult(
         worktree_name=worktree.name,
@@ -316,7 +336,7 @@ def teardown_worktree(
     # 3. Clean up status tracking
     if clean_status:
         try:
-            StatusTracker().remove_status(worktree_name)
+            StatusTracker(runtime_status_config(repo_path)).remove_status(worktree_name)
         except Exception as e:
             msg = f"Could not remove status entry for '{worktree_name}': {e}"
             logger.warning(msg)

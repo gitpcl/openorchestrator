@@ -148,7 +148,7 @@ owt orchestrate --status                                  # Show progress table
 
 The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected. Batch mode and orchestrator mode share the same runtime completion evaluator, so grace-period checks, premature-exit detection, commit checks, and retry behavior stay aligned.
 
-**Agent execution model:** Orchestrated agents run in print mode (`cat /tmp/owt-prompt-xxx.md | claude ... -p`) with the prompt piped via cat (avoids tmux send-keys buffer truncation on long prompts). The agent exits automatically when done — no `/exit` needed. The pane shell cleans up the temp file and closes on exit (`rm -f ...; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
+**Agent execution model:** Orchestrated and batch agents now start as live provider sessions inside tmux, then receive the structured session-init prompt through `send-keys`. That keeps the session patchable from the switchboard while preserving `OWT_AUTOMATED=1` for hook-aware automation. Runtime completion uses shared hook plus pane-state detection rather than relying on the pane to auto-exit.
 
 **Safety nets:** Before shipping, the orchestrator (1) auto-commits any uncommitted work left by agents (`feat(auto):` prefix), (2) runs an optional Agno quality gate, (3) refuses to ship branches with zero new commits, and (4) retries failed tasks once with failure context injected into the prompt. Per-task timeouts (default 30 min) prevent hung agents from blocking the DAG.
 

@@ -274,6 +274,7 @@ class Orchestrator:
                 base_branch=self.state.feature_branch,
                 ai_tool=AITool.CLAUDE,
                 ai_instructions=build_agent_prompt(task.description, retry_context),
+                display_task=task.description,
                 status_tracker=self.tracker,
             )
             task.worktree_name = pane.worktree_name
