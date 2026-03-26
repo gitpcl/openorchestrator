@@ -386,6 +386,8 @@ class Orchestrator:
         branch resolution issues with count_commits_ahead.
         """
         try:
+            from git import Repo
+
             merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
             merge_mgr.auto_commit_worktree(task.worktree_name)
             wt = merge_mgr.wt_manager.get(task.worktree_name)
