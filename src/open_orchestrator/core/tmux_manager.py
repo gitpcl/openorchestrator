@@ -298,20 +298,15 @@ class TmuxManager:
 
     @classmethod
     def _send_command_to_pane(cls, pane: libtmux.Pane, command: str) -> None:
-        """Send a command to a pane using set-buffer + paste-buffer.
+        """Send a command to a pane using send-keys -l (literal).
 
-        Uses ``-p`` (bracketed paste) so the shell doesn't auto-execute
-        on any trailing newline in the buffer.  The explicit ``send-keys
-        Enter`` is the single execution trigger.
+        Uses literal mode so tmux doesn't interpret special key names,
+        then sends a single Enter to execute.  Avoids the double-execution
+        bug from paste-buffer's trailing newline.
         """
         target = cls._pane_target(pane)
-        buf_name = "owt-init"
         subprocess.run(
-            ["tmux", "set-buffer", "-b", buf_name, "--", command],
-            check=True, capture_output=True, text=True,
-        )
-        subprocess.run(
-            ["tmux", "paste-buffer", "-b", buf_name, "-d", "-p", "-t", target],
+            ["tmux", "send-keys", "-l", "-t", target, command],
             check=True, capture_output=True, text=True,
         )
         subprocess.run(

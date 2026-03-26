@@ -1257,33 +1257,31 @@ class TestSendCommandToPane:
         return pane
 
     @patch("open_orchestrator.core.tmux_manager.subprocess")
-    def test_sends_command_via_set_paste_enter(self, mock_subprocess):
-        """Test three subprocess calls: set-buffer, paste-buffer, send-keys Enter."""
+    def test_sends_command_via_literal_send_keys(self, mock_subprocess):
+        """Test two subprocess calls: send-keys -l (literal text), send-keys Enter."""
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         pane = self._make_pane()
 
         TmuxManager._send_command_to_pane(pane, "echo hello")
 
-        assert mock_subprocess.run.call_count == 3
+        assert mock_subprocess.run.call_count == 2
         calls = mock_subprocess.run.call_args_list
-        # set-buffer
-        assert calls[0][0][0] == ["tmux", "set-buffer", "-b", "owt-init", "--", "echo hello"]
-        # paste-buffer
-        assert calls[1][0][0] == ["tmux", "paste-buffer", "-b", "owt-init", "-d", "-p", "-t", "owt-test:0.0"]
+        # Literal text
+        assert calls[0][0][0] == ["tmux", "send-keys", "-l", "-t", "owt-test:0.0", "echo hello"]
         # Enter
-        assert calls[2][0][0] == ["tmux", "send-keys", "-t", "owt-test:0.0", "Enter"]
+        assert calls[1][0][0] == ["tmux", "send-keys", "-t", "owt-test:0.0", "Enter"]
 
     @patch("open_orchestrator.core.tmux_manager.subprocess")
-    def test_uses_owt_init_buffer_name(self, mock_subprocess):
-        """Test that the named buffer 'owt-init' is always used."""
+    def test_sends_command_text_literally(self, mock_subprocess):
+        """Test that command text is sent with -l flag (literal, no key interpretation)."""
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         pane = self._make_pane()
 
         TmuxManager._send_command_to_pane(pane, "some_command --flag")
 
-        set_buf_args = mock_subprocess.run.call_args_list[0][0][0]
-        assert "owt-init" in set_buf_args
-        assert "some_command --flag" in set_buf_args
+        literal_args = mock_subprocess.run.call_args_list[0][0][0]
+        assert "-l" in literal_args
+        assert "some_command --flag" in literal_args
 
     @patch("open_orchestrator.core.tmux_manager.subprocess")
     def test_passes_check_true_to_all_calls(self, mock_subprocess):
@@ -1306,7 +1304,7 @@ class TestSendCommandToPane:
 
         # Call through instance — should work identically
         manager._send_command_to_pane(pane, "pwd")
-        assert mock_subprocess.run.call_count == 3
+        assert mock_subprocess.run.call_count == 2
 
 
 class TestCreateSessionBranchPaths:
