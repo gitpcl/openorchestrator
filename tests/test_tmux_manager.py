@@ -394,7 +394,7 @@ class TestTmuxManager:
         assert mock_subprocess.run.call_count == 3
         calls = mock_subprocess.run.call_args_list
         assert calls[0][0][0] == ["tmux", "set-buffer", "-b", "owt-send", "--", "echo hello"]
-        assert calls[1][0][0] == ["tmux", "paste-buffer", "-b", "owt-send", "-d", "-t", "test-session:0.0"]
+        assert calls[1][0][0] == ["tmux", "paste-buffer", "-b", "owt-send", "-d", "-p", "-t", "test-session:0.0"]
         assert calls[2][0][0] == ["tmux", "send-keys", "-t", "test-session:0.0", "Enter"]
 
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
@@ -1269,7 +1269,7 @@ class TestSendCommandToPane:
         # set-buffer
         assert calls[0][0][0] == ["tmux", "set-buffer", "-b", "owt-init", "--", "echo hello"]
         # paste-buffer
-        assert calls[1][0][0] == ["tmux", "paste-buffer", "-b", "owt-init", "-d", "-t", "owt-test:0.0"]
+        assert calls[1][0][0] == ["tmux", "paste-buffer", "-b", "owt-init", "-d", "-p", "-t", "owt-test:0.0"]
         # Enter
         assert calls[2][0][0] == ["tmux", "send-keys", "-t", "owt-test:0.0", "Enter"]
 

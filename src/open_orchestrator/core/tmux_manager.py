@@ -300,10 +300,9 @@ class TmuxManager:
     def _send_command_to_pane(cls, pane: libtmux.Pane, command: str) -> None:
         """Send a command to a pane using set-buffer + paste-buffer.
 
-        This is more reliable than ``pane.send_keys()`` (libtmux's native
-        send-keys wrapper) because paste-buffer delivers the full text
-        atomically rather than character-by-character, avoiding truncation
-        or dropped characters on freshly created sessions.
+        Uses ``-p`` (bracketed paste) so the shell doesn't auto-execute
+        on any trailing newline in the buffer.  The explicit ``send-keys
+        Enter`` is the single execution trigger.
         """
         target = cls._pane_target(pane)
         buf_name = "owt-init"
@@ -312,7 +311,7 @@ class TmuxManager:
             check=True, capture_output=True, text=True,
         )
         subprocess.run(
-            ["tmux", "paste-buffer", "-b", buf_name, "-d", "-t", target],
+            ["tmux", "paste-buffer", "-b", buf_name, "-d", "-p", "-t", target],
             check=True, capture_output=True, text=True,
         )
         subprocess.run(
@@ -458,8 +457,8 @@ class TmuxManager:
     def send_keys_to_pane(self, session_name: str, keys: str, pane_index: int = 0, window_index: int = 0) -> None:
         """Send keys to a specific pane in a session.
 
-        Uses tmux set-buffer + paste-buffer for reliable delivery of
-        messages of any length (avoids truncation with send-keys).
+        Uses tmux set-buffer + paste-buffer (-p for bracketed paste) for
+        reliable delivery without double-execution from trailing newlines.
         """
         if not self.session_exists(session_name):
             raise TmuxSessionNotFoundError(f"Session '{session_name}' not found.")
@@ -471,7 +470,7 @@ class TmuxManager:
                 check=True, capture_output=True, text=True,
             )
             subprocess.run(
-                ["tmux", "paste-buffer", "-b", buf_name, "-d", "-t", target],
+                ["tmux", "paste-buffer", "-b", buf_name, "-d", "-p", "-t", target],
                 check=True, capture_output=True, text=True,
             )
             subprocess.run(
