@@ -19,11 +19,17 @@ from pathlib import Path
 from typing import Any
 
 from open_orchestrator.config import AITool
+from open_orchestrator.core.status import default_status_path
 
 logger = logging.getLogger(__name__)
 
 
-def install_hooks(worktree_path: Path, worktree_name: str, ai_tool: AITool) -> bool:
+def install_hooks(
+    worktree_path: Path,
+    worktree_name: str,
+    ai_tool: AITool,
+    db_path: str | Path | None = None,
+) -> bool:
     """Install status-reporting hooks for the given AI tool.
 
     Args:
@@ -35,9 +41,9 @@ def install_hooks(worktree_path: Path, worktree_name: str, ai_tool: AITool) -> b
         True if hooks were installed, False if tool is unsupported.
     """
     if ai_tool == AITool.CLAUDE:
-        return _install_claude_hooks(worktree_path, worktree_name)
+        return _install_claude_hooks(worktree_path, worktree_name, db_path=db_path)
     if ai_tool == AITool.DROID:
-        return _install_droid_hooks(worktree_path, worktree_name)
+        return _install_droid_hooks(worktree_path, worktree_name, db_path=db_path)
     # OpenCode: no hook system, falls back to pane scraping
     return False
 
@@ -48,7 +54,11 @@ def _owt_path() -> str:
     return path or "owt"
 
 
-def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
+def _install_claude_hooks(
+    worktree_path: Path,
+    worktree_name: str,
+    db_path: str | Path | None = None,
+) -> bool:
     """Install Claude Code hooks into .claude/settings.local.json.
 
     Three hooks cover the full lifecycle:
@@ -70,6 +80,9 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
 
     owt = _owt_path()
     name_q = shlex.quote(worktree_name)
+    resolved_db_path = str(Path(db_path).expanduser() if db_path else default_status_path())
+    db_path_q = shlex.quote(resolved_db_path)
+    env_prefix = f"OWT_DB_PATH={db_path_q} "
     hooks = existing.setdefault("hooks", {})
 
     # UserPromptSubmit → WORKING
@@ -78,7 +91,7 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event working --worktree {name_q}",
+                    "command": f"{env_prefix}{owt} hook --event working --worktree {name_q}",
                 }
             ],
         }
@@ -90,7 +103,7 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event waiting --worktree {name_q}",
+                    "command": f"{env_prefix}{owt} hook --event waiting --worktree {name_q}",
                 }
             ],
         }
@@ -106,7 +119,7 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event blocked --worktree {name_q}",
+                    "command": f"{env_prefix}{owt} hook --event blocked --worktree {name_q}",
                 }
             ],
         }
@@ -119,14 +132,13 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
     try:
         import mcp  # noqa: F401
 
-        db_path = str(Path.home() / ".open-orchestrator" / "status.db")
         mcp_servers = existing.setdefault("mcpServers", {})
         mcp_servers["owt-peers"] = {
             "command": sys.executable,
             "args": ["-m", "open_orchestrator.core.mcp_peer"],
             "env": {
                 "OWT_WORKTREE_NAME": worktree_name,
-                "OWT_DB_PATH": db_path,
+                "OWT_DB_PATH": resolved_db_path,
             },
         }
     except ImportError:
@@ -137,7 +149,11 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
     return True
 
 
-def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
+def _install_droid_hooks(
+    worktree_path: Path,
+    worktree_name: str,
+    db_path: str | Path | None = None,
+) -> bool:
     """Install Droid hooks into .factory/settings.json inside the worktree.
 
     Droid's hook system mirrors Claude Code's:
@@ -158,6 +174,9 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
 
     owt = _owt_path()
     name_q = shlex.quote(worktree_name)
+    resolved_db_path = str(Path(db_path).expanduser() if db_path else default_status_path())
+    db_path_q = shlex.quote(resolved_db_path)
+    env_prefix = f"OWT_DB_PATH={db_path_q} "
     hooks = existing.setdefault("hooks", {})
 
     hooks["UserPromptSubmit"] = [
@@ -165,7 +184,7 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event working --worktree {name_q}",
+                    "command": f"{env_prefix}{owt} hook --event working --worktree {name_q}",
                 }
             ],
         }
@@ -176,7 +195,7 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event waiting --worktree {name_q}",
+                    "command": f"{env_prefix}{owt} hook --event waiting --worktree {name_q}",
                 }
             ],
         }
@@ -187,7 +206,7 @@ def _install_droid_hooks(worktree_path: Path, worktree_name: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": f"{owt} hook --event blocked --worktree {name_q}",
+                    "command": f"{env_prefix}{owt} hook --event blocked --worktree {name_q}",
                 }
             ],
         }

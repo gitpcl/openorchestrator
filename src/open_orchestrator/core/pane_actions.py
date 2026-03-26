@@ -13,7 +13,7 @@ from pathlib import Path
 from open_orchestrator.config import AITool, load_config
 from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
 from open_orchestrator.core.project_detector import ProjectDetector
-from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.status import StatusConfig, StatusTracker
 from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
 from open_orchestrator.core.worktree import WorktreeAlreadyExistsError, WorktreeError, WorktreeManager
 
@@ -107,10 +107,13 @@ def create_pane(
     session_name: str,
     repo_path: str,
     branch: str,
+    base_branch: str | None = None,
     ai_tool: AITool = AITool.CLAUDE,
     template_name: str | None = None,
     plan_mode: bool = False,
     ai_instructions: str | None = None,
+    status_tracker: StatusTracker | None = None,
+    status_config: StatusConfig | None = None,
 ) -> PaneResult:
     """Create a worktree and add it as a pane to the tmux session.
 
@@ -124,10 +127,13 @@ def create_pane(
         session_name: tmux session name (used for status tracking).
         repo_path: Path to the main repository.
         branch: Branch name for the worktree.
+        base_branch: Optional base branch for creating a new worktree branch.
         ai_tool: AI tool to start.
         template_name: Optional worktree template name.
         plan_mode: Start Claude in plan mode.
         ai_instructions: Optional AI instructions to send after creation.
+        status_tracker: Optional shared status tracker for the caller.
+        status_config: Optional status storage configuration.
 
     Returns:
         PaneResult with details of the created pane.
@@ -161,7 +167,7 @@ def create_pane(
 
     # 1. Create the worktree
     try:
-        worktree = wt_manager.create(branch=branch)
+        worktree = wt_manager.create(branch=branch, base_branch=base_branch)
     except WorktreeAlreadyExistsError:
         worktree = wt_manager.get(branch)
     except WorktreeError as e:
@@ -208,18 +214,23 @@ def create_pane(
         raise PaneActionError(f"Failed to create session: {e}") from e
 
     # 4. Install AI tool hooks for status reporting
+    tracker = status_tracker or StatusTracker(status_config)
     try:
         from open_orchestrator.core.hooks import install_hooks
 
-        install_hooks(worktree.path, worktree.name, ai_tool_enum)
+        install_hooks(
+            worktree.path,
+            worktree.name,
+            ai_tool_enum,
+            db_path=tracker.storage_path,
+        )
     except Exception as e:
         logger.debug("Hook installation skipped: %s", e)
 
     # 5. Initialize status tracking
     initial_status = "working" if ai_instructions else "idle"
     try:
-        status_tracker = StatusTracker()
-        status_tracker.initialize_status(
+        tracker.initialize_status(
             worktree_name=worktree.name,
             worktree_path=str(worktree.path),
             branch=worktree.branch,
@@ -229,7 +240,7 @@ def create_pane(
         if initial_status == "working":
             from open_orchestrator.models.status import AIActivityStatus
 
-            status_tracker.update_task(
+            tracker.update_task(
                 worktree.name,
                 (ai_instructions or "")[:100],
                 AIActivityStatus.WORKING,

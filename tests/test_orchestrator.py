@@ -302,6 +302,7 @@ class TestOrchestrator:
         """Issue 4: when status is WORKING but AI process has exited,
         the orchestrator should detect completion via tmux inspection."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+        from open_orchestrator.core.runtime import RuntimeDecision, RuntimeOutcome
 
         # started_at must be far enough in the past to pass min_agent_runtime guard
         old_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
@@ -315,9 +316,15 @@ class TestOrchestrator:
 
         with patch.object(orch, "_user_in_worktree", return_value=False), \
              patch.object(orch.tracker, "get_status", return_value=mock_status), \
-             patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
-             patch.object(orch.tmux, "is_ai_running_in_session", return_value=False), \
-             patch.object(orch, "_check_worktree_has_commits", return_value=True), \
+             patch.object(
+                 orch._runtime,
+                 "evaluate_completion",
+                 return_value=RuntimeDecision(
+                     outcome=RuntimeOutcome.COMPLETED,
+                     classification="process_exited_with_commits",
+                     elapsed_seconds=300,
+                 ),
+             ), \
              patch.object(orch, "_merge_to_feature_branch"):
             orch._poll_running_tasks()
 
@@ -349,6 +356,7 @@ class TestOrchestrator:
     def test_poll_fallback_premature_exit_no_commits_fails(self):
         """Issue 16: agent exits quickly with no commits → silent failure."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+        from open_orchestrator.core.runtime import RuntimeDecision, RuntimeOutcome
 
         # started_at past grace period (>30s) but under min_agent_runtime (60s)
         recent_start = (datetime.now(timezone.utc) - timedelta(seconds=45)).isoformat()
@@ -362,9 +370,16 @@ class TestOrchestrator:
 
         with patch.object(orch, "_user_in_worktree", return_value=False), \
              patch.object(orch.tracker, "get_status", return_value=mock_status), \
-             patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
-             patch.object(orch.tmux, "is_ai_running_in_session", return_value=False), \
-             patch.object(orch, "_check_worktree_has_commits", return_value=False), \
+             patch.object(
+                 orch._runtime,
+                 "evaluate_completion",
+                 return_value=RuntimeDecision(
+                     outcome=RuntimeOutcome.FAILED,
+                     classification="premature_exit",
+                     elapsed_seconds=45,
+                     reason="Agent exited after 45s with no commits — likely a silent failure",
+                 ),
+             ), \
              patch.object(orch, "_handle_task_failure") as mock_fail:
             orch._poll_running_tasks()
 
@@ -374,6 +389,7 @@ class TestOrchestrator:
     def test_poll_fallback_fast_agent_with_commits_succeeds(self):
         """Issue 18: fast agent (25s) with commits should succeed, not fail."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+        from open_orchestrator.core.runtime import RuntimeDecision, RuntimeOutcome
 
         recent_start = (datetime.now(timezone.utc) - timedelta(seconds=25)).isoformat()
         tasks = [TaskState(id="a", description="Task A", status="running",
@@ -387,9 +403,15 @@ class TestOrchestrator:
 
         with patch.object(orch, "_user_in_worktree", return_value=False), \
              patch.object(orch.tracker, "get_status", return_value=mock_status), \
-             patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
-             patch.object(orch.tmux, "is_ai_running_in_session", return_value=False), \
-             patch.object(orch, "_check_worktree_has_commits", return_value=True), \
+             patch.object(
+                 orch._runtime,
+                 "evaluate_completion",
+                 return_value=RuntimeDecision(
+                     outcome=RuntimeOutcome.COMPLETED,
+                     classification="process_exited_with_commits",
+                     elapsed_seconds=25,
+                 ),
+             ), \
              patch.object(orch, "_merge_to_feature_branch"):
             orch._poll_running_tasks()
 

@@ -296,6 +296,7 @@ copy_env_file = true
 | Variable | Set by | Purpose |
 |----------|--------|---------|
 | `OWT_AUTOMATED` | OWT (in orchestrated panes) | Lets user hooks distinguish automated agents from interactive sessions. Check `[ -n "$OWT_AUTOMATED" ]` in hooks to skip restrictions for agents. |
+| `OWT_DB_PATH` | OWT hook/MCP wiring or user override | Points hooks, MCP peer servers, and in-process status tracking at the same SQLite DB. If `~/.open-orchestrator/status.db` is not writable, orchestrator/batch fall back to repo-local or temp-backed storage. |
 
 ## AI Tool Support
 
@@ -377,7 +378,7 @@ owt switch auth-models
 # User opens PR: feat/auth-v2 → main
 ```
 
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in print mode (`cat prompt.md | claude -p`) with a structured session init protocol prompt, exiting automatically when done. Safety nets: auto-commits uncommitted work, optional quality gate, empty-branch guard, retry with failure context, and per-task timeouts (30 min default).
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in print mode (`cat prompt.md | claude -p`) with a structured session init protocol prompt, exiting automatically when done. Batch mode and orchestrator mode share the same runtime completion evaluator, so startup grace periods, premature-exit detection, commit checks, and retry semantics stay aligned. Safety nets: auto-commits uncommitted work, optional quality gate, empty-branch guard, retry with failure context, and per-task timeouts (30 min default).
 
 ### Overnight Autopilot (Batch Mode)
 ```toml
@@ -385,6 +386,7 @@ The orchestrator merges completed tasks into a **feature branch** (not main), pe
 [batch]
 max_concurrent = 3
 auto_ship = true
+min_agent_runtime = 60
 
 [[tasks]]
 id = "models"

@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,9 @@ from open_orchestrator.models.status import (
 )
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_STATUS_FILENAME = "status.db"
+STATUS_DB_ENV_VAR = "OWT_DB_PATH"
 
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS worktree_status (
@@ -99,6 +103,116 @@ class StatusConfig:
     storage_path: Path | None = None
 
 
+def default_status_path() -> Path:
+    """Resolve the default status DB path.
+
+    ``OWT_DB_PATH`` takes precedence so hook-driven subprocesses, MCP peers,
+    and in-process callers can be pointed at the same DB explicitly.
+    """
+    env_path = os.environ.get(STATUS_DB_ENV_VAR)
+    if env_path:
+        return Path(env_path).expanduser()
+    return Path.home() / ".open-orchestrator" / DEFAULT_STATUS_FILENAME
+
+
+def _is_writable_sqlite_target(path: Path) -> bool:
+    """Check whether a SQLite file target appears writable."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+    if path.exists():
+        return os.access(path, os.W_OK)
+    return os.access(path.parent, os.W_OK)
+
+
+def _temp_status_path(repo_name: str | None = None) -> Path:
+    """Create a user-scoped temp location for fallback status storage."""
+    user_tmp = Path(tempfile.gettempdir()) / f"owt-{os.getuid()}"
+    user_tmp.mkdir(mode=0o700, exist_ok=True)
+    if repo_name:
+        return user_tmp / repo_name / DEFAULT_STATUS_FILENAME
+    return user_tmp / DEFAULT_STATUS_FILENAME
+
+
+def runtime_status_config(repo_path: str | Path | None = None) -> StatusConfig:
+    """Build a status config suitable for orchestrator/batch runtime use.
+
+    Production flows keep using the shared default DB path so hooks, MCP,
+    and other CLI surfaces stay in sync. Test-only or synthetic repo paths
+    that do not exist get a temp-backed DB instead of failing on a global
+    home-directory write.
+    """
+    shared_path = default_status_path()
+    if _is_writable_sqlite_target(shared_path):
+        return StatusConfig(storage_path=shared_path)
+
+    if repo_path is None:
+        return StatusConfig(storage_path=_temp_status_path())
+
+    repo = Path(repo_path)
+    if repo.exists():
+        repo_local = repo / ".open-orchestrator" / DEFAULT_STATUS_FILENAME
+        if _is_writable_sqlite_target(repo_local):
+            return StatusConfig(storage_path=repo_local)
+        return StatusConfig(storage_path=_temp_status_path(repo.name))
+
+    safe_name = repo.name or "repo"
+    return StatusConfig(storage_path=_temp_status_path(safe_name))
+
+
+class SQLiteStatusRepository:
+    """SQLite-backed persistence for status tracking."""
+
+    def __init__(self, config: StatusConfig | None = None):
+        self.config = config or StatusConfig()
+        self.storage_path = self.config.storage_path or default_status_path()
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(
+            str(self.storage_path), isolation_level="DEFERRED"
+        )
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self._ensure_schema()
+        try:
+            os.chmod(self.storage_path, 0o600)
+        except (PermissionError, OSError):
+            pass
+
+    def _ensure_schema(self) -> None:
+        """Create tables if they don't exist."""
+        self.conn.executescript(_SCHEMA_SQL)
+        self.conn.execute(
+            "INSERT OR IGNORE INTO metadata (key, value) VALUES ('version', '3.0')"
+        )
+        self.conn.commit()
+
+    def load_legacy_json(self) -> tuple[Path | None, dict[str, object] | None]:
+        """Load legacy ai_status.json if present."""
+        from open_orchestrator.utils.io import safe_read_json
+
+        json_path = self.storage_path.parent / "ai_status.json"
+        if not json_path.exists():
+            return None, None
+        try:
+            data = safe_read_json(json_path)
+            return json_path, data
+        except (OSError, ValueError) as e:
+            logger.warning("Failed to migrate %s: %s", json_path, e)
+            return None, None
+
+    def backup_legacy_json(self, json_path: Path) -> None:
+        """Rename a migrated legacy JSON status file to a backup."""
+        bak_path = json_path.with_suffix(".json.bak")
+        json_path.rename(bak_path)
+        logger.info("Migrated %s → SQLite, backup at %s", json_path, bak_path)
+
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        self.conn.close()
+
+
 class StatusTracker:
     """
     Tracks and persists AI tool activity status for worktrees.
@@ -107,49 +221,33 @@ class StatusTracker:
     UI and hook-driven writes from multiple agents.
     """
 
-    DEFAULT_STATUS_FILENAME = "status.db"
+    DEFAULT_STATUS_FILENAME = DEFAULT_STATUS_FILENAME
 
-    def __init__(self, config: StatusConfig | None = None):
-        self.config = config or StatusConfig()
-        self._storage_path = self.config.storage_path or self._get_default_path()
-        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(
-            str(self._storage_path), isolation_level="DEFERRED"
-        )
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA busy_timeout=5000")
-        self._ensure_schema()
+    def __init__(
+        self,
+        config: StatusConfig | None = None,
+        repository: SQLiteStatusRepository | None = None,
+    ):
+        self.config = config or runtime_status_config()
+        self._repository = repository or SQLiteStatusRepository(self.config)
+        self._storage_path = self._repository.storage_path
+        self._conn = self._repository.conn
         self._migrate_json()
-        # Set restrictive permissions on the DB file
-        try:
-            os.chmod(self._storage_path, 0o600)
-        except (PermissionError, OSError):
-            pass
 
     def _get_default_path(self) -> Path:
         """Get default path for status storage in user's home directory."""
-        return Path.home() / ".open-orchestrator" / self.DEFAULT_STATUS_FILENAME
+        return default_status_path()
 
     def _ensure_schema(self) -> None:
         """Create tables if they don't exist."""
-        self._conn.executescript(_SCHEMA_SQL)
-        self._conn.execute(
-            "INSERT OR IGNORE INTO metadata (key, value) VALUES ('version', '3.0')"
-        )
-        self._conn.commit()
+        self._repository._ensure_schema()
 
     def _migrate_json(self) -> None:
         """Import data from legacy ai_status.json if it exists."""
-        from open_orchestrator.utils.io import safe_read_json
-
-        json_path = self._storage_path.parent / "ai_status.json"
-        if not json_path.exists():
+        json_path, data = self._repository.load_legacy_json()
+        if not json_path or data is None:
             return
         try:
-            data = safe_read_json(json_path)
-            if data is None:
-                return
             for name, s in data.get("statuses", {}).items():
                 status = WorktreeAIStatus(
                     worktree_name=s.get("worktree_name", name),
@@ -168,16 +266,18 @@ class StatusTracker:
                 self._upsert_status(status)
             for note in data.get("shared_notes", []):
                 self.add_shared_note(note)
-            # Rename JSON to .bak
-            bak_path = json_path.with_suffix(".json.bak")
-            json_path.rename(bak_path)
-            logger.info("Migrated %s → SQLite, backup at %s", json_path, bak_path)
+            self._repository.backup_legacy_json(json_path)
         except (OSError, ValueError) as e:
             logger.warning("Failed to migrate %s: %s", json_path, e)
 
     def close(self) -> None:
         """Close the database connection."""
-        self._conn.close()
+        self._repository.close()
+
+    @property
+    def storage_path(self) -> Path:
+        """Return the underlying SQLite storage path."""
+        return self._storage_path
 
     def reload(self) -> None:
         """No-op: SQLite reads are always fresh."""

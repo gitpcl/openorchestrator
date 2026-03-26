@@ -4,6 +4,7 @@ Tests for StatusTracker class and AI activity status tracking (SQLite backend).
 
 import json
 import sqlite3
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -56,7 +57,11 @@ class TestStatusTrackerInit:
         """Test StatusTracker initialization without config uses defaults."""
         tracker = StatusTracker()
         default_path = Path.home() / ".open-orchestrator" / "status.db"
-        assert tracker._storage_path == default_path
+        if tracker._storage_path == default_path:
+            assert tracker._storage_path == default_path
+        else:
+            assert tracker._storage_path.name == "status.db"
+            assert str(tracker._storage_path).startswith(tempfile.gettempdir())
 
     def test_migrate_existing_json(self, status_file: Path, status_config: StatusConfig) -> None:
         """Test migrating an existing JSON status store into SQLite."""

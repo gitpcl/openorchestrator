@@ -22,7 +22,8 @@ import logging
 import os
 import sqlite3
 from datetime import datetime
-from pathlib import Path
+
+from open_orchestrator.core.status import default_status_path
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def create_server():  # type: ignore[no-untyped-def]
     worktree_name = os.environ.get("OWT_WORKTREE_NAME", "unknown")
     db_path = os.environ.get(
         "OWT_DB_PATH",
-        str(Path.home() / ".open-orchestrator" / "status.db"),
+        str(default_status_path()),
     )
 
     conn = _get_connection(db_path)

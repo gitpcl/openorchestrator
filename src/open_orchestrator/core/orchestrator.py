@@ -29,7 +29,8 @@ from open_orchestrator.core.batch import (
 )
 from open_orchestrator.core.merge import MergeManager
 from open_orchestrator.core.pane_actions import PaneActionError, build_agent_prompt, create_pane, teardown_worktree
-from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.runtime import RuntimeOutcome, TaskRuntimeCoordinator
+from open_orchestrator.core.status import StatusTracker, runtime_status_config
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.models.status import AIActivityStatus
 
@@ -86,11 +87,25 @@ def _load_agno_config() -> AgnoConfig | None:
 class Orchestrator:
     """Drives a plan end-to-end: start tasks, merge into feature branch, coordinate."""
 
-    def __init__(self, state: OrchestratorState, agno_config: AgnoConfig | None = None):
+    def __init__(
+        self,
+        state: OrchestratorState,
+        agno_config: AgnoConfig | None = None,
+        tracker: StatusTracker | None = None,
+        tmux: TmuxManager | None = None,
+        merge_manager_factory: Callable[[], MergeManager] | None = None,
+    ):
         self.state = state
         self.agno_config = agno_config
-        self.tracker = StatusTracker()
-        self.tmux = TmuxManager()
+        self.tracker = tracker or StatusTracker(runtime_status_config(state.repo_path))
+        self.tmux = tmux or TmuxManager()
+        self._merge_manager_factory = merge_manager_factory or (
+            lambda: MergeManager(repo_path=Path(self.state.repo_path))
+        )
+        self._runtime = TaskRuntimeCoordinator(
+            tmux=self.tmux,
+            merge_manager_factory=self._merge_manager_factory,
+        )
         self._task_index: dict[str, int] = {t.id: i for i, t in enumerate(state.tasks)}
         self._cooldowns: dict[str, float] = {}
         self._coordination_cooldown = 120  # seconds
@@ -256,8 +271,10 @@ class Orchestrator:
                 session_name=f"orch-{task.id}",
                 repo_path=self.state.repo_path,
                 branch=branch,
+                base_branch=self.state.feature_branch,
                 ai_tool=AITool.CLAUDE,
                 ai_instructions=build_agent_prompt(task.description, retry_context),
+                status_tracker=self.tracker,
             )
             task.worktree_name = pane.worktree_name
             task.branch = pane.branch
@@ -305,51 +322,31 @@ class Orchestrator:
             if not status:
                 continue
 
-            if status.activity_status in (AIActivityStatus.WAITING, AIActivityStatus.COMPLETED):
+            decision = self._runtime.evaluate_completion(
+                worktree_name=task.worktree_name,
+                base_ref=self.state.feature_branch,
+                session_name=self.tmux.generate_session_name(task.worktree_name),
+                elapsed_seconds=elapsed,
+                activity_status=status.activity_status,
+                startup_grace_period=self.state.poll_interval,
+                min_agent_runtime=self.state.min_agent_runtime,
+            )
+            if decision.outcome == RuntimeOutcome.RUNNING:
+                continue
+
+            if decision.outcome == RuntimeOutcome.COMPLETED:
                 logger.info(
-                    "Task '%s' completed in '%s' after %ds",
-                    task.id, task.worktree_name, int(elapsed),
+                    "Task '%s' completed (%s) in '%s' after %ds",
+                    task.id,
+                    decision.classification,
+                    task.worktree_name,
+                    int(elapsed),
                 )
                 task.status = "completed"
                 self._merge_to_feature_branch(task)
+                continue
 
-            elif status.activity_status == AIActivityStatus.ERROR:
-                self._handle_task_failure(task, f"Agent reported error after {int(elapsed)}s")
-
-            elif status.activity_status == AIActivityStatus.WORKING:
-                # Grace period: don't check tmux state until the AI has had
-                # time to start.  Avoids a same-tick race where the task is
-                # started and polled in the same loop iteration — the shell
-                # is still loading and is_ai_running_in_session returns False.
-                if elapsed < self.state.poll_interval:
-                    continue
-
-                # Fallback: if status is WORKING but the AI process has exited
-                # (hook failed to fire), detect via tmux pane inspection.
-                session_name = self.tmux.generate_session_name(task.worktree_name)
-                if not self.tmux.is_ai_running_in_session(session_name):
-                    # Check if the agent produced commits before declaring
-                    # premature failure.  A fast agent that finishes in 25s
-                    # with commits is a success, not a silent failure.
-                    has_commits = self._check_worktree_has_commits(task)
-
-                    if has_commits:
-                        logger.info(
-                            "Task '%s' completed (process exited, %ds) in '%s'",
-                            task.id, int(elapsed), task.worktree_name,
-                        )
-                        task.status = "completed"
-                        self._merge_to_feature_branch(task)
-                    elif elapsed < self.state.min_agent_runtime:
-                        self._handle_task_failure(
-                            task,
-                            f"Agent exited after {int(elapsed)}s with no "
-                            f"commits — likely a silent failure",
-                        )
-                    else:
-                        self._handle_task_failure(
-                            task, f"No commits produced after {int(elapsed)}s",
-                        )
+            self._handle_task_failure(task, decision.reason or "Task failed")
 
         # Progress tracking: update status with latest commit message
         self._update_running_progress()
@@ -386,26 +383,11 @@ class Orchestrator:
         branch resolution issues with count_commits_ahead.
         """
         try:
-            from git import Repo
-
-            merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
-            merge_mgr.auto_commit_worktree(task.worktree_name)
-            wt = merge_mgr.wt_manager.get(task.worktree_name)
-
-            # Check directly in the worktree — avoids GitCommandError from
-            # rev-list when branch names don't resolve from the main repo.
-            wt_repo = Repo(wt.path)
-            log = wt_repo.git.log(
-                "--oneline",
-                f"{self.state.feature_branch}..HEAD",
+            inspection = self._runtime.inspect_worktree_commits(
+                task.worktree_name,
+                self.state.feature_branch,
             )
-            count = len(log.strip().splitlines()) if log.strip() else 0
-            if count > 0:
-                logger.info(
-                    "Task '%s' has %d commit(s) in '%s'",
-                    task.id, count, task.worktree_name,
-                )
-            return count > 0
+            return inspection.has_commits
         except Exception as e:
             logger.warning(
                 "Commit check failed for '%s': %s", task.worktree_name, e,
@@ -428,7 +410,7 @@ class Orchestrator:
 
             # Auto-commit uncommitted work (safety net for agents that
             # create files but exit before committing)
-            merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
+            merge_mgr = self._merge_manager_factory()
             merge_mgr.auto_commit_worktree(task.worktree_name)
 
             # Quality gate (if Agno is available)
@@ -483,7 +465,7 @@ class Orchestrator:
         import subprocess
 
         try:
-            merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
+            merge_mgr = self._merge_manager_factory()
         except Exception:
             return
 
@@ -613,7 +595,8 @@ class Orchestrator:
     @staticmethod
     def _state_path(repo_path: str | None = None) -> Path:
         repo_name = Path(repo_path or ".").resolve().name
-        return Path.home() / ".open-orchestrator" / f"orchestrator-{repo_name}.json"
+        state_root = runtime_status_config(repo_path).storage_path
+        return state_root.parent / f"orchestrator-{repo_name}.json"
 
     def _all_done(self) -> bool:
         return all(t.status in ("shipped", "failed") for t in self.state.tasks)

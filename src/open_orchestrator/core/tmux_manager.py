@@ -304,7 +304,11 @@ class TmuxManager:
         then sends a single Enter to execute.  Avoids the double-execution
         bug from paste-buffer's trailing newline.
         """
-        target = cls._pane_target(pane)
+        cls._send_command_to_target(cls._pane_target(pane), command)
+
+    @staticmethod
+    def _send_command_to_target(target: str, command: str) -> None:
+        """Send a literal command to a tmux target and execute it once."""
         subprocess.run(
             ["tmux", "send-keys", "-l", "-t", target, command],
             check=True, capture_output=True, text=True,
@@ -452,26 +456,14 @@ class TmuxManager:
     def send_keys_to_pane(self, session_name: str, keys: str, pane_index: int = 0, window_index: int = 0) -> None:
         """Send keys to a specific pane in a session.
 
-        Uses tmux set-buffer + paste-buffer (-p for bracketed paste) for
-        reliable delivery without double-execution from trailing newlines.
+        Uses the same literal ``send-keys`` transport as session startup so
+        command delivery semantics stay consistent across all call paths.
         """
         if not self.session_exists(session_name):
             raise TmuxSessionNotFoundError(f"Session '{session_name}' not found.")
         target = f"{session_name}:{window_index}.{pane_index}"
         try:
-            buf_name = "owt-send"
-            subprocess.run(
-                ["tmux", "set-buffer", "-b", buf_name, "--", keys],
-                check=True, capture_output=True, text=True,
-            )
-            subprocess.run(
-                ["tmux", "paste-buffer", "-b", buf_name, "-d", "-p", "-t", target],
-                check=True, capture_output=True, text=True,
-            )
-            subprocess.run(
-                ["tmux", "send-keys", "-t", target, "Enter"],
-                check=True, capture_output=True, text=True,
-            )
+            self._send_command_to_target(target, keys)
         except subprocess.CalledProcessError as e:
             raise TmuxError(f"Failed to send keys to pane: {e}") from e
 
@@ -575,4 +567,3 @@ class TmuxManager:
             ("set-option", "-t", session_name,
              "pane-border-format", border_fmt),
         )
-

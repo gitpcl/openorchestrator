@@ -146,7 +146,7 @@ owt orchestrate --stop                                    # Graceful stop (workt
 owt orchestrate --status                                  # Show progress table
 ```
 
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected.
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected. Batch mode and orchestrator mode share the same runtime completion evaluator, so grace-period checks, premature-exit detection, commit checks, and retry behavior stay aligned.
 
 **Agent execution model:** Orchestrated agents run in print mode (`cat /tmp/owt-prompt-xxx.md | claude ... -p`) with the prompt piped via cat (avoids tmux send-keys buffer truncation on long prompts). The agent exits automatically when done — no `/exit` needed. The pane shell cleans up the temp file and closes on exit (`rm -f ...; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
 
@@ -159,6 +159,8 @@ The orchestrator merges completed tasks into a **feature branch** (not main), pe
 owt batch tasks.toml               # Run batch from TOML (supports depends_on)
 owt batch tasks.toml --auto-ship   # Auto-ship completed work
 ```
+
+`[batch].min_agent_runtime` is available in `tasks.toml` to tune the shared silent-exit guard. `OWT_DB_PATH` can be used to point hooks, MCP peers, and in-process status tracking at the same SQLite DB; if the default home-directory DB path is unavailable, orchestrator/batch fall back to repo-local or temp-backed storage.
 
 ## Templates
 

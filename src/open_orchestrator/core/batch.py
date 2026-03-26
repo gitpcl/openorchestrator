@@ -23,8 +23,10 @@ from typing import Any
 import toml
 
 from open_orchestrator.config import AITool
+from open_orchestrator.core.merge import MergeManager
 from open_orchestrator.core.pane_actions import PaneActionError, build_agent_prompt, create_pane
-from open_orchestrator.core.status import StatusTracker
+from open_orchestrator.core.runtime import RuntimeOutcome, TaskRuntimeCoordinator
+from open_orchestrator.core.status import StatusTracker, runtime_status_config
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.models.status import AIActivityStatus
 
@@ -77,6 +79,7 @@ class BatchConfig:
     max_concurrent: int = 3
     auto_ship: bool = False
     poll_interval: int = 30  # seconds
+    min_agent_runtime: int = 60
 
 
 def _parse_tasks(data: dict[str, Any], batch_section: dict[str, Any] | None = None) -> list[BatchTask]:
@@ -123,6 +126,7 @@ def load_batch_config(path: str | Path) -> BatchConfig:
         max_concurrent=batch_section.get("max_concurrent", 3),
         auto_ship=batch_section.get("auto_ship", False),
         poll_interval=batch_section.get("poll_interval", 30),
+        min_agent_runtime=batch_section.get("min_agent_runtime", 60),
     )
 
 
@@ -308,14 +312,28 @@ def _validate_dag(tasks: list[BatchTask], index: dict[str, int]) -> list[int]:
 class BatchRunner:
     """Orchestrates batch task execution with monitoring loop."""
 
-    def __init__(self, config: BatchConfig, repo_path: str):
+    def __init__(
+        self,
+        config: BatchConfig,
+        repo_path: str,
+        tracker: StatusTracker | None = None,
+        tmux: TmuxManager | None = None,
+        merge_manager_factory: Callable[[], MergeManager] | None = None,
+    ):
         self.config = config
         self.repo_path = repo_path
         self.results: list[BatchResult] = [
             BatchResult(task=t) for t in config.tasks
         ]
-        self.tracker = StatusTracker()
-        self._tmux = TmuxManager()
+        self.tracker = tracker or StatusTracker(runtime_status_config(repo_path))
+        self._tmux = tmux or TmuxManager()
+        self._merge_manager_factory = merge_manager_factory or (
+            lambda: MergeManager(repo_path=Path(self.repo_path))
+        )
+        self._runtime = TaskRuntimeCoordinator(
+            tmux=self._tmux,
+            merge_manager_factory=self._merge_manager_factory,
+        )
         self._task_index = _build_task_index(config.tasks)
         self._topo_order = _validate_dag(config.tasks, self._task_index)
         self._has_deps = any(t.depends_on for t in config.tasks)
@@ -410,7 +428,9 @@ class BatchRunner:
                 result = self.results[idx]
                 if result.worktree_name:
                     status = self.tracker.get_status(result.worktree_name)
-                    if status and status.activity_status in (
+                    if not status:
+                        still_running.append(idx)
+                    elif status.activity_status in (
                         AIActivityStatus.WAITING,
                         AIActivityStatus.COMPLETED,
                     ):
@@ -423,72 +443,47 @@ class BatchRunner:
                             self._ship_task(idx)
                         else:
                             result.status = BatchStatus.COMPLETED
-                    elif status and status.activity_status == AIActivityStatus.ERROR:
+                    elif status.activity_status == AIActivityStatus.ERROR:
                         result.status = BatchStatus.FAILED
                         result.error = "Agent reported error"
-                    elif status and status.activity_status == AIActivityStatus.WORKING:
-                        # Grace period: don't check tmux state until the AI
-                        # has had time to start (avoids same-tick false exit).
+                    else:
                         task_elapsed = (
                             time.monotonic() - result.started_at
                             if result.started_at else 0
                         )
-                        if task_elapsed < self.config.poll_interval:
-                            still_running.append(idx)
-                            continue
-
-                        # Fallback: if status is WORKING but the AI process
-                        # has exited (hook failed to fire), detect via tmux.
-                        session_name = self._tmux.generate_session_name(
-                            result.worktree_name
-                        )
-                        if not self._tmux.is_ai_running_in_session(session_name):
-                            task_elapsed = (
-                                time.monotonic() - result.started_at
-                                if result.started_at else 0
+                        try:
+                            base_ref = self._resolve_task_base_ref(result.worktree_name)
+                        except Exception as e:
+                            self._handle_batch_failure(
+                                idx,
+                                f"Base ref resolution failed: {e}",
                             )
-                            # Check for commits before declaring failure —
-                            # a fast agent with commits is a success.
-                            has_commits = False
-                            try:
-                                from git import Repo as GitRepo
-                                from open_orchestrator.core.merge import MergeManager
-
-                                merge_mgr = MergeManager(repo_path=Path(self.repo_path))
-                                merge_mgr.auto_commit_worktree(result.worktree_name)
-                                wt = merge_mgr.wt_manager.get(result.worktree_name)
-                                base = merge_mgr.get_base_branch(wt.branch)
-                                # Check directly in worktree repo
-                                wt_repo = GitRepo(wt.path)
-                                log = wt_repo.git.log("--oneline", f"{base}..HEAD")
-                                has_commits = bool(log.strip())
-                            except Exception as e:
-                                logger.warning("Commit check failed for task %d: %s", idx, e)
-
-                            if has_commits:
-                                if self._has_deps:
-                                    result.completion_summary = (
-                                        self._capture_summary(result.worktree_name)
-                                    )
-                                if result.task.auto_ship or self.config.auto_ship:
-                                    self._ship_task(idx)
-                                else:
-                                    result.status = BatchStatus.COMPLETED
-                            elif task_elapsed < 60:
-                                self._handle_batch_failure(
-                                    idx,
-                                    f"Agent exited after {int(task_elapsed)}s "
-                                    f"with no commits — likely a silent failure",
-                                )
-                            else:
-                                self._handle_batch_failure(
-                                    idx,
-                                    f"No commits produced after {int(task_elapsed)}s",
-                                )
-                        else:
+                            continue
+                        decision = self._runtime.evaluate_completion(
+                            worktree_name=result.worktree_name,
+                            base_ref=base_ref,
+                            session_name=self._tmux.generate_session_name(result.worktree_name),
+                            elapsed_seconds=task_elapsed,
+                            activity_status=status.activity_status,
+                            startup_grace_period=self.config.poll_interval,
+                            min_agent_runtime=self.config.min_agent_runtime,
+                        )
+                        if decision.outcome == RuntimeOutcome.RUNNING:
                             still_running.append(idx)
-                    else:
-                        still_running.append(idx)
+                        elif decision.outcome == RuntimeOutcome.COMPLETED:
+                            if self._has_deps:
+                                result.completion_summary = self._capture_summary(
+                                    result.worktree_name
+                                )
+                            if result.task.auto_ship or self.config.auto_ship:
+                                self._ship_task(idx)
+                            else:
+                                result.status = BatchStatus.COMPLETED
+                        else:
+                            self._handle_batch_failure(
+                                idx,
+                                decision.reason or "Task failed",
+                            )
                 else:
                     still_running.append(idx)
 
@@ -518,8 +513,9 @@ class BatchRunner:
         if not status:
             return None
         try:
+            base_ref = self._resolve_task_base_ref(worktree_name)
             result = subprocess.run(
-                ["git", "log", "--oneline", "-10", f"main..{status.branch}"],
+                ["git", "log", "--oneline", "-10", f"{base_ref}..{status.branch}"],
                 capture_output=True, text=True,
                 cwd=status.worktree_path, timeout=5,
             )
@@ -575,6 +571,7 @@ class BatchRunner:
                 ai_tool=ai_tool_enum,
                 plan_mode=task.plan_mode,
                 ai_instructions=build_agent_prompt(task.description, retry_context),
+                status_tracker=self.tracker,
             )
             result.worktree_name = pane.worktree_name
             result.status = BatchStatus.RUNNING
@@ -635,7 +632,7 @@ class BatchRunner:
 
             # Auto-commit any uncommitted work (safety net for agents
             # that create files but exit before committing)
-            merge_mgr = MergeManager(repo_path=Path(self.repo_path))
+            merge_mgr = self._merge_manager_factory()
             merge_mgr.auto_commit_worktree(result.worktree_name)
 
             # Guard: refuse to ship if branch has no new commits
@@ -654,3 +651,9 @@ class BatchRunner:
             result.status = BatchStatus.SHIPPED
         except Exception as e:
             self._handle_batch_failure(idx, f"Ship failed: {e}")
+
+    def _resolve_task_base_ref(self, worktree_name: str) -> str:
+        """Resolve the base ref used for runtime commit detection."""
+        merge_mgr = self._merge_manager_factory()
+        wt = merge_mgr.wt_manager.get(worktree_name)
+        return merge_mgr.get_base_branch(wt.branch)
