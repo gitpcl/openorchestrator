@@ -451,13 +451,17 @@ class BatchRunner:
                             # a fast agent with commits is a success.
                             has_commits = False
                             try:
+                                from git import Repo as GitRepo
                                 from open_orchestrator.core.merge import MergeManager
 
                                 merge_mgr = MergeManager(repo_path=Path(self.repo_path))
                                 merge_mgr.auto_commit_worktree(result.worktree_name)
                                 wt = merge_mgr.wt_manager.get(result.worktree_name)
                                 base = merge_mgr.get_base_branch(wt.branch)
-                                has_commits = merge_mgr.count_commits_ahead(wt.branch, base) > 0
+                                # Check directly in worktree repo
+                                wt_repo = GitRepo(wt.path)
+                                log = wt_repo.git.log("--oneline", f"{base}..HEAD")
+                                has_commits = bool(log.strip())
                             except Exception as e:
                                 logger.warning("Commit check failed for task %d: %s", idx, e)
 

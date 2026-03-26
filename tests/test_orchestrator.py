@@ -310,19 +310,14 @@ class TestOrchestrator:
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
-        # Status says WORKING, but the AI process has exited
         mock_status = MagicMock()
         mock_status.activity_status = AIActivityStatus.WORKING
-
-        mock_merge_mgr = MagicMock()
-        mock_merge_mgr.count_commits_ahead.return_value = 1
-        mock_merge_mgr.wt_manager.get.return_value = MagicMock(branch="feat/a")
 
         with patch.object(orch, "_user_in_worktree", return_value=False), \
              patch.object(orch.tracker, "get_status", return_value=mock_status), \
              patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
              patch.object(orch.tmux, "is_ai_running_in_session", return_value=False), \
-             patch("open_orchestrator.core.orchestrator.MergeManager", return_value=mock_merge_mgr), \
+             patch.object(orch, "_check_worktree_has_commits", return_value=True), \
              patch.object(orch, "_merge_to_feature_branch"):
             orch._poll_running_tasks()
 
@@ -365,15 +360,11 @@ class TestOrchestrator:
         mock_status = MagicMock()
         mock_status.activity_status = AIActivityStatus.WORKING
 
-        # MergeManager returns 0 commits (no work produced)
-        mock_merge_mgr = MagicMock()
-        mock_merge_mgr.count_commits_ahead.return_value = 0
-
         with patch.object(orch, "_user_in_worktree", return_value=False), \
              patch.object(orch.tracker, "get_status", return_value=mock_status), \
              patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
              patch.object(orch.tmux, "is_ai_running_in_session", return_value=False), \
-             patch("open_orchestrator.core.orchestrator.MergeManager", return_value=mock_merge_mgr), \
+             patch.object(orch, "_check_worktree_has_commits", return_value=False), \
              patch.object(orch, "_handle_task_failure") as mock_fail:
             orch._poll_running_tasks()
 
@@ -384,27 +375,21 @@ class TestOrchestrator:
         """Issue 18: fast agent (25s) with commits should succeed, not fail."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
-        # Agent ran only 25 seconds (below min_agent_runtime)
         recent_start = (datetime.now(timezone.utc) - timedelta(seconds=25)).isoformat()
         tasks = [TaskState(id="a", description="Task A", status="running",
                            worktree_name="wt-a", started_at=recent_start)]
         state = self._make_state(tasks)
-        state.poll_interval = 10  # lower grace period for test
+        state.poll_interval = 10
         orch = Orchestrator(state)
 
         mock_status = MagicMock()
         mock_status.activity_status = AIActivityStatus.WORKING
 
-        # MergeManager finds commits (agent produced work)
-        mock_merge_mgr = MagicMock()
-        mock_merge_mgr.count_commits_ahead.return_value = 1
-        mock_merge_mgr.wt_manager.get.return_value = MagicMock(branch="feat/a")
-
         with patch.object(orch, "_user_in_worktree", return_value=False), \
              patch.object(orch.tracker, "get_status", return_value=mock_status), \
              patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
              patch.object(orch.tmux, "is_ai_running_in_session", return_value=False), \
-             patch("open_orchestrator.core.orchestrator.MergeManager", return_value=mock_merge_mgr), \
+             patch.object(orch, "_check_worktree_has_commits", return_value=True), \
              patch.object(orch, "_merge_to_feature_branch"):
             orch._poll_running_tasks()
 

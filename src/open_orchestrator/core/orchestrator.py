@@ -331,19 +331,7 @@ class Orchestrator:
                     # Check if the agent produced commits before declaring
                     # premature failure.  A fast agent that finishes in 25s
                     # with commits is a success, not a silent failure.
-                    has_commits = False
-                    try:
-                        merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
-                        merge_mgr.auto_commit_worktree(task.worktree_name)
-                        wt = merge_mgr.wt_manager.get(task.worktree_name)
-                        has_commits = merge_mgr.count_commits_ahead(
-                            wt.branch, self.state.feature_branch,
-                        ) > 0
-                    except Exception as e:
-                        logger.warning(
-                            "Commit check failed for '%s': %s",
-                            task.worktree_name, e,
-                        )
+                    has_commits = self._check_worktree_has_commits(task)
 
                     if has_commits:
                         logger.info(
@@ -390,6 +378,37 @@ class Orchestrator:
         else:
             task.status = "failed"
             logger.warning("Task '%s' failed permanently: %s", task.id, reason)
+
+    def _check_worktree_has_commits(self, task: TaskState) -> bool:
+        """Check if a worktree has commits, auto-committing any loose files.
+
+        Runs directly in the worktree repo (not the main repo) to avoid
+        branch resolution issues with count_commits_ahead.
+        """
+        try:
+            merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
+            merge_mgr.auto_commit_worktree(task.worktree_name)
+            wt = merge_mgr.wt_manager.get(task.worktree_name)
+
+            # Check directly in the worktree — avoids GitCommandError from
+            # rev-list when branch names don't resolve from the main repo.
+            wt_repo = Repo(wt.path)
+            log = wt_repo.git.log(
+                "--oneline",
+                f"{self.state.feature_branch}..HEAD",
+            )
+            count = len(log.strip().splitlines()) if log.strip() else 0
+            if count > 0:
+                logger.info(
+                    "Task '%s' has %d commit(s) in '%s'",
+                    task.id, count, task.worktree_name,
+                )
+            return count > 0
+        except Exception as e:
+            logger.warning(
+                "Commit check failed for '%s': %s", task.worktree_name, e,
+            )
+            return False
 
     def _merge_to_feature_branch(self, task: TaskState) -> None:
         """Merge a completed task's worktree into the feature branch."""
