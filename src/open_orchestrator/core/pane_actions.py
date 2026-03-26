@@ -68,6 +68,9 @@ TASK: {task_description}
 
 RULES:
 - You MUST commit your work. Uncommitted work is lost when this session ends.
+- Commit using raw git commands: git add -A && git commit -m 'message'
+- Do NOT use /commit, the built-in commit workflow, or any interactive commit
+  confirmation. These block indefinitely in automated mode.
 - If you can only partially complete the task, commit what you have with a
   clear message about what remains.
 - Do NOT create stub files or placeholder implementations.

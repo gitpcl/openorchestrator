@@ -355,7 +355,7 @@ class TestOrchestrator:
             call_kwargs = mock_create.call_args[1]
             instructions = call_kwargs["ai_instructions"]
             assert "git add -A && git commit" in instructions
-            assert "/commit" not in instructions
+            assert "Do NOT use /commit" in instructions
 
     def test_empty_branch_retries_then_fails(self):
         """Issue 10: empty branch triggers retry, then fails permanently."""

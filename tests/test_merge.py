@@ -1034,11 +1034,13 @@ class TestMergeCheckUncommittedDeduplicateEmpty:
         git_repo.git.worktree("add", str(wt_path), "-b", "feat/empty-files")
 
         wt_repo_mock = MagicMock()
-        # Return diff items where one has an empty a_path
+        # Return diff items where one has an empty b_path (falsy)
         empty_item = MagicMock()
         empty_item.a_path = ""
+        empty_item.b_path = ""
         real_item = MagicMock()
         real_item.a_path = "real.txt"
+        real_item.b_path = "real.txt"
         wt_repo_mock.index.diff.return_value = [empty_item, real_item]
         wt_repo_mock.untracked_files = []
 

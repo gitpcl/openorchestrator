@@ -131,8 +131,10 @@ class MergeManager:
             raise MergeError(f"Worktree not found: {worktree_name}") from e
 
         wt_repo = Repo(worktree.path)
-        changed = [item.a_path for item in wt_repo.index.diff(None)]
-        staged = [item.a_path for item in wt_repo.index.diff("HEAD")]
+        # Use b_path with a_path fallback: for newly added files (in index
+        # but not in HEAD), a_path is None — only b_path is set.
+        changed = [item.b_path or item.a_path for item in wt_repo.index.diff(None)]
+        staged = [item.b_path or item.a_path for item in wt_repo.index.diff("HEAD")]
         untracked = wt_repo.untracked_files
 
         seen: set[str] = set()
