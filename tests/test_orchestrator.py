@@ -303,7 +303,10 @@ class TestOrchestrator:
         the orchestrator should detect completion via tmux inspection."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
-        tasks = [TaskState(id="a", description="Task A", status="running", worktree_name="wt-a")]
+        # started_at must be far enough in the past to pass min_agent_runtime guard
+        old_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        tasks = [TaskState(id="a", description="Task A", status="running",
+                           worktree_name="wt-a", started_at=old_start)]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
@@ -319,6 +322,30 @@ class TestOrchestrator:
             orch._poll_running_tasks()
 
         assert state.tasks[0].status == "completed"
+
+    def test_poll_fallback_premature_exit_fails(self):
+        """Issue 16: agent that exits in <60s is treated as failure, not completion."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        # started_at is recent — agent ran for only a few seconds
+        recent_start = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+        tasks = [TaskState(id="a", description="Task A", status="running",
+                           worktree_name="wt-a", started_at=recent_start)]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        mock_status = MagicMock()
+        mock_status.activity_status = AIActivityStatus.WORKING
+
+        with patch.object(orch, "_user_in_worktree", return_value=False), \
+             patch.object(orch.tracker, "get_status", return_value=mock_status), \
+             patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
+             patch.object(orch.tmux, "is_ai_running_in_session", return_value=False), \
+             patch.object(orch, "_handle_task_failure") as mock_fail:
+            orch._poll_running_tasks()
+
+        mock_fail.assert_called_once()
+        assert "silent failure" in mock_fail.call_args[0][1]
 
     def test_poll_no_fallback_when_ai_still_running(self):
         """When status is WORKING and AI process is still running, task stays running."""

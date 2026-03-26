@@ -66,6 +66,7 @@ class BatchResult:
     max_retries: int = 1
     completion_summary: str | None = None
     parent_summaries: list[str] = field(default_factory=list)
+    started_at: float | None = None  # time.monotonic() when task started
 
 
 @dataclass
@@ -432,14 +433,27 @@ class BatchRunner:
                             result.worktree_name
                         )
                         if not self._tmux.is_ai_running_in_session(session_name):
-                            if self._has_deps:
-                                result.completion_summary = self._capture_summary(
-                                    result.worktree_name
+                            # Guard: premature exit detection. claude -p can
+                            # exit silently in <10s — don't treat as completion.
+                            elapsed = (
+                                time.monotonic() - result.started_at
+                                if result.started_at else 0
+                            )
+                            if elapsed < 60:
+                                self._handle_batch_failure(
+                                    idx,
+                                    f"Agent exited after {int(elapsed)}s "
+                                    f"(minimum 60s) — likely a silent failure",
                                 )
-                            if result.task.auto_ship or self.config.auto_ship:
-                                self._ship_task(idx)
                             else:
-                                result.status = BatchStatus.COMPLETED
+                                if self._has_deps:
+                                    result.completion_summary = (
+                                        self._capture_summary(result.worktree_name)
+                                    )
+                                if result.task.auto_ship or self.config.auto_ship:
+                                    self._ship_task(idx)
+                                else:
+                                    result.status = BatchStatus.COMPLETED
                         else:
                             still_running.append(idx)
                     else:
@@ -533,6 +547,7 @@ class BatchRunner:
             )
             result.worktree_name = pane.worktree_name
             result.status = BatchStatus.RUNNING
+            result.started_at = time.monotonic()
 
             # Inject parent context into the worktree's CLAUDE.md
             parent_summaries = result.parent_summaries

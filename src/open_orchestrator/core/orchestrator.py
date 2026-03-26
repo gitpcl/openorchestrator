@@ -65,6 +65,7 @@ class OrchestratorState(BaseModel):
     poll_interval: int = 30
     default_max_retries: int = 1
     default_task_timeout: int = 1800  # 30 minutes
+    min_agent_runtime: int = 60  # Minimum seconds before declaring completion
     tasks: list[TaskState]
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -292,29 +293,51 @@ class Orchestrator:
                     )
                     continue
 
+            # Calculate elapsed time for this task
+            elapsed = 0.0
+            if task.started_at:
+                elapsed = (
+                    datetime.now(timezone.utc)
+                    - datetime.fromisoformat(task.started_at)
+                ).total_seconds()
+
             status = self.tracker.get_status(task.worktree_name)
             if not status:
                 continue
 
             if status.activity_status in (AIActivityStatus.WAITING, AIActivityStatus.COMPLETED):
+                logger.info(
+                    "Task '%s' completed in '%s' after %ds",
+                    task.id, task.worktree_name, int(elapsed),
+                )
                 task.status = "completed"
-                logger.info("Task '%s' completed in '%s'", task.id, task.worktree_name)
                 self._merge_to_feature_branch(task)
 
             elif status.activity_status == AIActivityStatus.ERROR:
-                self._handle_task_failure(task, "Agent reported error")
+                self._handle_task_failure(task, f"Agent reported error after {int(elapsed)}s")
 
             elif status.activity_status == AIActivityStatus.WORKING:
                 # Fallback: if status is WORKING but the AI process has exited
                 # (hook failed to fire), detect via tmux pane inspection.
                 session_name = self.tmux.generate_session_name(task.worktree_name)
                 if not self.tmux.is_ai_running_in_session(session_name):
-                    task.status = "completed"
-                    logger.info(
-                        "Task '%s' completed (process exited) in '%s'",
-                        task.id, task.worktree_name,
-                    )
-                    self._merge_to_feature_branch(task)
+                    # Guard: don't declare completion if agent ran too briefly.
+                    # claude -p can exit silently in <10s on some versions —
+                    # treat premature exit as a failure, not completion.
+                    if elapsed < self.state.min_agent_runtime:
+                        self._handle_task_failure(
+                            task,
+                            f"Agent exited after {int(elapsed)}s "
+                            f"(minimum {self.state.min_agent_runtime}s) — "
+                            f"likely a silent failure",
+                        )
+                    else:
+                        logger.info(
+                            "Task '%s' completed (process exited, %ds) in '%s'",
+                            task.id, int(elapsed), task.worktree_name,
+                        )
+                        task.status = "completed"
+                        self._merge_to_feature_branch(task)
 
         # Progress tracking: update status with latest commit message
         self._update_running_progress()
