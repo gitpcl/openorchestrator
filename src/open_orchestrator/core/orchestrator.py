@@ -339,8 +339,11 @@ class Orchestrator:
                         has_commits = merge_mgr.count_commits_ahead(
                             wt.branch, self.state.feature_branch,
                         ) > 0
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Commit check failed for '%s': %s",
+                            task.worktree_name, e,
+                        )
 
                     if has_commits:
                         logger.info(

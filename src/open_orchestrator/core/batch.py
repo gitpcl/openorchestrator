@@ -458,8 +458,8 @@ class BatchRunner:
                                 wt = merge_mgr.wt_manager.get(result.worktree_name)
                                 base = merge_mgr.get_base_branch(wt.branch)
                                 has_commits = merge_mgr.count_commits_ahead(wt.branch, base) > 0
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning("Commit check failed for task %d: %s", idx, e)
 
                             if has_commits:
                                 if self._has_deps:

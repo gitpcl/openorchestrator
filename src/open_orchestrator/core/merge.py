@@ -150,25 +150,32 @@ class MergeManager:
 
         Safety net for orchestrator/batch: ensures agent-created files
         are committed before merge so they are not lost on cleanup.
+        Always runs ``git add -A`` to catch untracked files that
+        ``check_uncommitted_changes`` might miss.
 
         Returns:
             Number of files committed (0 if worktree is clean).
         """
-        dirty = self.check_uncommitted_changes(worktree_name)
-        if not dirty:
-            return 0
-
         worktree = self.wt_manager.get(worktree_name)
         wt_repo = Repo(worktree.path)
+
+        # Always stage everything — git add -A catches untracked files,
+        # new directories, and unstaged modifications in one pass.
         wt_repo.git.add("-A")
+
+        # Check if there's actually anything staged to commit
+        staged = [item.b_path or item.a_path for item in wt_repo.index.diff("HEAD")]
+        if not staged:
+            return 0
+
         branch_desc = worktree.branch.split("/")[-1].replace("-", " ")
         wt_repo.git.commit("-m", f"feat(auto): {branch_desc}")
         logger.info(
             "Auto-committed %d file(s) in '%s': %s",
-            len(dirty), worktree_name,
-            ", ".join(dirty[:5]) + ("..." if len(dirty) > 5 else ""),
+            len(staged), worktree_name,
+            ", ".join(str(f) for f in staged[:5]) + ("..." if len(staged) > 5 else ""),
         )
-        return len(dirty)
+        return len(staged)
 
     def get_modified_files(self, branch: str, base: str) -> list[str]:
         """Get files modified on branch vs base."""
