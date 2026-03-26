@@ -124,3 +124,62 @@ class TestUnsupportedTool:
         with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
             result = install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
         assert result is True
+
+
+class TestMCPConfig:
+    """Tests for MCP peer server config injection."""
+
+    def test_mcp_config_injected_with_hooks(self, tmp_path: Path):
+        with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
+            install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
+
+        settings_path = tmp_path / ".claude" / "settings.local.json"
+        data = json.loads(settings_path.read_text())
+        assert "mcpServers" in data
+        assert "owt-peers" in data["mcpServers"]
+
+    def test_mcp_config_has_correct_structure(self, tmp_path: Path):
+        with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
+            install_hooks(tmp_path, "auth-feature", AITool.CLAUDE)
+
+        settings_path = tmp_path / ".claude" / "settings.local.json"
+        data = json.loads(settings_path.read_text())
+        mcp = data["mcpServers"]["owt-peers"]
+
+        assert "command" in mcp
+        assert mcp["args"] == ["-m", "open_orchestrator.core.mcp_peer"]
+        assert mcp["env"]["OWT_WORKTREE_NAME"] == "auth-feature"
+        assert "status.db" in mcp["env"]["OWT_DB_PATH"]
+
+    def test_mcp_config_preserves_existing_hooks(self, tmp_path: Path):
+        with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
+            install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
+
+        settings_path = tmp_path / ".claude" / "settings.local.json"
+        data = json.loads(settings_path.read_text())
+        # Both hooks and mcpServers should coexist
+        assert "hooks" in data
+        assert "mcpServers" in data
+        assert "UserPromptSubmit" in data["hooks"]
+
+    def test_mcp_config_skipped_when_sdk_missing(self, tmp_path: Path):
+        import sys
+        with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"), \
+             patch.dict(sys.modules, {"mcp": None}):
+            install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
+
+        settings_path = tmp_path / ".claude" / "settings.local.json"
+        data = json.loads(settings_path.read_text())
+        assert "mcpServers" not in data
+        # Hooks still installed
+        assert "hooks" in data
+
+    def test_mcp_config_idempotent(self, tmp_path: Path):
+        with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
+            install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
+            install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
+
+        settings_path = tmp_path / ".claude" / "settings.local.json"
+        data = json.loads(settings_path.read_text())
+        # Should have exactly one owt-peers entry
+        assert len(data["mcpServers"]) == 1

@@ -69,7 +69,8 @@ src/open_orchestrator/
 │   ├── batch.py        # Autopilot loop + DAG scheduler + AI planner (Agno or subprocess)
 │   ├── orchestrator.py # Orchestrator agent (plan → execute → merge → feature branch)
 │   ├── pane_actions.py # Shared pane lifecycle (create/remove orchestration)
-│   └── agent_detector.py  # Detect installed AI coding tools
+│   ├── agent_detector.py  # Detect installed AI coding tools
+│   └── mcp_peer.py    # MCP peer communication server (optional, FastMCP)
 ├── models/
 │   ├── intelligence.py     # Agno structured output models (TaskPlan, QualityVerdict, etc.)
 │   ├── worktree_info.py    # Worktree models
@@ -92,7 +93,7 @@ src/open_orchestrator/
 - Use `rich` for terminal output
 - Use `click` for CLI commands
 - Use `pydantic` for data models
-- Dependencies: click, pydantic, rich, textual, toml, gitpython, libtmux (7 total + optional agno)
+- Dependencies: click, pydantic, rich, textual, toml, gitpython, libtmux (7 total + optional agno, mcp)
 
 ## Key Patterns
 

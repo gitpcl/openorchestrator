@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/gitpcl/openorchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/gitpcl/openorchestrator/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/gitpcl/openorchestrator)](LICENSE)
 
-A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a Textual-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid. Optional **Agno intelligence layer** adds AI-powered planning, quality gating, and merge conflict resolution.
+A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a Textual-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid. Optional **Agno intelligence layer** adds AI-powered planning, quality gating, and merge conflict resolution. Optional **MCP peer communication** enables agent-to-agent messaging and coordination.
 
 ## Overview
 
@@ -19,7 +19,8 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
 - **Orchestrator Agent** — `owt orchestrate` drives a plan end-to-end into a feature branch with coordination, user presence detection, and stop/resume
-- **Print-mode agents** — orchestrated agents run via `claude -p` with prompts piped from temp files (stdin redirection), auto-exit when done; `OWT_AUTOMATED=1` env var lets user hooks distinguish automated from interactive sessions
+- **Print-mode agents** — orchestrated agents run via `claude -p` with prompts piped from temp files (cat pipe), auto-exit when done; `OWT_AUTOMATED=1` env var lets user hooks distinguish automated from interactive sessions
+- **MCP Peer Communication** — agents discover each other via `list_peers`, exchange messages via `send_message`/`check_messages`, and coordinate file edits via `get_peer_files` — all through native MCP tools backed by shared SQLite
 - **Session init protocol** — agents receive a structured 6-step prompt (orient → explore → implement → test → verify → commit) based on Anthropic's harness design research, with project test/dev commands auto-injected
 - **Retry + timeouts** — failed tasks retry once with failure context; 30-min default timeout prevents hung agents from blocking the DAG
 - **Autopilot Loops** — `owt batch tasks.toml` runs Karpathy-style autonomous loops with DAG-aware scheduling
@@ -36,7 +37,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Live status detection** — switchboard detects when agents are waiting for input or blocked
 - **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
 - **Project detection** — auto-detects Python, Node.js, Rust, Go, PHP and installs deps
-- **7 dependencies** — click, pydantic, rich, textual, toml, gitpython, libtmux (+ optional agno for intelligence layer)
+- **7 dependencies** — click, pydantic, rich, textual, toml, gitpython, libtmux (+ optional agno for intelligence, mcp for peer communication)
 
 ## Installation
 
@@ -54,6 +55,12 @@ pip install open-orchestrator
 
 # With Agno intelligence layer (AI-powered planning, quality gate, conflict resolution)
 pip install open-orchestrator[agno]
+
+# With MCP peer communication (agent-to-agent messaging)
+pip install open-orchestrator[mcp]
+
+# Both
+pip install open-orchestrator[agno,mcp]
 ```
 
 ### Install from source
@@ -63,8 +70,10 @@ git clone https://github.com/gitpcl/openorchestrator.git
 cd openorchestrator
 uv pip install -e .
 
-# With Agno intelligence layer
-uv pip install -e ".[agno]"
+# With optional features
+uv pip install -e ".[agno]"        # Intelligence layer
+uv pip install -e ".[mcp]"         # Peer communication
+uv pip install -e ".[agno,mcp]"    # Both
 ```
 
 ## Quick Start
@@ -217,6 +226,48 @@ auto_resolve_conflicts = false           # Auto-apply AI conflict resolutions
 
 API keys use standard env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) — no OWT-specific config needed.
 
+## MCP Peer Communication (Optional)
+
+Install with `pip install open-orchestrator[mcp]` to enable agent-to-agent communication via MCP. Each agent's Claude Code session gets an MCP server providing peer discovery and messaging tools.
+
+### How It Works
+
+When `owt new` creates a worktree, an `owt-peers` MCP server config is injected into `.claude/settings.local.json`. Claude Code spawns the server process (stdio), which reads/writes to the shared SQLite database. No broker daemon needed — all coordination happens through the existing `status.db` with WAL mode.
+
+```
+Agent A (feat/auth)              Agent B (feat/api)
+     |                                |
+  Claude Code                     Claude Code
+     |                                |
+  MCP Server (stdio)             MCP Server (stdio)
+     |                                |
+     +-------> status.db <------------+
+```
+
+### Agent Tools
+
+| Tool | Purpose |
+|------|---------|
+| `list_peers` | Discover active agents (name, branch, status, summary) |
+| `send_message` | Send to a peer (`to_peer="*"` broadcasts) |
+| `check_messages` | Read unread messages from peers |
+| `set_summary` | Update visible status for coordination |
+| `get_peer_files` | Check what files a peer is editing |
+
+### Example Agent Conversation
+
+```
+Agent A (auth-jwt):
+  list_peers() → [{name: "api-refactor", branch: "refactor/api-v2", status: "working"}]
+  send_message("api-refactor", "I'm adding auth middleware to server.py — are you touching it?")
+
+Agent B (api-refactor):
+  check_messages() → [{from: "auth-jwt", message: "...are you touching it?"}]
+  send_message("auth-jwt", "No, only routes.py and models.py. Go ahead.")
+```
+
+Gracefully degrades — if MCP SDK is not installed, worktrees are created without the peer server config. Claude Code handles missing MCP servers without errors.
+
 ## Configuration
 
 Config files are loaded in priority order:
@@ -252,7 +303,7 @@ Open Orchestrator auto-detects installed AI tools and offers a picker when multi
 
 | Tool | Binary | Notes |
 |------|--------|-------|
-| Claude Code | `claude` | Default, `--dangerously-skip-permissions`; orchestrated agents use `-p` with stdin-piped prompts |
+| Claude Code | `claude` | Default, `--dangerously-skip-permissions`; orchestrated agents use `-p` with cat-piped prompts |
 | OpenCode | `opencode` | Go-based |
 | Droid | `droid` | `--skip-permissions-unsafe` by default |
 
@@ -326,7 +377,7 @@ owt switch auth-models
 # User opens PR: feat/auth-v2 → main
 ```
 
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in print mode (`claude -p`) with a structured session init protocol prompt, exiting automatically when done. Safety nets: auto-commits uncommitted work, optional quality gate, empty-branch guard, retry with failure context, and per-task timeouts (30 min default).
+The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected (Agno or template fallback). Orchestrated agents run in print mode (`cat prompt.md | claude -p`) with a structured session init protocol prompt, exiting automatically when done. Safety nets: auto-commits uncommitted work, optional quality gate, empty-branch guard, retry with failure context, and per-task timeouts (30 min default).
 
 ### Overnight Autopilot (Batch Mode)
 ```toml
@@ -410,7 +461,7 @@ owt send api-refactor "Focus on the /users endpoint first"
 
 ```bash
 uv pip install -e .
-uv run pytest              # 534 tests
+uv run pytest              # 698+ tests
 uv run ruff check src/
 uv run mypy src/
 ```
@@ -440,7 +491,8 @@ src/open_orchestrator/
 │   ├── batch.py               # Autopilot loop + DAG scheduler + AI planner (Agno or subprocess)
 │   ├── environment.py         # Deps, .env, CLAUDE.md, shared notes injection
 │   ├── status.py              # AI activity tracking (SQLite + WAL)
-│   ├── hooks.py               # AI tool hook installer (status push)
+│   ├── hooks.py               # AI tool hook installer (status push + MCP config)
+│   ├── mcp_peer.py            # MCP peer communication server (optional)
 │   ├── cleanup.py             # Stale worktree removal
 │   ├── sync.py                # Upstream sync
 │   ├── branch_namer.py        # Task → branch name

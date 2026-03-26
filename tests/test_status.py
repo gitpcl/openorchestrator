@@ -329,3 +329,44 @@ class TestSharedNotes:
         status_tracker.add_shared_note("To be cleared")
         status_tracker.clear_shared_notes()
         assert status_tracker.get_shared_notes() == []
+
+
+class TestPeerMessages:
+    """Tests for peer messaging methods."""
+
+    def test_store_message(self, status_tracker: StatusTracker) -> None:
+        msg_id = status_tracker.store_message("agent-a", "agent-b", "hello")
+        assert msg_id > 0
+
+    def test_get_unread_messages(self, status_tracker: StatusTracker) -> None:
+        status_tracker.store_message("agent-a", "agent-b", "msg 1")
+        status_tracker.store_message("agent-c", "agent-b", "msg 2")
+        status_tracker.store_message("agent-a", "agent-x", "not for b")
+
+        msgs = status_tracker.get_unread_messages("agent-b")
+        assert len(msgs) == 2
+        assert msgs[0]["from_peer"] == "agent-a"
+        assert msgs[0]["message"] == "msg 1"
+        assert msgs[1]["from_peer"] == "agent-c"
+
+    def test_no_unread_returns_empty(self, status_tracker: StatusTracker) -> None:
+        assert status_tracker.get_unread_messages("nobody") == []
+
+    def test_mark_messages_read(self, status_tracker: StatusTracker) -> None:
+        id1 = status_tracker.store_message("a", "b", "first")
+        id2 = status_tracker.store_message("a", "b", "second")
+
+        status_tracker.mark_messages_read([id1])
+
+        unread = status_tracker.get_unread_messages("b")
+        assert len(unread) == 1
+        assert unread[0]["id"] == id2
+
+    def test_mark_read_empty_list(self, status_tracker: StatusTracker) -> None:
+        status_tracker.mark_messages_read([])  # should not raise
+
+    def test_mark_read_idempotent(self, status_tracker: StatusTracker) -> None:
+        msg_id = status_tracker.store_message("a", "b", "test")
+        status_tracker.mark_messages_read([msg_id])
+        status_tracker.mark_messages_read([msg_id])  # no error
+        assert status_tracker.get_unread_messages("b") == []

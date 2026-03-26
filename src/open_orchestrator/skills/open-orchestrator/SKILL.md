@@ -1,6 +1,6 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI agent orchestration with Textual switchboard UI and optional Agno intelligence layer. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot with quality gate (owt ship), (8) AI-powered task decomposition into dependency DAGs (owt plan), (9) Running batch autopilot tasks with DAG scheduling (owt batch), (10) Viewing optimal merge order (owt queue), (11) Sharing context across agents (owt note), (12) Headless CI/CD mode (owt new --headless, owt wait), (13) Orchestrating AI tools across branches (auto-detects claude, opencode, droid), (14) Agno-powered intelligent planning with codebase awareness, (15) Quality gate review before shipping, (16) AI-powered merge conflict resolution, (17) End-to-end orchestration into feature branch (owt orchestrate), (18) Stop/resume orchestration with persistent state, (19) User presence detection pauses auto-actions, (20) Cross-worktree coordination with Agno or template fallback. Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt plan, owt batch, owt queue, owt note, owt wait, owt orchestrate, auto-detect agents, conflict guard, autopilot, DAG, task planning, agno, quality gate, conflict resolution, intelligent planner, orchestrator, feature branch, coordination, stop resume."
+description: "Git worktree + AI agent orchestration with Textual switchboard UI, optional Agno intelligence layer, and MCP peer communication. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot with quality gate (owt ship), (8) AI-powered task decomposition into dependency DAGs (owt plan), (9) Running batch autopilot tasks with DAG scheduling (owt batch), (10) Viewing optimal merge order (owt queue), (11) Sharing context across agents (owt note), (12) Headless CI/CD mode (owt new --headless, owt wait), (13) Orchestrating AI tools across branches (auto-detects claude, opencode, droid), (14) Agno-powered intelligent planning with codebase awareness, (15) Quality gate review before shipping, (16) AI-powered merge conflict resolution, (17) End-to-end orchestration into feature branch (owt orchestrate), (18) Stop/resume orchestration with persistent state, (19) User presence detection pauses auto-actions, (20) Cross-worktree coordination with Agno or template fallback, (21) MCP-based agent-to-agent peer communication (list_peers, send_message, check_messages). Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt plan, owt batch, owt queue, owt note, owt wait, owt orchestrate, auto-detect agents, conflict guard, autopilot, DAG, task planning, agno, quality gate, conflict resolution, intelligent planner, orchestrator, feature branch, coordination, stop resume, MCP, peer communication, agent messaging."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
@@ -148,7 +148,7 @@ owt orchestrate --status                                  # Show progress table
 
 The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected.
 
-**Agent execution model:** Orchestrated agents run in print mode (`claude ... -p < /tmp/owt-prompt-xxx.md`) with the prompt piped from a temp file via stdin redirection (avoids tmux send-keys buffer truncation on long prompts). The agent exits automatically when done — no `/exit` needed. The pane shell cleans up the temp file and closes on exit (`rm -f ...; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
+**Agent execution model:** Orchestrated agents run in print mode (`cat /tmp/owt-prompt-xxx.md | claude ... -p`) with the prompt piped via cat (avoids tmux send-keys buffer truncation on long prompts). The agent exits automatically when done — no `/exit` needed. The pane shell cleans up the temp file and closes on exit (`rm -f ...; exit`), enabling reliable process-based completion detection. An `OWT_AUTOMATED=1` env var is set so user hooks can distinguish automated agents from interactive sessions.
 
 **Safety nets:** Before shipping, the orchestrator (1) auto-commits any uncommitted work left by agents (`feat(auto):` prefix), (2) runs an optional Agno quality gate, (3) refuses to ship branches with zero new commits, and (4) retries failed tasks once with failure context injected into the prompt. Per-task timeouts (default 30 min) prevent hung agents from blocking the DAG.
 
@@ -230,6 +230,27 @@ owt new "task" --ai-tool droid
 
 Auto-detects: Python (uv/poetry/pip), Node.js (bun/pnpm/yarn/npm), Rust (cargo), Go, PHP (composer).
 
+## MCP Peer Communication (Optional)
+
+Install with `pip install open-orchestrator[mcp]` to enable agent-to-agent communication via MCP (Model Context Protocol). Each agent's Claude session gets an MCP server with peer discovery and messaging tools.
+
+**Tools available to agents:**
+- `list_peers` — discover all active agents (name, branch, status, summary)
+- `send_message` — send a message to a peer agent (or broadcast with `to_peer="*"`)
+- `check_messages` — read unread messages from other agents
+- `set_summary` — update this agent's visible status for coordination
+- `get_peer_files` — check what files a peer is editing (avoid conflicts)
+
+**How it works:** When `owt new` creates a worktree, an MCP server config (`owt-peers`) is injected into `.claude/settings.local.json`. Claude Code spawns the server process (stdio transport), which reads/writes to the shared SQLite status database (WAL mode for concurrent access). No broker daemon needed.
+
+**Example agent conversation:**
+```
+Agent A: list_peers() → [{name: "api-refactor", status: "working", summary: "REST endpoints"}]
+Agent A: send_message("api-refactor", "I'm adding auth middleware to server.py — are you touching it?")
+Agent B: check_messages() → [{from: "auth-jwt", message: "...are you touching it?"}]
+Agent B: send_message("auth-jwt", "No, only routes.py. Go ahead.")
+```
+
 ## Dependencies
 
-7 production deps: click, pydantic, rich, textual, toml, gitpython, libtmux. Optional: agno (for intelligence layer).
+7 production deps: click, pydantic, rich, textual, toml, gitpython, libtmux. Optional: agno (intelligence layer), mcp (peer communication).

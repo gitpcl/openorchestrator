@@ -14,6 +14,7 @@ import json
 import logging
 import shlex
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +114,24 @@ def _install_claude_hooks(worktree_path: Path, worktree_name: str) -> bool:
     hooks["Notification"] = notification_hooks
 
     existing["hooks"] = hooks
+
+    # Inject MCP peer server config (graceful skip if mcp not installed)
+    try:
+        import mcp  # noqa: F401
+
+        db_path = str(Path.home() / ".open-orchestrator" / "status.db")
+        mcp_servers = existing.setdefault("mcpServers", {})
+        mcp_servers["owt-peers"] = {
+            "command": sys.executable,
+            "args": ["-m", "open_orchestrator.core.mcp_peer"],
+            "env": {
+                "OWT_WORKTREE_NAME": worktree_name,
+                "OWT_DB_PATH": db_path,
+            },
+        }
+    except ImportError:
+        logger.debug("MCP SDK not installed, skipping peer server config")
+
     settings_path.write_text(json.dumps(existing, indent=2) + "\n")
     logger.info("Installed Claude Code hooks in %s", settings_path)
     return True

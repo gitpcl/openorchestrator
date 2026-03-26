@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS peer_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_peer TEXT NOT NULL,
+    to_peer TEXT NOT NULL,
+    message TEXT NOT NULL,
+    read INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_peer_messages_to_peer_read
+    ON peer_messages(to_peer, read);
 """
 
 
@@ -417,3 +429,38 @@ class StatusTracker:
                 continue
 
         return None
+
+    # -- Peer messaging --------------------------------------------------
+
+    def store_message(self, from_peer: str, to_peer: str, message: str) -> int:
+        """Store a peer message. Returns the message ID."""
+        cursor = self._conn.execute(
+            "INSERT INTO peer_messages (from_peer, to_peer, message, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (from_peer, to_peer, message, datetime.now().isoformat()),
+        )
+        self._conn.commit()
+        return cursor.lastrowid or 0
+
+    def get_unread_messages(self, worktree_name: str) -> list[dict[str, str | int]]:
+        """Get unread peer messages for a worktree."""
+        rows = self._conn.execute(
+            "SELECT id, from_peer, message, created_at FROM peer_messages "
+            "WHERE to_peer = ? AND read = 0 ORDER BY created_at",
+            (worktree_name,),
+        ).fetchall()
+        return [
+            {"id": r[0], "from_peer": r[1], "message": r[2], "created_at": r[3]}
+            for r in rows
+        ]
+
+    def mark_messages_read(self, message_ids: list[int]) -> None:
+        """Mark peer messages as read."""
+        if not message_ids:
+            return
+        placeholders = ",".join("?" * len(message_ids))
+        self._conn.execute(
+            f"UPDATE peer_messages SET read = 1 WHERE id IN ({placeholders})",  # noqa: S608
+            message_ids,
+        )
+        self._conn.commit()
