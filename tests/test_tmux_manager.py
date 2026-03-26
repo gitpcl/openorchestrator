@@ -1022,3 +1022,890 @@ class TestToolInstallationCheck:
         # Should not raise an error
         result = manager.create_session(config)
         assert isinstance(result, TmuxSessionInfo)
+
+
+class TestTmuxManagerContextManager:
+    """Tests for TmuxManager context manager and lifecycle methods."""
+
+    def test_enter_returns_self(self):
+        """Test __enter__ returns the manager instance."""
+        manager = TmuxManager()
+        result = manager.__enter__()
+        assert result is manager
+
+    def test_exit_calls_close(self):
+        """Test __exit__ delegates to close()."""
+        manager = TmuxManager()
+        with patch.object(manager, "close") as mock_close:
+            manager.__exit__(None, None, None)
+        mock_close.assert_called_once()
+
+    def test_context_manager_protocol(self):
+        """Test using TmuxManager as a context manager."""
+        with TmuxManager() as manager:
+            assert isinstance(manager, TmuxManager)
+
+    def test_close_sets_server_to_none(self):
+        """Test close() nullifies the cached server reference."""
+        manager = TmuxManager()
+        manager._server = MagicMock()  # simulate an initialised server
+        manager.close()
+        assert manager._server is None
+
+    def test_close_is_idempotent_when_no_server(self):
+        """Test close() is safe to call when _server is already None."""
+        manager = TmuxManager()
+        assert manager._server is None
+        manager.close()  # should not raise
+        assert manager._server is None
+
+    def test_server_property_creates_libtmux_server(self):
+        """Test the server property lazily creates a libtmux.Server instance."""
+
+        manager = TmuxManager()
+        assert manager._server is None
+
+        with patch("libtmux.Server") as mock_server_cls:
+            fake_server = MagicMock()
+            mock_server_cls.return_value = fake_server
+            result = manager.server
+            assert result is fake_server
+            mock_server_cls.assert_called_once()
+
+    def test_server_property_caches_instance(self):
+        """Test the server property returns the same instance on repeated access."""
+        manager = TmuxManager()
+        with patch("libtmux.Server") as mock_server_cls:
+            fake_server = MagicMock()
+            mock_server_cls.return_value = fake_server
+
+            first = manager.server
+            second = manager.server
+
+            assert first is second
+            mock_server_cls.assert_called_once()  # constructed only once
+
+
+class TestPaneTarget:
+    """Tests for TmuxManager._pane_target static method."""
+
+    def test_pane_target_builds_correct_string(self):
+        """Test _pane_target returns session:window.pane format."""
+        pane = MagicMock()
+        pane.session.name = "owt-my-feature"
+        pane.window.index = "0"
+        pane.pane_index = "1"
+
+        result = TmuxManager._pane_target(pane)
+        assert result == "owt-my-feature:0.1"
+
+    def test_pane_target_with_different_indices(self):
+        """Test _pane_target with various window and pane indices."""
+        pane = MagicMock()
+        pane.session.name = "owt-test"
+        pane.window.index = "3"
+        pane.pane_index = "2"
+
+        result = TmuxManager._pane_target(pane)
+        assert result == "owt-test:3.2"
+
+    def test_pane_target_is_callable_as_static_method(self):
+        """Test _pane_target can be called on the class without an instance."""
+        pane = MagicMock()
+        pane.session.name = "session"
+        pane.window.index = "0"
+        pane.pane_index = "0"
+
+        result = TmuxManager._pane_target(pane)
+        assert "session:0.0" == result
+
+
+class TestWaitForShellReady:
+    """Tests for TmuxManager._wait_for_shell_ready method."""
+
+    def _make_pane(self, session_name: str = "owt-test", window_index: str = "0", pane_index: str = "0") -> MagicMock:
+        pane = MagicMock()
+        pane.session.name = session_name
+        pane.window.index = window_index
+        pane.pane_index = pane_index
+        return pane
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_returns_immediately_when_shell_ready(self, mock_run, mock_sleep):
+        """Test method returns once a known shell name appears."""
+        mock_run.return_value = MagicMock(stdout="zsh\n", returncode=0)
+        manager = TmuxManager()
+        pane = self._make_pane()
+
+        manager._wait_for_shell_ready(pane, timeout=3.0)
+
+        mock_run.assert_called_once()
+        # No sleeping needed since the shell was ready on the first poll
+        mock_sleep.assert_not_called()
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_recognises_all_known_shells(self, mock_run, mock_sleep):
+        """Test every shell name in the whitelist is recognised as ready."""
+        manager = TmuxManager()
+        pane = self._make_pane()
+
+        for shell in ("bash", "zsh", "fish", "sh", "dash", "login"):
+            mock_run.return_value = MagicMock(stdout=f"{shell}\n", returncode=0)
+            mock_run.reset_mock()
+            mock_sleep.reset_mock()
+            manager._wait_for_shell_ready(pane, timeout=3.0)
+            mock_run.assert_called_once()
+
+    @patch("time.monotonic")
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_retries_until_shell_appears(self, mock_run, mock_sleep, mock_time):
+        """Test the method retries when pane_current_command is not a shell yet."""
+        # Simulate time: first call returns 0.0, each subsequent adds 0.1s.
+        time_values = [0.0, 0.1, 0.2]
+        mock_time.side_effect = time_values
+
+        # First poll: command is "python" (not a shell); second: "zsh" (ready).
+        mock_run.side_effect = [
+            MagicMock(stdout="python\n", returncode=0),
+            MagicMock(stdout="zsh\n", returncode=0),
+        ]
+        manager = TmuxManager()
+        pane = self._make_pane()
+
+        manager._wait_for_shell_ready(pane, timeout=3.0)
+
+        assert mock_run.call_count == 2
+
+    @patch("time.monotonic")
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_logs_warning_on_timeout(self, mock_run, mock_sleep, mock_time):
+        """Test a warning is logged when timeout expires before shell is ready."""
+        # Time exceeds timeout immediately after first check
+        mock_time.side_effect = [0.0, 5.0, 5.1]
+        mock_run.return_value = MagicMock(stdout="python\n", returncode=0)
+
+        manager = TmuxManager()
+        pane = self._make_pane()
+
+        import logging
+        with patch.object(logging.getLogger("open_orchestrator.core.tmux_manager"), "warning") as mock_warn:
+            manager._wait_for_shell_ready(pane, timeout=3.0)
+            mock_warn.assert_called_once()
+            assert "timeout" in mock_warn.call_args[0][0].lower() or "timeout" in str(mock_warn.call_args).lower()
+
+    @patch("time.monotonic")
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_handles_subprocess_timeout_exception(self, mock_run, mock_sleep, mock_time):
+        """Test OSError / TimeoutExpired from subprocess is swallowed gracefully."""
+        import subprocess as sp
+
+        mock_time.side_effect = [0.0, 5.0, 5.1]
+        mock_run.side_effect = sp.TimeoutExpired(cmd="tmux", timeout=2)
+
+        manager = TmuxManager()
+        pane = self._make_pane()
+
+        # Should not raise, just log a warning
+        manager._wait_for_shell_ready(pane, timeout=3.0)
+
+    @patch("time.monotonic")
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_handles_os_error_exception(self, mock_run, mock_sleep, mock_time):
+        """Test OSError from subprocess is swallowed gracefully."""
+        mock_time.side_effect = [0.0, 5.0, 5.1]
+        mock_run.side_effect = OSError("tmux not found")
+
+        manager = TmuxManager()
+        pane = self._make_pane()
+
+        manager._wait_for_shell_ready(pane, timeout=3.0)
+
+    @patch("time.monotonic")
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_empty_command_output_is_not_treated_as_ready(self, mock_run, mock_sleep, mock_time):
+        """Test empty stdout is not considered a ready shell."""
+        # start=0.0; first loop-condition check=0.1 (< 3.0 → enters body);
+        # after sleep, second loop-condition check=5.0 (>= 3.0 → exits)
+        mock_time.side_effect = [0.0, 0.1, 5.0]
+        mock_run.return_value = MagicMock(stdout="", returncode=0)
+
+        manager = TmuxManager()
+        pane = self._make_pane()
+
+        # Should timeout and log warning rather than returning early
+        manager._wait_for_shell_ready(pane, timeout=3.0)
+        # Loop body ran once: subprocess.run was called but empty output
+        # did not trigger an early return
+        mock_run.assert_called_once()
+
+
+class TestSendCommandToPane:
+    """Tests for TmuxManager._send_command_to_pane class method."""
+
+    def _make_pane(self) -> MagicMock:
+        pane = MagicMock()
+        pane.session.name = "owt-test"
+        pane.window.index = "0"
+        pane.pane_index = "0"
+        return pane
+
+    @patch("open_orchestrator.core.tmux_manager.subprocess")
+    def test_sends_command_via_set_paste_enter(self, mock_subprocess):
+        """Test three subprocess calls: set-buffer, paste-buffer, send-keys Enter."""
+        mock_subprocess.run.return_value = MagicMock(returncode=0)
+        pane = self._make_pane()
+
+        TmuxManager._send_command_to_pane(pane, "echo hello")
+
+        assert mock_subprocess.run.call_count == 3
+        calls = mock_subprocess.run.call_args_list
+        # set-buffer
+        assert calls[0][0][0] == ["tmux", "set-buffer", "-b", "owt-init", "--", "echo hello"]
+        # paste-buffer
+        assert calls[1][0][0] == ["tmux", "paste-buffer", "-b", "owt-init", "-d", "-t", "owt-test:0.0"]
+        # Enter
+        assert calls[2][0][0] == ["tmux", "send-keys", "-t", "owt-test:0.0", "Enter"]
+
+    @patch("open_orchestrator.core.tmux_manager.subprocess")
+    def test_uses_owt_init_buffer_name(self, mock_subprocess):
+        """Test that the named buffer 'owt-init' is always used."""
+        mock_subprocess.run.return_value = MagicMock(returncode=0)
+        pane = self._make_pane()
+
+        TmuxManager._send_command_to_pane(pane, "some_command --flag")
+
+        set_buf_args = mock_subprocess.run.call_args_list[0][0][0]
+        assert "owt-init" in set_buf_args
+        assert "some_command --flag" in set_buf_args
+
+    @patch("open_orchestrator.core.tmux_manager.subprocess")
+    def test_passes_check_true_to_all_calls(self, mock_subprocess):
+        """Test check=True is set on each subprocess call (raises on non-zero exit)."""
+        mock_subprocess.run.return_value = MagicMock(returncode=0)
+        pane = self._make_pane()
+
+        TmuxManager._send_command_to_pane(pane, "test")
+
+        for call in mock_subprocess.run.call_args_list:
+            kwargs = call[1]
+            assert kwargs.get("check") is True
+
+    @patch("open_orchestrator.core.tmux_manager.subprocess")
+    def test_callable_as_classmethod(self, mock_subprocess):
+        """Test _send_command_to_pane is accessible on an instance too."""
+        mock_subprocess.run.return_value = MagicMock(returncode=0)
+        pane = self._make_pane()
+        manager = TmuxManager()
+
+        # Call through instance — should work identically
+        manager._send_command_to_pane(pane, "pwd")
+        assert mock_subprocess.run.call_count == 3
+
+
+class TestCreateSessionBranchPaths:
+    """Tests for create_session branch paths not yet covered."""
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_create_session_libtmux_exception_with_empty_message(self, mock_server_prop, temp_dir):
+        """Test LibTmuxException with empty message provides a helpful fallback."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.side_effect = libtmux.exc.LibTmuxException("")
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            auto_start_ai=False,
+        )
+
+        with pytest.raises(TmuxError) as exc_info:
+            manager.create_session(config)
+
+        assert "tmux server may not be running" in str(exc_info.value)
+
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
+    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_create_session_raises_when_active_pane_is_none(
+        self, mock_server_prop, mock_is_installed, mock_wait, mock_send_cmd,
+        temp_dir, mock_libtmux_session: MagicMock,
+    ):
+        """Test TmuxError raised when active pane is None and auto_start_ai is True."""
+        mock_libtmux_session.active_window.active_pane = None
+
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            auto_start_ai=True,
+        )
+
+        with pytest.raises(TmuxError) as exc_info:
+            manager.create_session(config)
+
+        assert "No active pane" in str(exc_info.value)
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_create_session_sets_mouse_mode(self, mock_server_prop, temp_dir, mock_libtmux_session: MagicMock):
+        """Test mouse mode is enabled on the session when mouse_mode=True."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            auto_start_ai=False,
+            mouse_mode=True,
+        )
+
+        manager.create_session(config)
+
+        mock_libtmux_session.set_option.assert_any_call("mouse", "on")
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_create_session_sets_prefix_key(self, mock_server_prop, temp_dir, mock_libtmux_session: MagicMock):
+        """Test custom prefix key is set when prefix_key is specified."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            auto_start_ai=False,
+            prefix_key="C-a",
+        )
+
+        manager.create_session(config)
+
+        mock_libtmux_session.set_option.assert_any_call("prefix", "C-a")
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_create_session_skips_prefix_key_when_none(self, mock_server_prop, temp_dir, mock_libtmux_session: MagicMock):
+        """Test prefix key is NOT set when prefix_key is None (default)."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            auto_start_ai=False,
+            prefix_key=None,
+        )
+
+        manager.create_session(config)
+
+        set_option_calls = [call[0] for call in mock_libtmux_session.set_option.call_args_list]
+        assert ("prefix", None) not in set_option_calls
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_create_session_sets_pane_border_options(self, mock_server_prop, temp_dir, mock_libtmux_session: MagicMock):
+        """Test pane border status and format window options are applied."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            auto_start_ai=False,
+        )
+
+        manager.create_session(config)
+
+        window = mock_libtmux_session.active_window
+        window.set_window_option.assert_any_call("pane-border-status", "top")
+        window.set_window_option.assert_any_call("pane-border-format", " #{pane_title} ")
+
+
+class TestGetSessionInfo:
+    """Tests for _get_session_info edge cases."""
+
+    def test_get_session_info_without_created_attribute(self):
+        """Test _get_session_info falls back to 'unknown' when session lacks created attr."""
+        session = MagicMock(spec=["name", "id", "windows", "attached_count"])
+        session.name = "owt-test"
+        session.id = "$5"
+        session.attached_count = 0
+
+        window = MagicMock()
+        pane = MagicMock()
+        pane.pane_current_path = "/tmp/test"
+        window.panes = [pane]
+        session.windows = [window]
+
+        manager = TmuxManager()
+        info = manager._get_session_info(session)
+
+        assert info.created_at == "unknown"
+
+    def test_get_session_info_with_empty_windows(self):
+        """Test _get_session_info handles session with no windows."""
+        session = MagicMock()
+        session.name = "owt-empty"
+        session.id = "$6"
+        session.attached_count = 0
+        session.windows = []
+
+        manager = TmuxManager()
+        info = manager._get_session_info(session)
+
+        assert info.window_count == 0
+        assert info.pane_count == 0
+        assert info.working_directory is None
+
+
+class TestSwitchClient:
+    """Tests for switch_client method."""
+
+    @patch("subprocess.run")
+    def test_switch_client_success(self, mock_run):
+        """Test successful client switch."""
+        manager = TmuxManager()
+
+        with patch.object(manager, "session_exists", return_value=True):
+            manager.switch_client("test-session")
+
+        mock_run.assert_called_once_with(
+            ["tmux", "switch-client", "-t", "test-session"], check=True
+        )
+
+    @patch("subprocess.run")
+    def test_switch_client_session_not_found(self, mock_run):
+        """Test switch_client raises TmuxSessionNotFoundError when session missing."""
+        manager = TmuxManager()
+
+        with patch.object(manager, "session_exists", return_value=False):
+            with pytest.raises(TmuxSessionNotFoundError) as exc_info:
+                manager.switch_client("nonexistent")
+
+        assert "not found" in str(exc_info.value)
+        mock_run.assert_not_called()
+
+
+class TestListSessionsExceptionPath:
+    """Tests for list_sessions LibTmuxException path."""
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_list_sessions_returns_empty_on_libtmux_exception(self, mock_server_prop):
+        """Test list_sessions returns [] when LibTmuxException accessing sessions."""
+        mock_server = MagicMock()
+        type(mock_server).sessions = PropertyMock(side_effect=libtmux.exc.LibTmuxException("no server"))
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        result = manager.list_sessions()
+
+        assert result == []
+
+
+class TestKillSessionExceptionPath:
+    """Tests for kill_session exception handling."""
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_kill_session_raises_tmux_error_on_libtmux_exception(self, mock_server_prop):
+        """Test kill_session raises TmuxError when LibTmuxException during kill."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = True
+
+        mock_session = MagicMock()
+        mock_session.kill.side_effect = libtmux.exc.LibTmuxException("kill failed")
+        sessions_mock = MagicMock()
+        sessions_mock.filter.return_value = [mock_session]
+        mock_server.sessions = sessions_mock
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+
+        with pytest.raises(TmuxError) as exc_info:
+            manager.kill_session("test-session")
+
+        assert "Failed to kill session" in str(exc_info.value)
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_kill_session_raises_tmux_error_on_index_error(self, mock_server_prop):
+        """Test kill_session raises TmuxError when sessions list is empty (IndexError)."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = True
+
+        sessions_mock = MagicMock()
+        sessions_mock.filter.return_value = []  # empty → IndexError on [0]
+        mock_server.sessions = sessions_mock
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+
+        with pytest.raises(TmuxError) as exc_info:
+            manager.kill_session("test-session")
+
+        assert "Failed to kill session" in str(exc_info.value)
+
+
+class TestGetSessionForWorktreeExceptionPath:
+    """Tests for get_session_for_worktree exception handling."""
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_returns_none_when_index_error(self, mock_server_prop):
+        """Test returns None when filter returns empty list (IndexError)."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = True
+
+        sessions_mock = MagicMock()
+        sessions_mock.filter.return_value = []  # triggers IndexError on [0]
+        mock_server.sessions = sessions_mock
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        result = manager.get_session_for_worktree("feature-test")
+
+        assert result is None
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_returns_none_when_libtmux_exception(self, mock_server_prop):
+        """Test returns None when LibTmuxException during session lookup."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = True
+
+        sessions_mock = MagicMock()
+        sessions_mock.filter.side_effect = libtmux.exc.LibTmuxException("error")
+        mock_server.sessions = sessions_mock
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        result = manager.get_session_for_worktree("feature-test")
+
+        assert result is None
+
+
+class TestGetCurrentSessionNameExceptionPath:
+    """Tests for get_current_session_name CalledProcessError path."""
+
+    @patch("subprocess.run")
+    def test_returns_none_on_called_process_error(self, mock_run):
+        """Test returns None when tmux command exits with non-zero status."""
+        import subprocess as sp
+        mock_run.side_effect = sp.CalledProcessError(returncode=1, cmd="tmux")
+
+        manager = TmuxManager()
+
+        with patch.dict(os.environ, {"TMUX": "/tmp/tmux"}):
+            result = manager.get_current_session_name()
+
+        assert result is None
+
+
+class TestSendKeysToPaneExceptionPath:
+    """Tests for send_keys_to_pane CalledProcessError path."""
+
+    @patch("open_orchestrator.core.tmux_manager.subprocess")
+    def test_raises_tmux_error_on_called_process_error(self, mock_subprocess):
+        """Test send_keys_to_pane raises TmuxError when subprocess fails."""
+        import subprocess as sp
+
+        mock_subprocess.run.side_effect = sp.CalledProcessError(returncode=1, cmd="tmux")
+        mock_subprocess.CalledProcessError = sp.CalledProcessError
+
+        manager = TmuxManager()
+
+        with patch.object(manager, "session_exists", return_value=True):
+            with pytest.raises(TmuxError) as exc_info:
+                manager.send_keys_to_pane("test-session", "echo hello")
+
+        assert "Failed to send keys" in str(exc_info.value)
+
+
+class TestGetPaneCount:
+    """Tests for get_pane_count method."""
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_returns_pane_count_for_active_window(self, mock_server_prop, mock_libtmux_session: MagicMock):
+        """Test returns number of panes in the active window."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = True
+
+        # Session has 2 panes in its active window
+        mock_libtmux_session.active_window.panes = [MagicMock(), MagicMock()]
+        sessions_mock = MagicMock()
+        sessions_mock.filter.return_value = [mock_libtmux_session]
+        mock_server.sessions = sessions_mock
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        result = manager.get_pane_count("owt-test")
+
+        assert result == 2
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_raises_session_not_found_when_missing(self, mock_server_prop):
+        """Test raises TmuxSessionNotFoundError when session doesn't exist."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+
+        with pytest.raises(TmuxSessionNotFoundError):
+            manager.get_pane_count("nonexistent")
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_raises_tmux_error_on_libtmux_exception(self, mock_server_prop):
+        """Test raises TmuxError when LibTmuxException occurs during lookup."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = True
+
+        sessions_mock = MagicMock()
+        sessions_mock.filter.side_effect = libtmux.exc.LibTmuxException("error")
+        mock_server.sessions = sessions_mock
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+
+        with pytest.raises(TmuxError) as exc_info:
+            manager.get_pane_count("owt-test")
+
+        assert "Failed to get pane count" in str(exc_info.value)
+
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_raises_tmux_error_on_index_error(self, mock_server_prop):
+        """Test raises TmuxError when sessions filter returns empty list (IndexError)."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = True
+
+        sessions_mock = MagicMock()
+        sessions_mock.filter.return_value = []  # [0] raises IndexError
+        mock_server.sessions = sessions_mock
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+
+        with pytest.raises(TmuxError) as exc_info:
+            manager.get_pane_count("owt-test")
+
+        assert "Failed to get pane count" in str(exc_info.value)
+
+
+class TestGetTmuxVersion:
+    """Tests for get_tmux_version static method."""
+
+    @patch("subprocess.run")
+    def test_parses_standard_version_string(self, mock_run):
+        """Test version parsing with typical 'tmux 3.3a' output."""
+        mock_run.return_value = MagicMock(stdout="tmux 3.3a\n")
+
+        major, minor = TmuxManager.get_tmux_version()
+
+        assert major == 3
+        assert minor == 3
+
+    @patch("subprocess.run")
+    def test_parses_next_prefix(self, mock_run):
+        """Test version parsing strips 'next-' prefix."""
+        mock_run.return_value = MagicMock(stdout="tmux next-3.4\n")
+
+        major, minor = TmuxManager.get_tmux_version()
+
+        assert major == 3
+        assert minor == 4
+
+    @patch("subprocess.run")
+    def test_returns_zero_on_called_process_error(self, mock_run):
+        """Test returns (0, 0) when tmux -V fails."""
+        import subprocess as sp
+        mock_run.side_effect = sp.CalledProcessError(returncode=1, cmd="tmux")
+
+        assert TmuxManager.get_tmux_version() == (0, 0)
+
+    @patch("subprocess.run")
+    def test_returns_zero_on_unparseable_version(self, mock_run):
+        """Test returns (0, 0) when version string cannot be parsed."""
+        mock_run.return_value = MagicMock(stdout="tmux unknown-version\n")
+
+        assert TmuxManager.get_tmux_version() == (0, 0)
+
+    @patch("subprocess.run")
+    def test_parses_major_only_version_string(self, mock_run):
+        """Test a version with only a major number returns (major, 0)."""
+        # Matches the single-digit regex path at line 529-531
+        mock_run.return_value = MagicMock(stdout="tmux 3\n")
+
+        major, minor = TmuxManager.get_tmux_version()
+
+        assert major == 3
+        assert minor == 0
+
+
+class TestRunTmuxCmd:
+    """Tests for _run_tmux_cmd static method."""
+
+    @patch("subprocess.run")
+    def test_returns_true_on_success(self, mock_run):
+        """Test returns True when tmux command exits with code 0."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        result = TmuxManager._run_tmux_cmd("new-session", "-d")
+
+        assert result is True
+        mock_run.assert_called_once_with(
+            ["tmux", "new-session", "-d"],
+            check=False, capture_output=True, text=True,
+        )
+
+    @patch("subprocess.run")
+    def test_returns_false_on_failure(self, mock_run):
+        """Test returns False when tmux command exits with non-zero code."""
+        mock_run.return_value = MagicMock(returncode=1)
+
+        result = TmuxManager._run_tmux_cmd("kill-session", "-t", "owt-test")
+
+        assert result is False
+
+
+class TestRunTmuxBatch:
+    """Tests for _run_tmux_batch static method."""
+
+    @patch("subprocess.run")
+    def test_returns_true_with_no_commands(self, mock_run):
+        """Test _run_tmux_batch returns True immediately when given no commands."""
+        result = TmuxManager._run_tmux_batch()
+
+        assert result is True
+        mock_run.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_chains_multiple_commands_with_semicolons(self, mock_run):
+        """Test _run_tmux_batch joins multiple commands with ';' separators."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        result = TmuxManager._run_tmux_batch(
+            ("set-option", "-t", "owt-test", "mouse", "on"),
+            ("set-option", "-t", "owt-test", "status", "on"),
+        )
+
+        assert result is True
+        combined_cmd = mock_run.call_args[0][0]
+        assert "tmux" in combined_cmd
+        assert ";" in combined_cmd
+
+    @patch("subprocess.run")
+    def test_returns_false_when_command_fails(self, mock_run):
+        """Test _run_tmux_batch returns False when subprocess exits non-zero."""
+        mock_run.return_value = MagicMock(returncode=1)
+
+        result = TmuxManager._run_tmux_batch(
+            ("set-option", "-t", "owt-test", "mouse", "on"),
+        )
+
+        assert result is False
+
+
+class TestInstallStatusBar:
+    """Tests for install_status_bar method."""
+
+    @patch.object(TmuxManager, "_run_tmux_batch")
+    def test_install_status_bar_calls_run_tmux_batch(self, mock_batch):
+        """Test install_status_bar calls _run_tmux_batch with all expected options."""
+        mock_batch.return_value = True
+
+        manager = TmuxManager()
+        manager.install_status_bar("owt-test")
+
+        mock_batch.assert_called_once()
+        # Unpack the positional args passed as individual tuples
+        call_args = mock_batch.call_args[0]
+        # Flatten all tuples into one list to check for expected option keys
+        all_args = [item for tup in call_args for item in tup]
+        assert "status-right" in all_args
+        assert "status-interval" in all_args
+        assert "pane-border-format" in all_args
+        assert "pane-active-border-style" in all_args
+
+    @patch.object(TmuxManager, "_run_tmux_batch")
+    def test_install_status_bar_targets_correct_session(self, mock_batch):
+        """Test that all set-option calls target the supplied session name."""
+        mock_batch.return_value = True
+
+        manager = TmuxManager()
+        manager.install_status_bar("owt-my-feature")
+
+        call_args = mock_batch.call_args[0]
+        # Every tuple should contain the session name as the -t argument
+        for tup in call_args:
+            tup_list = list(tup)
+            if "-t" in tup_list:
+                idx = tup_list.index("-t")
+                assert tup_list[idx + 1] == "owt-my-feature"
+
+    @patch("subprocess.run")
+    def test_install_status_bar_via_run_tmux_batch(self, mock_run):
+        """Test install_status_bar results in subprocess.run being called."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        manager = TmuxManager()
+        manager.install_status_bar("owt-test-session")
+
+        # _run_tmux_batch issues a single subprocess.run call
+        assert mock_run.call_count >= 1
+        combined_cmd = mock_run.call_args[0][0]
+        assert "tmux" in combined_cmd
+
+    @patch.object(TmuxManager, "_run_tmux_batch")
+    def test_install_status_bar_includes_owt_branding_in_status_right(self, mock_batch):
+        """Test status-right value contains OWT branding text."""
+        mock_batch.return_value = True
+
+        manager = TmuxManager()
+        manager.install_status_bar("owt-test")
+
+        call_args = mock_batch.call_args[0]
+        # Find the status-right tuple and verify it contains [owt]
+        status_right_value = None
+        for tup in call_args:
+            tup_list = list(tup)
+            if "status-right" in tup_list:
+                idx = tup_list.index("status-right")
+                status_right_value = tup_list[idx + 1]
+                break
+
+        assert status_right_value is not None
+        assert "[owt]" in status_right_value
+
+
+class TestSetupMainVerticalEdgeCases:
+    """Tests for _setup_main_vertical edge cases."""
+
+    def test_setup_main_vertical_no_pane_select_when_empty(self):
+        """Test _setup_main_vertical does not call select() when panes list is empty."""
+        window = MagicMock()
+        window.panes = []  # empty panes — covers the 'if panes' False branch
+
+        manager = TmuxManager()
+        manager._setup_main_vertical(window, pane_count=1, working_dir="/tmp")
+
+        # No panes to select
+        for pane in window.panes:
+            pane.select.assert_not_called()
