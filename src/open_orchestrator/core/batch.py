@@ -427,6 +427,16 @@ class BatchRunner:
                         result.status = BatchStatus.FAILED
                         result.error = "Agent reported error"
                     elif status and status.activity_status == AIActivityStatus.WORKING:
+                        # Grace period: don't check tmux state until the AI
+                        # has had time to start (avoids same-tick false exit).
+                        task_elapsed = (
+                            time.monotonic() - result.started_at
+                            if result.started_at else 0
+                        )
+                        if task_elapsed < self.config.poll_interval:
+                            still_running.append(idx)
+                            continue
+
                         # Fallback: if status is WORKING but the AI process
                         # has exited (hook failed to fire), detect via tmux.
                         session_name = self._tmux.generate_session_name(

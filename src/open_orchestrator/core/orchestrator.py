@@ -317,6 +317,13 @@ class Orchestrator:
                 self._handle_task_failure(task, f"Agent reported error after {int(elapsed)}s")
 
             elif status.activity_status == AIActivityStatus.WORKING:
+                # Grace period: don't check tmux state until the AI has had
+                # time to start.  Avoids a same-tick race where the task is
+                # started and polled in the same loop iteration — the shell
+                # is still loading and is_ai_running_in_session returns False.
+                if elapsed < self.state.poll_interval:
+                    continue
+
                 # Fallback: if status is WORKING but the AI process has exited
                 # (hook failed to fire), detect via tmux pane inspection.
                 session_name = self.tmux.generate_session_name(task.worktree_name)

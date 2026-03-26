@@ -323,12 +323,35 @@ class TestOrchestrator:
 
         assert state.tasks[0].status == "completed"
 
+    def test_poll_grace_period_skips_new_tasks(self):
+        """Issue 17: tasks started in the same tick should not be polled for exit."""
+        from open_orchestrator.core.orchestrator import Orchestrator, TaskState
+
+        # started_at is very recent (within poll_interval grace period)
+        recent_start = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+        tasks = [TaskState(id="a", description="Task A", status="running",
+                           worktree_name="wt-a", started_at=recent_start)]
+        state = self._make_state(tasks)
+        orch = Orchestrator(state)
+
+        mock_status = MagicMock()
+        mock_status.activity_status = AIActivityStatus.WORKING
+
+        with patch.object(orch, "_user_in_worktree", return_value=False), \
+             patch.object(orch.tracker, "get_status", return_value=mock_status), \
+             patch.object(orch.tmux, "is_ai_running_in_session") as mock_ai:
+            orch._poll_running_tasks()
+
+        # Should NOT have checked tmux — grace period skipped it
+        mock_ai.assert_not_called()
+        assert state.tasks[0].status == "running"
+
     def test_poll_fallback_premature_exit_fails(self):
         """Issue 16: agent that exits in <60s is treated as failure, not completion."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
-        # started_at is recent — agent ran for only a few seconds
-        recent_start = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+        # started_at past grace period (>30s) but under min_agent_runtime (60s)
+        recent_start = (datetime.now(timezone.utc) - timedelta(seconds=45)).isoformat()
         tasks = [TaskState(id="a", description="Task A", status="running",
                            worktree_name="wt-a", started_at=recent_start)]
         state = self._make_state(tasks)
