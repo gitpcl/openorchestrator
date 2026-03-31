@@ -16,7 +16,7 @@ from enum import Enum
 from pathlib import Path
 
 import toml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,8 @@ class AITool(str, Enum):
 class AgnoConfig(BaseModel):
     """Agno intelligence layer configuration."""
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=True, description="Enable Agno intelligence features")
     model_id: str = Field(default="claude-sonnet-4-20250514", description="Default model ID for Agno agents")
     planner_model_id: str | None = Field(default=None, description="Override model for planner agent")
@@ -164,11 +166,13 @@ class AgnoConfig(BaseModel):
 class ClaudeConfig(BaseModel):
     """Claude-specific configuration."""
 
-    pass
+    model_config = ConfigDict(extra="forbid")
 
 
 class OpenCodeConfig(BaseModel):
     """OpenCode-specific configuration."""
+
+    model_config = ConfigDict(extra="forbid")
 
     config_path: str | None = Field(default=None, description="Path to OpenCode configuration file")
 
@@ -176,12 +180,16 @@ class OpenCodeConfig(BaseModel):
 class DroidConfig(BaseModel):
     """Droid-specific configuration."""
 
+    model_config = ConfigDict(extra="forbid")
+
     default_auto_level: DroidAutoLevel | None = Field(default=None, description="Default auto mode level")
     skip_permissions_unsafe: bool = Field(default=False, description="Skip permissions check")
 
 
 class WorktreeTemplate(BaseModel):
     """Template configuration for common worktree workflows."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., description="Template name")
     description: str = Field(..., description="Template description")
@@ -198,6 +206,8 @@ class WorktreeTemplate(BaseModel):
 class WorktreeConfig(BaseModel):
     """Configuration for worktree operations."""
 
+    model_config = ConfigDict(extra="forbid")
+
     base_directory: str = Field(default="../", description="Base directory for creating worktrees")
     naming_pattern: str = Field(default="{project}-{branch}", description="Pattern for worktree directory names")
     auto_cleanup_days: int = Field(default=14, description="Days of inactivity before worktree is considered stale")
@@ -205,6 +215,8 @@ class WorktreeConfig(BaseModel):
 
 class TmuxConfig(BaseModel):
     """Configuration for tmux session management."""
+
+    model_config = ConfigDict(extra="forbid")
 
     default_layout: str = Field(default="single", description="Default tmux pane layout")
     auto_start_ai: bool = Field(default=True, description="Automatically start AI tool in new sessions")
@@ -216,6 +228,8 @@ class TmuxConfig(BaseModel):
 
 class EnvironmentConfig(BaseModel):
     """Configuration for environment setup."""
+
+    model_config = ConfigDict(extra="forbid")
 
     auto_install_deps: bool = Field(default=True, description="Automatically install dependencies")
     copy_env_file: bool = Field(default=True, description="Copy .env file from main repo")
@@ -229,6 +243,8 @@ class EnvironmentConfig(BaseModel):
 class SyncConfig(BaseModel):
     """Configuration for sync operations."""
 
+    model_config = ConfigDict(extra="forbid")
+
     default_strategy: str = Field(default="merge", description="Default git pull strategy")
     auto_stash: bool = Field(default=True, description="Automatically stash changes before sync")
     prune_remote: bool = Field(default=True, description="Prune remote tracking branches on fetch")
@@ -236,6 +252,8 @@ class SyncConfig(BaseModel):
 
 class Config(BaseModel):
     """Main configuration model for open-orchestrator."""
+
+    model_config = ConfigDict(extra="forbid")
 
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
@@ -295,8 +313,36 @@ def get_builtin_template(name: str) -> WorktreeTemplate | None:
     return get_builtin_templates().get(name)
 
 
+class ConfigError(Exception):
+    """Raised when configuration is invalid."""
+
+
+def _format_validation_error(error: Exception, config_path: Path) -> str:
+    """Format a Pydantic ValidationError into a user-friendly message."""
+    from pydantic import ValidationError
+
+    if not isinstance(error, ValidationError):
+        return str(error)
+
+    lines = [f"Invalid config in {config_path}:"]
+    for err in error.errors():
+        loc = " → ".join(str(part) for part in err["loc"])
+        msg = err["msg"]
+        if err["type"] == "extra_forbidden":
+            lines.append(f"  Unknown key '{loc}'. Remove it or check spelling.")
+        else:
+            lines.append(f"  [{loc}] {msg}")
+    return "\n".join(lines)
+
+
 def load_config(config_path: str | None = None) -> Config:
-    """Load configuration from file or use defaults."""
+    """Load configuration from file or use defaults.
+
+    Raises ConfigError on validation failures (unknown keys, wrong types).
+    Falls back to defaults only when no config file is found.
+    """
+    from pydantic import ValidationError
+
     search_paths = [
         Path(config_path) if config_path else None,
         Path.cwd() / ".worktreerc",
@@ -310,8 +356,12 @@ def load_config(config_path: str | None = None) -> Config:
             try:
                 data = toml.load(path)
                 return Config(**data)
-            except Exception as e:
-                logger.warning("Failed to load config from %s: %s", path, e)
+            except ValidationError as e:
+                raise ConfigError(_format_validation_error(e, path)) from e
+            except toml.TomlDecodeError as e:
+                raise ConfigError(f"Malformed TOML in {path}: {e}") from e
+            except OSError as e:
+                logger.warning("Cannot read config %s: %s", path, e)
                 continue
 
     return Config()

@@ -6,6 +6,7 @@ import click
 
 from open_orchestrator.commands import (
     agent,
+    config_cmd,
     maintenance,
     merge_cmds,
     orchestrate_cmds,
@@ -32,3 +33,4 @@ agent.register(main)
 merge_cmds.register(main)
 orchestrate_cmds.register(main)
 maintenance.register(main)
+config_cmd.register(main)
