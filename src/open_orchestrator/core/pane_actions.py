@@ -40,6 +40,42 @@ class PaneActionError(Exception):
     """Raised when a pane action fails."""
 
 
+@dataclass
+class PaneTransaction:
+    """Tracks resources created during pane creation for rollback on failure.
+
+    Each field records whether a resource was created, so rollback()
+    can clean up only what was actually provisioned.
+    """
+
+    repo_path: str | None = None
+    worktree_name: str | None = None
+    worktree_created: bool = False
+    tmux_session_created: bool = False
+    status_initialized: bool = False
+
+    def rollback(self) -> None:
+        """Roll back all tracked resources using teardown_worktree()."""
+        if not self.worktree_name:
+            return
+
+        logger.warning(
+            "Rolling back pane creation for '%s' (worktree=%s, tmux=%s, status=%s)",
+            self.worktree_name,
+            self.worktree_created,
+            self.tmux_session_created,
+            self.status_initialized,
+        )
+        teardown_worktree(
+            self.worktree_name,
+            repo_path=self.repo_path,
+            kill_tmux=self.tmux_session_created,
+            delete_git_worktree=self.worktree_created,
+            clean_status=self.status_initialized,
+            force=True,
+        )
+
+
 def build_agent_prompt(
     task_description: str,
     retry_context: str | None = None,
@@ -150,6 +186,7 @@ def create_pane(
     """
     config = load_config()
     ai_tool_enum = ai_tool
+    txn = PaneTransaction(repo_path=repo_path)
 
     # Check for duplicate
     wt_manager = WorktreeManager(repo_path=Path(repo_path))
@@ -170,101 +207,106 @@ def create_pane(
             if tmpl.ai_tool:
                 ai_tool_enum = tmpl.ai_tool
 
-    # 1. Create the worktree
     try:
-        worktree = wt_manager.create(branch=branch, base_branch=base_branch)
-    except WorktreeAlreadyExistsError:
-        worktree = wt_manager.get(branch)
-    except WorktreeError as e:
-        raise PaneActionError(f"Failed to create worktree: {e}") from e
+        # 1. Create the worktree
+        try:
+            worktree = wt_manager.create(branch=branch, base_branch=base_branch)
+            txn.worktree_created = True
+        except WorktreeAlreadyExistsError:
+            worktree = wt_manager.get(branch)
+        except WorktreeError as e:
+            raise PaneActionError(f"Failed to create worktree: {e}") from e
 
-    # 2. Set up environment
-    project_config = None
-    try:
-        project_config = ProjectDetector().detect(str(worktree.path))
-        if project_config:
-            EnvironmentSetup(project_config).setup_worktree(
+        txn.worktree_name = worktree.name
+
+        # 2. Set up environment
+        project_config = None
+        try:
+            project_config = ProjectDetector().detect(str(worktree.path))
+            if project_config:
+                EnvironmentSetup(project_config).setup_worktree(
+                    worktree_path=str(worktree.path),
+                    source_path=repo_path,
+                    install_deps=config.environment.auto_install_deps,
+                    copy_env=config.environment.copy_env_file,
+                )
+        except EnvironmentSetupError as e:
+            logger.warning("Environment setup issue: %s", e)
+
+        # 2b. Inject project context (test/dev commands) into CLAUDE.md
+        if project_config and (project_config.test_command or project_config.dev_command):
+            try:
+                from open_orchestrator.core.environment import inject_project_context
+
+                inject_project_context(str(worktree.path), project_config)
+            except Exception as e:
+                logger.debug("Project context injection skipped: %s", e)
+
+        # 3. Create a live provider session so users can patch into automated work.
+        tmux_manager = TmuxManager()
+        try:
+            tmux_session = tmux_manager.create_worktree_session(
+                worktree_name=worktree.name,
                 worktree_path=str(worktree.path),
-                source_path=repo_path,
-                install_deps=config.environment.auto_install_deps,
-                copy_env=config.environment.copy_env_file,
+                ai_tool=ai_tool_enum,
+                plan_mode=plan_mode,
+                automated=bool(ai_instructions),
             )
-    except EnvironmentSetupError as e:
-        logger.warning("Environment setup issue: %s", e)
+            txn.tmux_session_created = True
+            pane_index = 0
+        except TmuxError as e:
+            raise PaneActionError(f"Failed to create session: {e}") from e
 
-    # 2b. Inject project context (test/dev commands) into CLAUDE.md
-    if project_config and (project_config.test_command or project_config.dev_command):
+        # 4. Install AI tool hooks for status reporting
+        tracker_config = status_config or runtime_status_config(repo_path)
+        tracker = status_tracker or StatusTracker(tracker_config)
         try:
-            from open_orchestrator.core.environment import inject_project_context
+            from open_orchestrator.core.hooks import install_hooks
 
-            inject_project_context(str(worktree.path), project_config)
-        except Exception as e:
-            logger.debug("Project context injection skipped: %s", e)
-
-    # 3. Create a live provider session so users can patch into automated work.
-    tmux_manager = TmuxManager()
-    try:
-        tmux_session = tmux_manager.create_worktree_session(
-            worktree_name=worktree.name,
-            worktree_path=str(worktree.path),
-            ai_tool=ai_tool_enum,
-            plan_mode=plan_mode,
-            automated=bool(ai_instructions),
-        )
-        pane_index = 0
-    except TmuxError as e:
-        raise PaneActionError(f"Failed to create session: {e}") from e
-
-    # 4. Install AI tool hooks for status reporting
-    tracker_config = status_config or runtime_status_config(repo_path)
-    tracker = status_tracker or StatusTracker(tracker_config)
-    try:
-        from open_orchestrator.core.hooks import install_hooks
-
-        install_hooks(
-            worktree.path,
-            worktree.name,
-            ai_tool_enum,
-            db_path=tracker.storage_path,
-        )
-    except Exception as e:
-        logger.debug("Hook installation skipped: %s", e)
-
-    # 5. Initialize status tracking
-    initial_status = "working" if ai_instructions else "idle"
-    try:
-        tracker.initialize_status(
-            worktree_name=worktree.name,
-            worktree_path=str(worktree.path),
-            branch=worktree.branch,
-            tmux_session=tmux_session.session_name,
-            ai_tool=ai_tool_enum,
-        )
-        if initial_status == "working":
-            from open_orchestrator.models.status import AIActivityStatus
-
-            tracker.update_task(
+            install_hooks(
+                worktree.path,
                 worktree.name,
-                (display_task or ai_instructions or "")[:100],
-                AIActivityStatus.WORKING,
+                ai_tool_enum,
+                db_path=tracker.storage_path,
             )
-    except Exception as e:
-        logger.debug("Status tracking init skipped: %s", e)
+        except Exception as e:
+            logger.debug("Hook installation skipped: %s", e)
 
-    if ai_instructions:
-        time.sleep(2)
+        # 5. Initialize status tracking
+        initial_status = "working" if ai_instructions else "idle"
         try:
+            tracker.initialize_status(
+                worktree_name=worktree.name,
+                worktree_path=str(worktree.path),
+                branch=worktree.branch,
+                tmux_session=tmux_session.session_name,
+                ai_tool=ai_tool_enum,
+            )
+            txn.status_initialized = True
+            if initial_status == "working":
+                from open_orchestrator.models.status import AIActivityStatus
+
+                tracker.update_task(
+                    worktree.name,
+                    (display_task or ai_instructions or "")[:100],
+                    AIActivityStatus.WORKING,
+                )
+        except Exception as e:
+            logger.debug("Status tracking init skipped: %s", e)
+
+        if ai_instructions:
+            time.sleep(2)
             tmux_manager.send_keys_to_pane(
                 session_name=tmux_session.session_name,
                 keys=ai_instructions,
             )
-        except Exception as e:
-            teardown_worktree(
-                worktree.name,
-                repo_path=repo_path,
-                force=True,
-            )
-            raise PaneActionError(f"Failed to send initial AI instructions: {e}") from e
+
+    except PaneActionError:
+        txn.rollback()
+        raise
+    except Exception as e:
+        txn.rollback()
+        raise PaneActionError(f"Unexpected error during pane creation: {e}") from e
 
     return PaneResult(
         worktree_name=worktree.name,
