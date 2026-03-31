@@ -311,7 +311,7 @@ class TestSyncCLIJsonOutput:
         return CliRunner()
 
     @patch("open_orchestrator.core.sync.SyncService")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_sync_all_json_output_with_no_worktrees(
         self,
         mock_wt_manager: MagicMock,
@@ -338,7 +338,7 @@ class TestSyncCLIJsonOutput:
         assert "summary" in output
 
     @patch("open_orchestrator.core.sync.SyncService")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_sync_all_json_output_with_results(
         self,
         mock_wt_manager: MagicMock,
@@ -400,7 +400,7 @@ class TestSyncCLIJsonOutput:
         assert output["results"][0]["status"] == "success"
 
     @patch("open_orchestrator.core.sync.SyncService")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_sync_single_worktree_json_output(
         self,
         mock_wt_manager: MagicMock,
@@ -452,7 +452,7 @@ class TestSyncCLIJsonOutput:
         assert output["commits_ahead"] == 2
 
     @patch("open_orchestrator.core.sync.SyncService")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_sync_json_output_validates_parseable(
         self,
         mock_wt_manager: MagicMock,

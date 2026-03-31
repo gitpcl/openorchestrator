@@ -228,14 +228,15 @@ Rules:
     try:
         result = subprocess.run(
             cmd,
-            capture_output=True, text=True, cwd=repo_path, timeout=300,
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+            timeout=300,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError("Planning timed out after 5 minutes")
     except FileNotFoundError:
-        raise RuntimeError(
-            f"AI tool '{ai_tool}' not found. Ensure it's installed and in PATH."
-        )
+        raise RuntimeError(f"AI tool '{ai_tool}' not found. Ensure it's installed and in PATH.")
 
     stdout = result.stdout
     stderr = result.stderr
@@ -283,9 +284,7 @@ def _validate_dag(tasks: list[BatchTask], index: dict[str, int]) -> list[int]:
     for i, task in enumerate(tasks):
         for dep_id in task.depends_on:
             if dep_id not in index:
-                raise ValueError(
-                    f"Task {task.id!r} depends on unknown ID {dep_id!r}"
-                )
+                raise ValueError(f"Task {task.id!r} depends on unknown ID {dep_id!r}")
             parent_idx = index[dep_id]
             children[parent_idx].append(i)
             in_degree[i] += 1
@@ -303,9 +302,7 @@ def _validate_dag(tasks: list[BatchTask], index: dict[str, int]) -> list[int]:
 
     if len(order) != n:
         cycle_ids = [tasks[i].id for i in range(n) if i not in set(order)]
-        raise ValueError(
-            f"Circular dependency detected among tasks: {cycle_ids}"
-        )
+        raise ValueError(f"Circular dependency detected among tasks: {cycle_ids}")
     return order
 
 
@@ -322,14 +319,10 @@ class BatchRunner:
     ):
         self.config = config
         self.repo_path = repo_path
-        self.results: list[BatchResult] = [
-            BatchResult(task=t) for t in config.tasks
-        ]
+        self.results: list[BatchResult] = [BatchResult(task=t) for t in config.tasks]
         self.tracker = tracker or StatusTracker(runtime_status_config(repo_path))
         self._tmux = tmux or TmuxManager()
-        self._merge_manager_factory = merge_manager_factory or (
-            lambda: MergeManager(repo_path=Path(self.repo_path))
-        )
+        self._merge_manager_factory = merge_manager_factory or (lambda: MergeManager(repo_path=Path(self.repo_path)))
         self._runtime = TaskRuntimeCoordinator(
             tmux=self._tmux,
             merge_manager_factory=self._merge_manager_factory,
@@ -436,9 +429,7 @@ class BatchRunner:
                     ):
                         # Capture summary before shipping (for child context)
                         if self._has_deps:
-                            result.completion_summary = self._capture_summary(
-                                result.worktree_name
-                            )
+                            result.completion_summary = self._capture_summary(result.worktree_name)
                         if result.task.auto_ship or self.config.auto_ship:
                             self._ship_task(idx)
                         else:
@@ -448,10 +439,7 @@ class BatchRunner:
                         result.status = BatchStatus.FAILED
                         result.error = "Agent reported error"
                     else:
-                        task_elapsed = (
-                            time.monotonic() - result.started_at
-                            if result.started_at else 0
-                        )
+                        task_elapsed = time.monotonic() - result.started_at if result.started_at else 0
                         try:
                             base_ref = self._resolve_task_base_ref(result.worktree_name)
                         except Exception as e:
@@ -473,9 +461,7 @@ class BatchRunner:
                             still_running.append(idx)
                         elif decision.outcome == RuntimeOutcome.COMPLETED:
                             if self._has_deps:
-                                result.completion_summary = self._capture_summary(
-                                    result.worktree_name
-                                )
+                                result.completion_summary = self._capture_summary(result.worktree_name)
                             if result.task.auto_ship or self.config.auto_ship:
                                 self._ship_task(idx)
                             else:
@@ -492,10 +478,7 @@ class BatchRunner:
             running = still_running
 
             # Update DAG progress
-            done = sum(
-                1 for r in self.results
-                if r.status in (BatchStatus.COMPLETED, BatchStatus.SHIPPED, BatchStatus.FAILED)
-            )
+            done = sum(1 for r in self.results if r.status in (BatchStatus.COMPLETED, BatchStatus.SHIPPED, BatchStatus.FAILED))
             self._update_dag_progress(done, total)
 
             if on_status:
@@ -518,8 +501,10 @@ class BatchRunner:
             base_ref = self._resolve_task_base_ref(worktree_name)
             result = subprocess.run(
                 ["git", "log", "--oneline", "-10", f"{base_ref}..{status.branch}"],
-                capture_output=True, text=True,
-                cwd=status.worktree_path, timeout=5,
+                capture_output=True,
+                text=True,
+                cwd=status.worktree_path,
+                timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():
                 return f"**{worktree_name}** ({status.branch}):\n{result.stdout.strip()}"
@@ -562,10 +547,7 @@ class BatchRunner:
                 return
             retry_context = None
             if result.retry_count > 0 and result.error:
-                retry_context = (
-                    f"RETRY ATTEMPT {result.retry_count}: "
-                    f"Previous attempt failed: {result.error}"
-                )
+                retry_context = f"RETRY ATTEMPT {result.retry_count}: Previous attempt failed: {result.error}"
             pane = create_pane(
                 session_name=f"batch-{idx}",
                 repo_path=self.repo_path,
@@ -601,7 +583,10 @@ class BatchRunner:
             result.retry_count += 1
             logger.info(
                 "Task %d failed (%s) — retrying (%d/%d)",
-                idx, reason, result.retry_count, result.max_retries,
+                idx,
+                reason,
+                result.retry_count,
+                result.max_retries,
             )
             if result.worktree_name:
                 from open_orchestrator.core.pane_actions import teardown_worktree
@@ -621,7 +606,6 @@ class BatchRunner:
             return
 
         try:
-            from open_orchestrator.core.merge import MergeManager
             from open_orchestrator.core.tmux_manager import TmuxManager
 
             # Kill tmux session BEFORE merge (agent may hold locks)

@@ -50,9 +50,9 @@ class TestCLIMain:
 class TestListCommand:
     """Test 'owt list' command."""
 
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.StatusTracker")
+    @patch("open_orchestrator.commands.worktree.TmuxManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_list_worktrees_empty(
         self,
         mock_wt_manager: MagicMock,
@@ -67,9 +67,9 @@ class TestListCommand:
         result = cli_runner.invoke(main, ["list"])
         assert result.exit_code == 0
 
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.StatusTracker")
+    @patch("open_orchestrator.commands.worktree.TmuxManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_list_worktrees_with_results(
         self,
         mock_wt_manager: MagicMock,
@@ -92,7 +92,7 @@ class TestListCommand:
         assert result.exit_code == 0
         assert "feature/test" in result.output
 
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_list_worktrees_not_a_git_repo(
         self,
         mock_wt_manager: MagicMock,
@@ -108,9 +108,9 @@ class TestListCommand:
 class TestSendCommand:
     """Test 'owt send' command."""
 
-    @patch("open_orchestrator.cli.StatusTracker")
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.StatusTracker")
+    @patch("open_orchestrator.commands.agent.TmuxManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_to_worktree(
         self,
         mock_wt_manager: MagicMock,
@@ -131,7 +131,7 @@ class TestSendCommand:
         assert result.exit_code == 0
         mock_tmux_instance.send_keys_to_pane.assert_called_once()
 
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_to_nonexistent_worktree(
         self,
         mock_wt_manager: MagicMock,
@@ -145,8 +145,8 @@ class TestSendCommand:
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
 
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands.agent.TmuxManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_without_tmux_session(
         self,
         mock_wt_manager: MagicMock,
@@ -172,7 +172,7 @@ class TestDeleteCommand:
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
     @patch("open_orchestrator.core.pane_actions.TmuxManager")
     @patch("open_orchestrator.core.pane_actions.WorktreeManager")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_delete_worktree_success(
         self,
         mock_wt_manager: MagicMock,
@@ -195,7 +195,7 @@ class TestDeleteCommand:
         # Verify --force is passed through to git worktree remove
         mock_pa_wt_manager.return_value.delete.assert_called_once_with("test-worktree", force=True)
 
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_delete_nonexistent_worktree(
         self,
         mock_wt_manager: MagicMock,
@@ -213,8 +213,8 @@ class TestDeleteCommand:
 class TestSwitchCommand:
     """Test 'owt switch' command."""
 
-    @patch("open_orchestrator.cli.TmuxManager")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands.worktree.TmuxManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_switch_to_worktree_no_session(
         self,
         mock_wt_manager: MagicMock,
@@ -233,7 +233,7 @@ class TestSwitchCommand:
         result = cli_runner.invoke(main, ["switch", "feature/test"])
         assert result.exit_code != 0
 
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_switch_to_nonexistent_worktree(
         self,
         mock_wt_manager: MagicMock,

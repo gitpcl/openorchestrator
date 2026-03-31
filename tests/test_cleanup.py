@@ -645,7 +645,7 @@ class TestCleanupCLIJsonOutput:
         return CliRunner()
 
     @patch("open_orchestrator.core.cleanup.CleanupService")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_cleanup_json_output_with_no_worktrees(
         self,
         mock_wt_manager: MagicMock,
@@ -672,7 +672,7 @@ class TestCleanupCLIJsonOutput:
         assert "message" in output
 
     @patch("open_orchestrator.core.cleanup.CleanupService")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_cleanup_json_output_with_no_stale_worktrees(
         self,
         mock_wt_manager: MagicMock,
@@ -715,7 +715,7 @@ class TestCleanupCLIJsonOutput:
         assert output["threshold_days"] == 14
 
     @patch("open_orchestrator.core.cleanup.CleanupService")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_cleanup_json_output_with_stale_worktrees_dry_run(
         self,
         mock_wt_manager: MagicMock,
@@ -774,7 +774,7 @@ class TestCleanupCLIJsonOutput:
         assert output["dry_run"] is True
 
     @patch("open_orchestrator.core.cleanup.CleanupService")
-    @patch("open_orchestrator.cli.WorktreeManager")
+    @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_cleanup_json_output_validates_parseable(
         self,
         mock_wt_manager: MagicMock,
