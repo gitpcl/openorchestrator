@@ -156,9 +156,7 @@ def create_pane(
     existing_names = {wt.name for wt in wt_manager.list_all()}
     candidate_name = branch.split("/")[-1] if "/" in branch else branch
     if candidate_name in existing_names:
-        raise PaneActionError(
-            f"A worktree named '{candidate_name}' already exists. Use a different branch name."
-        )
+        raise PaneActionError(f"A worktree named '{candidate_name}' already exists. Use a different branch name.")
 
     # Resolve template
     if template_name:

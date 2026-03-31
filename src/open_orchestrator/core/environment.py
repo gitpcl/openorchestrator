@@ -168,11 +168,11 @@ class EnvironmentSetup:
                 f"Command not found: {executable}. Please ensure {self.config.package_manager.value} is installed."
             )
 
-        logger.info("Installing dependencies with %s: %s", self.config.package_manager.value, ' '.join(install_cmd))
+        logger.info("Installing dependencies with %s: %s", self.config.package_manager.value, " ".join(install_cmd))
 
         try:
             # Stream output to temporary file instead of memory to prevent 3GB+ spikes
-            with tempfile.TemporaryFile(mode='w+', encoding='utf-8') as output_file:
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as output_file:
                 result = subprocess.run(
                     install_cmd,
                     cwd=worktree_path,
@@ -563,7 +563,10 @@ def inject_shared_notes(
     """Inject shared notes into a worktree's CLAUDE.md."""
     body = "".join(f"- {note}\n" for note in notes) if notes else ""
     _inject_claude_md_section(
-        worktree_path, "SHARED-NOTES", "Shared Notes (OWT)", body,
+        worktree_path,
+        "SHARED-NOTES",
+        "Shared Notes (OWT)",
+        body,
     )
 
 
@@ -583,7 +586,10 @@ def inject_project_context(
     if project_config.dev_command:
         lines.append(f"- Dev: `{project_config.dev_command}`")
     _inject_claude_md_section(
-        worktree_path, "PROJECT-CONTEXT", "Project Commands (OWT)", "\n".join(lines),
+        worktree_path,
+        "PROJECT-CONTEXT",
+        "Project Commands (OWT)",
+        "\n".join(lines),
     )
 
 
@@ -598,7 +604,10 @@ def inject_dag_context(
     else:
         body = ""
     _inject_claude_md_section(
-        worktree_path, "DAG-CONTEXT", "Parent Tasks (OWT DAG)", body,
+        worktree_path,
+        "DAG-CONTEXT",
+        "Parent Tasks (OWT DAG)",
+        body,
     )
 
 
@@ -609,7 +618,10 @@ def inject_coordination_context(
     """Inject coordinator alerts into a worktree's CLAUDE.md."""
     body = "\n".join(f"- {msg}" for msg in messages) if messages else ""
     _inject_claude_md_section(
-        worktree_path, "COORDINATION", "Coordinator Alerts (OWT)", body,
+        worktree_path,
+        "COORDINATION",
+        "Coordinator Alerts (OWT)",
+        body,
     )
 
 

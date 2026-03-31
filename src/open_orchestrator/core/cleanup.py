@@ -350,4 +350,3 @@ class CleanupService:
                 stats_list.append(stats)
 
         return sorted(stats_list, key=lambda s: s.last_accessed)
-

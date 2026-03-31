@@ -94,7 +94,8 @@ def _tmux_session_exists_raw(session_name: str) -> bool:
     try:
         result = subprocess.run(
             ["tmux", "has-session", "-t", session_name],
-            capture_output=True, timeout=2,
+            capture_output=True,
+            timeout=2,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
@@ -147,7 +148,10 @@ def _detect_pane_status(tmux_session: str | None) -> tuple[AIActivityStatus, boo
     try:
         result = subprocess.run(
             ["tmux", "capture-pane", "-t", tmux_session, "-p", "-J"],
-            capture_output=True, text=True, check=True, timeout=2,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=2,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
@@ -156,11 +160,23 @@ def _detect_pane_status(tmux_session: str | None) -> tuple[AIActivityStatus, boo
 
 # Files that are commonly touched by all worktrees and should not count as
 # meaningful overlaps (lock files, package manifests, init modules, etc.).
-_OVERLAP_IGNORE_NAMES: frozenset[str] = frozenset({
-    "pyproject.toml", "uv.lock", "package-lock.json", "yarn.lock",
-    "poetry.lock", "Cargo.lock", "Cargo.toml", "requirements.txt",
-    "requirements-dev.txt", "__init__.py", "CLAUDE.md", ".env", ".env.example",
-})
+_OVERLAP_IGNORE_NAMES: frozenset[str] = frozenset(
+    {
+        "pyproject.toml",
+        "uv.lock",
+        "package-lock.json",
+        "yarn.lock",
+        "poetry.lock",
+        "Cargo.lock",
+        "Cargo.toml",
+        "requirements.txt",
+        "requirements-dev.txt",
+        "__init__.py",
+        "CLAUDE.md",
+        ".env",
+        ".env.example",
+    }
+)
 
 
 def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
@@ -180,7 +196,10 @@ def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
             # Find the common ancestor for accurate diffs
             mb_result = subprocess.run(
                 ["git", "merge-base", base, "HEAD"],
-                capture_output=True, text=True, cwd=worktree_path, timeout=5,
+                capture_output=True,
+                text=True,
+                cwd=worktree_path,
+                timeout=5,
             )
             if mb_result.returncode != 0:
                 continue
@@ -190,7 +209,10 @@ def _get_diff_info(worktree_path: str, branch: str) -> tuple[list[str], str]:
 
             result = subprocess.run(
                 ["git", "diff", "--numstat", f"{merge_base}...HEAD"],
-                capture_output=True, text=True, cwd=worktree_path, timeout=5,
+                capture_output=True,
+                text=True,
+                cwd=worktree_path,
+                timeout=5,
             )
             if result.returncode == 0:
                 files: list[str] = []
@@ -224,7 +246,8 @@ def _filter_overlap_files(files: set[str]) -> set[str]:
 
 
 def _compute_overlaps(
-    cards: list[Card], file_map: dict[str, list[str]],
+    cards: list[Card],
+    file_map: dict[str, list[str]],
 ) -> None:
     """Compute pairwise file overlaps and annotate cards.
 
@@ -232,10 +255,7 @@ def _compute_overlaps(
     other commonly-modified noise files are excluded.
     """
     # Pre-compute filtered file sets to avoid O(n^2) _filter_overlap_files calls
-    filtered_map = {
-        card.name: _filter_overlap_files(set(file_map.get(card.name, [])))
-        for card in cards
-    }
+    filtered_map = {card.name: _filter_overlap_files(set(file_map.get(card.name, []))) for card in cards}
     for i, card in enumerate(cards):
         my_files = filtered_map[card.name]
         if not my_files:
@@ -316,10 +336,7 @@ async def _build_cards_async(
             task_meta.append(("session", i))
 
     for i, s in enumerate(statuses):
-        recently_updated = (
-            s.updated_at
-            and (now - s.updated_at).total_seconds() < HOOK_FRESHNESS_SECONDS
-        )
+        recently_updated = s.updated_at and (now - s.updated_at).total_seconds() < HOOK_FRESHNESS_SECONDS
         if not recently_updated and s.activity_status in RECHECKABLE_STATUSES:
             tasks.append(asyncio.to_thread(_detect_pane_status, s.tmux_session))
             task_meta.append(("pane", i))
@@ -390,16 +407,18 @@ async def _build_cards_async(
         else:
             file_map[s.worktree_name] = s.modified_files
 
-        cards.append(Card(
-            name=s.worktree_name,
-            status=s.activity_status,
-            branch=s.branch,
-            ai_tool=s.ai_tool,
-            task=s.current_task,
-            elapsed=_format_elapsed(s),
-            tmux_session=s.tmux_session,
-            diff_stat=diff_stat,
-        ))
+        cards.append(
+            Card(
+                name=s.worktree_name,
+                status=s.activity_status,
+                branch=s.branch,
+                ai_tool=s.ai_tool,
+                task=s.current_task,
+                elapsed=_format_elapsed(s),
+                tmux_session=s.tmux_session,
+                diff_stat=diff_stat,
+            )
+        )
 
     _compute_overlaps(cards, file_map)
     return cards, file_map
@@ -864,12 +883,14 @@ class CardGrid(Static):
                 border_style = "white"
             else:
                 border_style = COLORS["card_border"]
-            panels.append(Panel(
-                content,
-                width=CARD_WIDTH + 2,
-                padding=(0, 1),
-                border_style=border_style,
-            ))
+            panels.append(
+                Panel(
+                    content,
+                    width=CARD_WIDTH + 2,
+                    padding=(0, 1),
+                    border_style=border_style,
+                )
+            )
 
         return Columns(panels, padding=(0, 1))
 
@@ -976,9 +997,7 @@ class SwitchboardApp(App[None]):
         except Exception:
             self._cards, self._file_map = [], {}
         # Pre-cache statuses so elapsed times render on first frame
-        self._cached_statuses: dict[str, WorktreeAIStatus] = {
-            s.worktree_name: s for s in self._tracker.get_all_statuses()
-        }
+        self._cached_statuses: dict[str, WorktreeAIStatus] = {s.worktree_name: s for s in self._tracker.get_all_statuses()}
         self._selected = 0
         self._tick = 0
         self._prev_statuses: dict[str, AIActivityStatus] = {}
@@ -1035,10 +1054,7 @@ class SwitchboardApp(App[None]):
             self._tracker.cleanup_orphans(valid_names)
 
         # Cache statuses for light-tick elapsed updates
-        self._cached_statuses = {
-            s.worktree_name: s
-            for s in self._tracker.get_all_statuses()
-        }
+        self._cached_statuses = {s.worktree_name: s for s in self._tracker.get_all_statuses()}
 
         # Flash on status transitions
         current_names = {c.name for c in self._cards}
@@ -1137,18 +1153,23 @@ class SwitchboardApp(App[None]):
             # Stale session — offer to delete or recreate
             def _on_delete_confirm(yes: bool | None) -> None:
                 if yes:
-                    self.run_worker(self._run_shell_bg(
-                        ["owt", "delete", card.name, "--yes"],
-                        f"Deleting '{card.name}'...", clamp=True,
-                    ))
+                    self.run_worker(
+                        self._run_shell_bg(
+                            ["owt", "delete", card.name, "--yes"],
+                            f"Deleting '{card.name}'...",
+                            clamp=True,
+                        )
+                    )
                 else:
                     # Offer to recreate
                     def _on_recreate(yes2: bool | None) -> None:
                         if yes2:
-                            self.run_worker(self._run_shell_bg(
-                                ["owt", "new", card.branch, "--yes"],
-                                f"Recreating '{card.name}'...",
-                            ))
+                            self.run_worker(
+                                self._run_shell_bg(
+                                    ["owt", "new", card.branch, "--yes"],
+                                    f"Recreating '{card.name}'...",
+                                )
+                            )
 
                     self.push_screen(ConfirmModal(f"Recreate session for '{card.name}'?"), _on_recreate)
 
@@ -1292,10 +1313,7 @@ class SwitchboardApp(App[None]):
         # If multiple completed worktrees exist and the selected card isn't
         # completed, show a SearchableSelectModal so the user can pick which
         # completed worktree to merge.
-        completed = [
-            c for c in self._cards
-            if c.status == AIActivityStatus.COMPLETED
-        ]
+        completed = [c for c in self._cards if c.status == AIActivityStatus.COMPLETED]
         if len(completed) > 1 and card.status != AIActivityStatus.COMPLETED:
             options = [
                 SelectOption(
@@ -1310,7 +1328,8 @@ class SwitchboardApp(App[None]):
             def _on_pick(name: str | None) -> None:
                 if name:
                     self._confirm_and_shell(
-                        f"Merge '{name}'?", ["owt", "merge", name],
+                        f"Merge '{name}'?",
+                        ["owt", "merge", name],
                     )
 
             self.push_screen(
@@ -1336,14 +1355,13 @@ class SwitchboardApp(App[None]):
             for f in my_files & set(other_files_list):
                 overlap_files.setdefault(f, []).append(other_name)
 
-        lines = [
-            f"  {f_path} \u2190 {', '.join(wt_names)}"
-            for f_path, wt_names in sorted(overlap_files.items())
-        ]
-        self.push_screen(DetailModal(
-            f"Overlap: {card.name} ({card.overlap_count} files)",
-            lines,
-        ))
+        lines = [f"  {f_path} \u2190 {', '.join(wt_names)}" for f_path, wt_names in sorted(overlap_files.items())]
+        self.push_screen(
+            DetailModal(
+                f"Overlap: {card.name} ({card.overlap_count} files)",
+                lines,
+            )
+        )
 
     async def action_show_info(self) -> None:
         if not self._cards:
@@ -1358,7 +1376,10 @@ class SwitchboardApp(App[None]):
                 result = await asyncio.to_thread(
                     subprocess.run,
                     ["git", "log", "--oneline", "-5"],
-                    capture_output=True, text=True, cwd=wt_path, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    cwd=wt_path,
+                    timeout=5,
                 )
                 if result.returncode == 0:
                     commits = [line for line in result.stdout.strip().split("\n") if line]
@@ -1410,7 +1431,9 @@ def _is_inside_switchboard_session() -> bool:
     try:
         result = subprocess.run(
             ["tmux", "display-message", "-p", "#S"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return result.stdout.strip() == SWITCHBOARD_SESSION
     except subprocess.CalledProcessError:
@@ -1421,7 +1444,7 @@ def _resolve_worktree_from_session(session_name: str) -> str | None:
     """Given a tmux session name like 'owt-foo', return the worktree name 'foo'."""
     prefix = "owt-"
     if session_name.startswith(prefix):
-        return session_name[len(prefix):]
+        return session_name[len(prefix) :]
     return None
 
 
@@ -1436,81 +1459,103 @@ def _install_switchboard_keys() -> None:
     # Unbind Alt+b if previously set (was conflicting with terminal shortcuts)
     subprocess.run(
         ["tmux", "unbind-key", "-n", "M-b"],
-        check=False, capture_output=True,
+        check=False,
+        capture_output=True,
     )
 
     # Alt+c: create new worktree via popup (tmux >= 3.2) or new window
     major, minor = TmuxManager.get_tmux_version()
     if (major, minor) >= (3, 2):
         subprocess.run(
-            ["tmux", "bind-key", "-n", "M-c",
-             "display-popup", "-E", "-w", "80%", "-h", "50%", "owt new"],
-            check=False, capture_output=True,
+            ["tmux", "bind-key", "-n", "M-c", "display-popup", "-E", "-w", "80%", "-h", "50%", "owt new"],
+            check=False,
+            capture_output=True,
         )
     else:
         subprocess.run(
-            ["tmux", "bind-key", "-n", "M-c",
-             "new-window", "-n", "new-worktree", "owt new"],
-            check=False, capture_output=True,
+            ["tmux", "bind-key", "-n", "M-c", "new-window", "-n", "new-worktree", "owt new"],
+            check=False,
+            capture_output=True,
         )
 
     # Alt+s: switch back to the switchboard session (s = switchboard)
     subprocess.run(
-        ["tmux", "bind-key", "-n", "M-s",
-         "switch-client", "-t", SWITCHBOARD_SESSION],
-        check=False, capture_output=True,
+        ["tmux", "bind-key", "-n", "M-s", "switch-client", "-t", SWITCHBOARD_SESSION],
+        check=False,
+        capture_output=True,
     )
 
     # Alt+m: merge the current worktree
     merge_script = (
         "wt_name=$(tmux display-message -p '#S' | sed 's/^owt-//'); "
-        "if [ -n \"$wt_name\" ] && [ \"$wt_name\" != 'owt-switchboard' ]; then "
+        'if [ -n "$wt_name" ] && [ "$wt_name" != \'owt-switchboard\' ]; then '
         "  tmux switch-client -t owt-switchboard; "
-        "  owt merge \"$wt_name\"; "
+        '  owt merge "$wt_name"; '
         "fi"
     )
     if (major, minor) >= (3, 2):
         subprocess.run(
-            ["tmux", "bind-key", "-n", "M-m",
-             "display-popup", "-E", "-w", "80%", "-h", "50%",
-             f"bash -c {_shell_quote(merge_script)}"],
-            check=False, capture_output=True,
+            [
+                "tmux",
+                "bind-key",
+                "-n",
+                "M-m",
+                "display-popup",
+                "-E",
+                "-w",
+                "80%",
+                "-h",
+                "50%",
+                f"bash -c {_shell_quote(merge_script)}",
+            ],
+            check=False,
+            capture_output=True,
         )
     else:
         subprocess.run(
-            ["tmux", "bind-key", "-n", "M-m",
-             "new-window", "-n", "merge",
-             f"bash -c {_shell_quote(merge_script)}"],
-            check=False, capture_output=True,
+            ["tmux", "bind-key", "-n", "M-m", "new-window", "-n", "merge", f"bash -c {_shell_quote(merge_script)}"],
+            check=False,
+            capture_output=True,
         )
 
     # Alt+d: delete the current worktree
     delete_script = (
         "wt_name=$(tmux display-message -p '#S' | sed 's/^owt-//'); "
-        "if [ -n \"$wt_name\" ] && [ \"$wt_name\" != 'owt-switchboard' ]; then "
+        'if [ -n "$wt_name" ] && [ "$wt_name" != \'owt-switchboard\' ]; then '
         "  tmux switch-client -t owt-switchboard; "
-        "  owt delete \"$wt_name\" --yes; "
+        '  owt delete "$wt_name" --yes; '
         "fi"
     )
     if (major, minor) >= (3, 2):
         subprocess.run(
-            ["tmux", "bind-key", "-n", "M-d",
-             "display-popup", "-E", "-w", "80%", "-h", "50%",
-             f"bash -c {_shell_quote(delete_script)}"],
-            check=False, capture_output=True,
+            [
+                "tmux",
+                "bind-key",
+                "-n",
+                "M-d",
+                "display-popup",
+                "-E",
+                "-w",
+                "80%",
+                "-h",
+                "50%",
+                f"bash -c {_shell_quote(delete_script)}",
+            ],
+            check=False,
+            capture_output=True,
         )
     else:
         subprocess.run(
-            ["tmux", "bind-key", "-n", "M-d",
-             "new-window", "-n", "delete",
-             f"bash -c {_shell_quote(delete_script)}"],
-            check=False, capture_output=True,
+            ["tmux", "bind-key", "-n", "M-d", "new-window", "-n", "delete", f"bash -c {_shell_quote(delete_script)}"],
+            check=False,
+            capture_output=True,
         )
 
 
 def _shell_quote(s: str) -> str:
     """Quote a string for shell embedding in tmux commands."""
     import shlex
+
     return shlex.quote(s)
 
 
@@ -1537,8 +1582,7 @@ def launch_switchboard() -> None:
     # Create the switchboard session if it doesn't exist
     if not tmux.session_exists(SWITCHBOARD_SESSION):
         subprocess.run(
-            ["tmux", "new-session", "-d", "-s", SWITCHBOARD_SESSION,
-             "-n", "switchboard", "owt"],
+            ["tmux", "new-session", "-d", "-s", SWITCHBOARD_SESSION, "-n", "switchboard", "owt"],
             check=False,
         )
 

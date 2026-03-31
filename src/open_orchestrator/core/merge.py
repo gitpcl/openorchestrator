@@ -112,10 +112,7 @@ class MergeManager:
         except GitCommandError:
             pass
 
-        raise MergeError(
-            f"Could not determine base branch for '{worktree_branch}'. "
-            "Use --base to specify explicitly."
-        )
+        raise MergeError(f"Could not determine base branch for '{worktree_branch}'. Use --base to specify explicitly.")
 
     def check_uncommitted_changes(self, worktree_name: str) -> list[str]:
         """Check if a worktree has uncommitted changes.
@@ -173,7 +170,8 @@ class MergeManager:
         wt_repo.git.commit("-m", f"feat(auto): {branch_desc}")
         logger.info(
             "Auto-committed %d file(s) in '%s': %s",
-            len(staged), worktree_name,
+            len(staged),
+            worktree_name,
             ", ".join(str(f) for f in staged[:5]) + ("..." if len(staged) > 5 else ""),
         )
         return len(staged)
@@ -427,10 +425,7 @@ class MergeManager:
         try:
             original_branch = self.repo.active_branch.name
         except TypeError:
-            raise MergeError(
-                "Main repository is in detached HEAD state. "
-                "Checkout a branch before running merge."
-            )
+            raise MergeError("Main repository is in detached HEAD state. Checkout a branch before running merge.")
 
         # Auto-stash main repo if dirty (prevents checkout failure)
         main_stashed = False

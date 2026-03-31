@@ -67,17 +67,11 @@ def detect_activity_from_pane_output(output: str) -> tuple[AIActivityStatus, boo
     if not tail:
         return None
 
-    content_lines = [
-        line for line in tail
-        if not TMUX_STATUS_BAR_RE.search(line) and not TMUX_SEPARATOR_RE.match(line)
-    ]
+    content_lines = [line for line in tail if not TMUX_STATUS_BAR_RE.search(line) and not TMUX_SEPARATOR_RE.match(line)]
     content_text = "\n".join(reversed(content_lines)) if content_lines else ""
 
     blocked_text = "\n".join(content_lines[:2])
-    if blocked_text and (
-        TMUX_BLOCKED_PROMPT_RE.search(blocked_text)
-        or TMUX_ALLOW_PROMPT_RE.search(blocked_text)
-    ):
+    if blocked_text and (TMUX_BLOCKED_PROMPT_RE.search(blocked_text) or TMUX_ALLOW_PROMPT_RE.search(blocked_text)):
         return AIActivityStatus.BLOCKED, True
 
     for line in content_lines[:2]:
@@ -318,10 +312,7 @@ class TmuxManager:
             quoted_path = shlex.quote(prompt_path)
             prefix = "export OWT_AUTOMATED=1; " if automated or auto_exit else ""
             if auto_exit:
-                command = (
-                    f"{prefix}cat {quoted_path} | {command}; "
-                    f"rm -f {quoted_path}; exit"
-                )
+                command = f"{prefix}cat {quoted_path} | {command}; rm -f {quoted_path}; exit"
             else:
                 command = f"{prefix}cat {quoted_path} | {command}; rm -f {quoted_path}"
         elif auto_exit:
@@ -341,7 +332,9 @@ class TmuxManager:
         return f"{pane.session.name}:{pane.window.index}.{pane.pane_index}"
 
     def _wait_for_shell_ready(
-        self, pane: libtmux.Pane, timeout: float = 3.0,
+        self,
+        pane: libtmux.Pane,
+        timeout: float = 3.0,
     ) -> None:
         """Wait for the shell in a newly created pane to finish initializing.
 
@@ -355,9 +348,10 @@ class TmuxManager:
         while time.monotonic() - start < timeout:
             try:
                 result = subprocess.run(
-                    ["tmux", "display-message", "-p", "-t", target,
-                     "#{pane_current_command}"],
-                    capture_output=True, text=True, timeout=2,
+                    ["tmux", "display-message", "-p", "-t", target, "#{pane_current_command}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
                 )
                 cmd = result.stdout.strip()
                 if cmd and cmd in shells:
@@ -368,7 +362,8 @@ class TmuxManager:
             time.sleep(0.1)
         logger.warning(
             "Shell readiness timeout (%.1fs) for %s — sending anyway",
-            timeout, target,
+            timeout,
+            target,
         )
 
     @classmethod
@@ -386,11 +381,15 @@ class TmuxManager:
         """Send a literal command to a tmux target and execute it once."""
         subprocess.run(
             ["tmux", "send-keys", "-l", "-t", target, command],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         subprocess.run(
             ["tmux", "send-keys", "-t", target, "Enter"],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
 
     @staticmethod
@@ -555,9 +554,10 @@ class TmuxManager:
             return False
         try:
             result = subprocess.run(
-                ["tmux", "list-panes", "-t", session_name,
-                 "-F", "#{pane_current_command}"],
-                capture_output=True, text=True, timeout=5,
+                ["tmux", "list-panes", "-t", session_name, "-F", "#{pane_current_command}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode != 0:
                 return False
@@ -598,9 +598,7 @@ class TmuxManager:
     def get_tmux_version() -> tuple[int, int]:
         """Get the installed tmux version as (major, minor) tuple."""
         try:
-            result = subprocess.run(
-                ["tmux", "-V"], capture_output=True, text=True, check=True
-            )
+            result = subprocess.run(["tmux", "-V"], capture_output=True, text=True, check=True)
             version_str = result.stdout.strip().split()[-1].removeprefix("next-")
             match = re.match(r"(\d+)\.(\d+)", version_str)
             if match:
@@ -616,7 +614,10 @@ class TmuxManager:
     def _run_tmux_cmd(*args: str) -> bool:
         """Run a tmux command, return True on success."""
         result = subprocess.run(
-            ["tmux", *args], check=False, capture_output=True, text=True,
+            ["tmux", *args],
+            check=False,
+            capture_output=True,
+            text=True,
         )
         return result.returncode == 0
 
@@ -638,25 +639,15 @@ class TmuxManager:
         border_inactive = COLORS["border_inactive"]
         bg = COLORS["background"]
         text = "#888888"
-        border_fmt = (
-            f"#{{?pane_active,#[fg=white bold],#[fg={border_inactive}]}}"
-            f" #{{pane_title}} "
-        )
+        border_fmt = f"#{{?pane_active,#[fg=white bold],#[fg={border_inactive}]}} #{{pane_title}} "
         self._run_tmux_batch(
-            ("set-option", "-t", session_name,
-             "status-right", "[owt] %H:%M"),
+            ("set-option", "-t", session_name, "status-right", "[owt] %H:%M"),
             ("set-option", "-t", session_name, "status-interval", "5"),
             ("set-option", "-t", session_name, "status-right-length", "40"),
-            ("set-option", "-t", session_name,
-             "status-style", f"bg={bg},fg={text}"),
-            ("set-option", "-t", session_name,
-             "pane-border-style", f"fg={border_inactive}"),
-            ("set-option", "-t", session_name,
-             "pane-active-border-style", "fg=white"),
-            ("set-option", "-t", session_name,
-             "pane-border-indicators", "arrows"),
-            ("set-option", "-t", session_name,
-             "pane-border-lines", "heavy"),
-            ("set-option", "-t", session_name,
-             "pane-border-format", border_fmt),
+            ("set-option", "-t", session_name, "status-style", f"bg={bg},fg={text}"),
+            ("set-option", "-t", session_name, "pane-border-style", f"fg={border_inactive}"),
+            ("set-option", "-t", session_name, "pane-active-border-style", "fg=white"),
+            ("set-option", "-t", session_name, "pane-border-indicators", "arrows"),
+            ("set-option", "-t", session_name, "pane-border-lines", "heavy"),
+            ("set-option", "-t", session_name, "pane-border-format", border_fmt),
         )

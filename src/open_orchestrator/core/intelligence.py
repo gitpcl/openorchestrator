@@ -73,9 +73,7 @@ def _get_memory_db(agno_config: AgnoConfig, repo_path: str) -> Any | None:
         from agno.db.sqlite import SqliteDb  # type: ignore[import-not-found]
     except ImportError:
         return None
-    db_path = agno_config.memory_db_path or str(
-        Path.home() / ".open-orchestrator" / "agno_memory.db"
-    )
+    db_path = agno_config.memory_db_path or str(Path.home() / ".open-orchestrator" / "agno_memory.db")
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     return SqliteDb(db_file=db_path)
 
@@ -211,7 +209,10 @@ def _git_log(repo_path: str, count: int = 20) -> str:
     try:
         result = subprocess.run(
             ["git", "log", "--oneline", f"-{count}"],
-            capture_output=True, text=True, cwd=repo_path, timeout=10,
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+            timeout=10,
         )
         return result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr}"
     except Exception as e:
@@ -232,7 +233,10 @@ def _git_diff_stat(repo_path: str, branch: str, base: str = "main") -> str:
     try:
         result = subprocess.run(
             ["git", "diff", "--stat", f"{base}...{branch}"],
-            capture_output=True, text=True, cwd=repo_path, timeout=10,
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+            timeout=10,
         )
         return result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr}"
     except Exception as e:
@@ -282,7 +286,9 @@ class AgnoPlanner:
         model = _resolve_model(model_id, self.config.max_tokens, self.config.temperature)
 
         agent_mem, run_mem, mem_instr = _build_memory_context(
-            self.config, repo_path, "planner",
+            self.config,
+            repo_path,
+            "planner",
             "\n\nMEMORY: If you have memories of past plans for this repo, "
             "use them to avoid decompositions that caused merge conflicts "
             "and reuse successful file-grouping patterns.",
@@ -390,9 +396,10 @@ class AgnoQualityGate:
         task_context = f"\nTASK: {task_description}" if task_description else ""
 
         agent_mem, run_mem, mem_instr = _build_memory_context(
-            self.config, self.repo_path, "quality-gate",
-            "\n\nMEMORY: Reduce false positives based on past reviews. "
-            "Apply repo-specific coding standards you've learned.",
+            self.config,
+            self.repo_path,
+            "quality-gate",
+            "\n\nMEMORY: Reduce false positives based on past reviews. Apply repo-specific coding standards you've learned.",
         )
 
         agent = Agent(
@@ -466,7 +473,9 @@ class AgnoConflictResolver:
         task_context = f"\nThe source branch was working on: {task_description}" if task_description else ""
 
         agent_mem, run_mem, mem_instr = _build_memory_context(
-            self.config, self.repo_path, "conflict-resolver",
+            self.config,
+            self.repo_path,
+            "conflict-resolver",
             "\n\nMEMORY: Apply resolution patterns that had high confidence before.",
         )
 
@@ -534,8 +543,7 @@ class AgnoCoordinator:
         model = _resolve_model(model_id, self.config.max_tokens, self.config.temperature)
 
         wt_context = "\n".join(
-            f"- {wt.get('name', '?')} ({wt.get('branch', '?')}): {wt.get('task', 'unknown')}"
-            for wt in running_worktrees
+            f"- {wt.get('name', '?')} ({wt.get('branch', '?')}): {wt.get('task', 'unknown')}" for wt in running_worktrees
         )
         event_context = "\n".join(f"- [{key}] {desc}" for key, desc in events)
 
@@ -550,9 +558,10 @@ class AgnoCoordinator:
                         diff_context += f"\n--- {wt.get('name', '?')} diff stat ---\n{diff}\n"
 
         agent_mem, run_mem, mem_instr = _build_memory_context(
-            self.config, self.repo_path, "coordinator",
-            "\n\nMEMORY: Use past coordination patterns. Avoid repeating messages "
-            "that agents already acknowledged.",
+            self.config,
+            self.repo_path,
+            "coordinator",
+            "\n\nMEMORY: Use past coordination patterns. Avoid repeating messages that agents already acknowledged.",
         )
 
         agent = Agent(

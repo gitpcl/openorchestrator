@@ -90,9 +90,7 @@ class TaskRuntimeCoordinator:
                 )
             return inspection
         except Exception as e:
-            raise RuntimeEvaluationError(
-                f"commit inspection failed for '{worktree_name}' against '{base_ref}': {e}"
-            ) from e
+            raise RuntimeEvaluationError(f"commit inspection failed for '{worktree_name}' against '{base_ref}': {e}") from e
 
     def evaluate_completion(
         self,
@@ -186,10 +184,7 @@ class TaskRuntimeCoordinator:
                 outcome=RuntimeOutcome.FAILED,
                 classification="premature_exit",
                 elapsed_seconds=elapsed_seconds,
-                reason=(
-                    f"Agent exited after {int(elapsed_seconds)}s with no commits "
-                    "— likely a silent failure"
-                ),
+                reason=(f"Agent exited after {int(elapsed_seconds)}s with no commits — likely a silent failure"),
                 commit_inspection=inspection,
             )
 

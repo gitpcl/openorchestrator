@@ -163,7 +163,8 @@ def atomic_write_text(path: str | Path, data: str, perms: int = 0o600) -> None:
         except PermissionError:
             logger.warning(
                 "Could not set permissions %s on %s — file may be insecure",
-                oct(perms), dest,
+                oct(perms),
+                dest,
             )
     finally:
         # Clean up temp file if replace failed

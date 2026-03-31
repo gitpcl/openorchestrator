@@ -76,8 +76,7 @@ def create_server():  # type: ignore[no-untyped-def]
     def list_peers() -> list[dict[str, str | None]]:
         """Discover active agents. Returns name, branch, status, task, and summary for each peer."""
         rows = conn.execute(
-            "SELECT worktree_name, branch, activity_status, current_task, notes "
-            "FROM worktree_status WHERE worktree_name != ?",
+            "SELECT worktree_name, branch, activity_status, current_task, notes FROM worktree_status WHERE worktree_name != ?",
             (worktree_name,),
         ).fetchall()
         return [
@@ -102,15 +101,13 @@ def create_server():  # type: ignore[no-untyped-def]
             ).fetchall()
             for p in peers:
                 conn.execute(
-                    "INSERT INTO peer_messages (from_peer, to_peer, message, created_at) "
-                    "VALUES (?, ?, ?, ?)",
+                    "INSERT INTO peer_messages (from_peer, to_peer, message, created_at) VALUES (?, ?, ?, ?)",
                     (worktree_name, p["worktree_name"], message, now),
                 )
             conn.commit()
             return {"sent": True, "count": len(peers)}
         cursor = conn.execute(
-            "INSERT INTO peer_messages (from_peer, to_peer, message, created_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO peer_messages (from_peer, to_peer, message, created_at) VALUES (?, ?, ?, ?)",
             (worktree_name, to_peer, message, now),
         )
         conn.commit()
@@ -120,15 +117,10 @@ def create_server():  # type: ignore[no-untyped-def]
     def check_messages(mark_read: bool = True) -> list[dict[str, str | int]]:
         """Read this agent's inbox. Messages are marked read by default."""
         rows = conn.execute(
-            "SELECT id, from_peer, message, created_at FROM peer_messages "
-            "WHERE to_peer = ? AND read = 0 ORDER BY created_at",
+            "SELECT id, from_peer, message, created_at FROM peer_messages WHERE to_peer = ? AND read = 0 ORDER BY created_at",
             (worktree_name,),
         ).fetchall()
-        messages = [
-            {"id": r["id"], "from": r["from_peer"],
-             "message": r["message"], "created_at": r["created_at"]}
-            for r in rows
-        ]
+        messages = [{"id": r["id"], "from": r["from_peer"], "message": r["message"], "created_at": r["created_at"]} for r in rows]
         if mark_read and messages:
             ids = [m["id"] for m in messages]
             placeholders = ",".join("?" * len(ids))
@@ -144,8 +136,7 @@ def create_server():  # type: ignore[no-untyped-def]
         """Update this agent's visible status for peer coordination."""
         now = datetime.now().isoformat()
         conn.execute(
-            "UPDATE worktree_status SET notes = ?, updated_at = ? "
-            "WHERE worktree_name = ?",
+            "UPDATE worktree_status SET notes = ?, updated_at = ? WHERE worktree_name = ?",
             (summary, now, worktree_name),
         )
         conn.commit()

@@ -99,9 +99,7 @@ class Orchestrator:
         self.agno_config = agno_config
         self.tracker = tracker or StatusTracker(runtime_status_config(state.repo_path))
         self.tmux = tmux or TmuxManager()
-        self._merge_manager_factory = merge_manager_factory or (
-            lambda: MergeManager(repo_path=Path(self.state.repo_path))
-        )
+        self._merge_manager_factory = merge_manager_factory or (lambda: MergeManager(repo_path=Path(self.state.repo_path)))
         self._runtime = TaskRuntimeCoordinator(
             tmux=self.tmux,
             merge_manager_factory=self._merge_manager_factory,
@@ -136,10 +134,9 @@ class Orchestrator:
         ]
 
         # Validate DAG
-        batch_tasks = _parse_tasks({"tasks": [
-            {"id": t.id, "description": t.description, "depends_on": t.depends_on}
-            for t in tasks
-        ]})
+        batch_tasks = _parse_tasks(
+            {"tasks": [{"id": t.id, "description": t.description, "depends_on": t.depends_on} for t in tasks]}
+        )
         index = _build_task_index(list(batch_tasks))
         _validate_dag(list(batch_tasks), index)
 
@@ -264,8 +261,7 @@ class Orchestrator:
             retry_context = None
             if task.retry_count > 0 and task.failure_reason:
                 retry_context = (
-                    f"RETRY ATTEMPT {task.retry_count}/{task.max_retries}: "
-                    f"Previous attempt failed: {task.failure_reason}"
+                    f"RETRY ATTEMPT {task.retry_count}/{task.max_retries}: Previous attempt failed: {task.failure_reason}"
                 )
             pane = create_pane(
                 session_name=f"orch-{task.id}",
@@ -301,23 +297,18 @@ class Orchestrator:
 
             # Timeout check — fail tasks that exceed the time limit
             if task.started_at:
-                elapsed = (
-                    datetime.now(timezone.utc)
-                    - datetime.fromisoformat(task.started_at)
-                ).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(task.started_at)).total_seconds()
                 if elapsed > self.state.default_task_timeout:
                     self._handle_task_failure(
-                        task, f"Timed out after {int(elapsed)}s",
+                        task,
+                        f"Timed out after {int(elapsed)}s",
                     )
                     continue
 
             # Calculate elapsed time for this task
             elapsed = 0.0
             if task.started_at:
-                elapsed = (
-                    datetime.now(timezone.utc)
-                    - datetime.fromisoformat(task.started_at)
-                ).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(task.started_at)).total_seconds()
 
             status = self.tracker.get_status(task.worktree_name)
             if not status:
@@ -363,7 +354,10 @@ class Orchestrator:
             task.retry_count += 1
             logger.info(
                 "Task '%s' failed (%s) — retrying (%d/%d)",
-                task.id, reason, task.retry_count, task.max_retries,
+                task.id,
+                reason,
+                task.retry_count,
+                task.max_retries,
             )
             # Tear down the failed worktree so a fresh one is created on retry
             if task.worktree_name:
@@ -391,7 +385,9 @@ class Orchestrator:
             return inspection.has_commits
         except Exception as e:
             logger.warning(
-                "Commit check failed for '%s': %s", task.worktree_name, e,
+                "Commit check failed for '%s': %s",
+                task.worktree_name,
+                e,
             )
             return False
 
@@ -420,15 +416,15 @@ class Orchestrator:
                     from open_orchestrator.core.intelligence import AgnoQualityGate
 
                     wt = merge_mgr.wt_manager.get(task.worktree_name)
-                    diff = merge_mgr.repo.git.diff(
-                        f"{self.state.feature_branch}...{wt.branch}"
-                    )
+                    diff = merge_mgr.repo.git.diff(f"{self.state.feature_branch}...{wt.branch}")
                     if diff:
                         gate = AgnoQualityGate(
-                            self.agno_config, repo_path=self.state.repo_path,
+                            self.agno_config,
+                            repo_path=self.state.repo_path,
                         )
                         verdict = gate.review(
-                            diff=diff, task_description=task.description,
+                            diff=diff,
+                            task_description=task.description,
                         )
                         if not verdict.passed:
                             self._handle_task_failure(
@@ -476,14 +472,16 @@ class Orchestrator:
             try:
                 wt = merge_mgr.wt_manager.get(task.worktree_name)
                 result = subprocess.run(
-                    ["git", "log", "--oneline", "-1",
-                     f"{self.state.feature_branch}..{task.branch}"],
-                    capture_output=True, text=True,
-                    cwd=str(wt.path), timeout=5,
+                    ["git", "log", "--oneline", "-1", f"{self.state.feature_branch}..{task.branch}"],
+                    capture_output=True,
+                    text=True,
+                    cwd=str(wt.path),
+                    timeout=5,
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     self.tracker.update_task(
-                        task.worktree_name, result.stdout.strip()[:100],
+                        task.worktree_name,
+                        result.stdout.strip()[:100],
                     )
             except Exception:
                 pass
@@ -512,7 +510,8 @@ class Orchestrator:
                 continue
             try:
                 overlaps = merge_mgr.check_file_overlaps(
-                    task.worktree_name, self.state.feature_branch,
+                    task.worktree_name,
+                    self.state.feature_branch,
                 )
                 for file_path, other_wts in overlaps.items():
                     event_key = f"overlap:{file_path}"
@@ -538,8 +537,7 @@ class Orchestrator:
 
                 coordinator = AgnoCoordinator(self.agno_config, repo_path=self.state.repo_path)
                 running_context = [
-                    {"name": t.worktree_name or "", "task": t.description, "branch": t.branch or ""}
-                    for t in running_tasks
+                    {"name": t.worktree_name or "", "task": t.description, "branch": t.branch or ""} for t in running_tasks
                 ]
                 actions = coordinator.analyze(
                     events=[(key, msg) for key, msg, _ in events],
@@ -547,9 +545,7 @@ class Orchestrator:
                 )
                 for action in actions:
                     for wt_name in action.target_worktrees:
-                        coordination_messages.setdefault(wt_name, []).append(
-                            f"[{action.urgency.upper()}] {action.message}"
-                        )
+                        coordination_messages.setdefault(wt_name, []).append(f"[{action.urgency.upper()}] {action.message}")
             except ImportError:
                 logger.debug("Agno not available, using template coordination")
             except Exception as e:

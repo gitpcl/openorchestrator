@@ -181,9 +181,7 @@ class SQLiteStatusRepository:
         self.config = config or StatusConfig()
         self.storage_path = self.config.storage_path or default_status_path()
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(
-            str(self.storage_path), isolation_level="DEFERRED"
-        )
+        self.conn = sqlite3.connect(str(self.storage_path), isolation_level="DEFERRED")
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
@@ -196,9 +194,7 @@ class SQLiteStatusRepository:
     def _ensure_schema(self) -> None:
         """Create tables if they don't exist."""
         self.conn.executescript(_SCHEMA_SQL)
-        self.conn.execute(
-            "INSERT OR IGNORE INTO metadata (key, value) VALUES ('version', '3.0')"
-        )
+        self.conn.execute("INSERT OR IGNORE INTO metadata (key, value) VALUES ('version', '3.0')")
         self.conn.commit()
 
     def load_legacy_json(self) -> tuple[Path | None, dict[str, object] | None]:
@@ -434,9 +430,7 @@ class StatusTracker:
 
     def get_shared_notes(self) -> list[str]:
         """Get all shared notes."""
-        rows = self._conn.execute(
-            "SELECT note FROM shared_notes ORDER BY id"
-        ).fetchall()
+        rows = self._conn.execute("SELECT note FROM shared_notes ORDER BY id").fetchall()
         return [r["note"] for r in rows]
 
     def add_shared_note(self, note: str) -> None:
@@ -512,9 +506,7 @@ class StatusTracker:
 
     def get_metadata(self, key: str) -> str | None:
         """Retrieve a metadata value by key."""
-        row = self._conn.execute(
-            "SELECT value FROM metadata WHERE key = ?", (key,)
-        ).fetchone()
+        row = self._conn.execute("SELECT value FROM metadata WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else None
 
     def set_metadata(self, key: str, value: str) -> None:
@@ -548,8 +540,7 @@ class StatusTracker:
     def store_message(self, from_peer: str, to_peer: str, message: str) -> int:
         """Store a peer message. Returns the message ID."""
         cursor = self._conn.execute(
-            "INSERT INTO peer_messages (from_peer, to_peer, message, created_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO peer_messages (from_peer, to_peer, message, created_at) VALUES (?, ?, ?, ?)",
             (from_peer, to_peer, message, datetime.now().isoformat()),
         )
         self._conn.commit()
@@ -558,14 +549,10 @@ class StatusTracker:
     def get_unread_messages(self, worktree_name: str) -> list[dict[str, str | int]]:
         """Get unread peer messages for a worktree."""
         rows = self._conn.execute(
-            "SELECT id, from_peer, message, created_at FROM peer_messages "
-            "WHERE to_peer = ? AND read = 0 ORDER BY created_at",
+            "SELECT id, from_peer, message, created_at FROM peer_messages WHERE to_peer = ? AND read = 0 ORDER BY created_at",
             (worktree_name,),
         ).fetchall()
-        return [
-            {"id": r[0], "from_peer": r[1], "message": r[2], "created_at": r[3]}
-            for r in rows
-        ]
+        return [{"id": r[0], "from_peer": r[1], "message": r[2], "created_at": r[3]} for r in rows]
 
     def mark_messages_read(self, message_ids: list[int]) -> None:
         """Mark peer messages as read."""

@@ -53,11 +53,11 @@ def _init_colors() -> None:
     """Initialize shared color pairs used by all picker screens."""
     curses.use_default_colors()
     accent_color = _get_theme_curses_color()
-    curses.init_pair(1, accent_color, -1)          # Title / active row
-    curses.init_pair(2, curses.COLOR_GREEN, -1)     # Selected marker
-    curses.init_pair(3, curses.COLOR_WHITE, -1)     # Unselected marker
-    curses.init_pair(4, curses.COLOR_BLACK, -1)     # Dim text (footer)
-    curses.init_pair(5, curses.COLOR_RED, -1)       # Not installed
+    curses.init_pair(1, accent_color, -1)  # Title / active row
+    curses.init_pair(2, curses.COLOR_GREEN, -1)  # Selected marker
+    curses.init_pair(3, curses.COLOR_WHITE, -1)  # Unselected marker
+    curses.init_pair(4, curses.COLOR_BLACK, -1)  # Dim text (footer)
+    curses.init_pair(5, curses.COLOR_RED, -1)  # Not installed
 
 
 def run_picker(stdscr: curses.window) -> dict[str, Any] | None:
@@ -124,7 +124,7 @@ def run_picker(stdscr: curses.window) -> dict[str, Any] | None:
 
             try:
                 stdscr.addstr(y, 4, marker, marker_attr)
-                name_text = f" {name}"[:max_x - 7] if len(name) + 7 > max_x else f" {name}"
+                name_text = f" {name}"[: max_x - 7] if len(name) + 7 > max_x else f" {name}"
                 stdscr.addstr(y, 6, name_text, name_attr)
                 abbrev_x = 6 + len(name_text) + 1
                 if abbrev_x + len(abbrev) < max_x:
@@ -161,12 +161,7 @@ def run_picker(stdscr: curses.window) -> dict[str, Any] | None:
                 # Nothing toggled — launch what cursor is pointing at
                 selected.add(cursor)
             chosen = [installed_agents[i] for i in sorted(selected)]
-            return {
-                "agents": [
-                    {"name": name, "abbrev": abbrev, "binary": binary}
-                    for name, abbrev, binary, _ in chosen
-                ]
-            }
+            return {"agents": [{"name": name, "abbrev": abbrev, "binary": binary} for name, abbrev, binary, _ in chosen]}
 
 
 def get_branch_name(stdscr: curses.window) -> str | None:
@@ -214,7 +209,7 @@ def get_branch_name(stdscr: curses.window) -> str | None:
             return stripped if stripped else None
         elif key in (curses.KEY_BACKSPACE, 127, 8):
             if cursor_pos > 0:
-                branch = branch[:cursor_pos - 1] + branch[cursor_pos:]
+                branch = branch[: cursor_pos - 1] + branch[cursor_pos:]
                 cursor_pos -= 1
         elif key == curses.KEY_LEFT:
             cursor_pos = max(0, cursor_pos - 1)
