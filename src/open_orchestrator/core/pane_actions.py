@@ -80,42 +80,49 @@ def build_agent_prompt(
     task_description: str,
     retry_context: str | None = None,
 ) -> str:
-    """Build the structured session init protocol prompt for an automated agent.
+    """Build a context-aware protocol prompt for an automated agent.
 
-    Encodes the session init protocol from Anthropic's harness design
-    research: orient → explore → implement → test → verify → commit.
+    Uses PromptBuilder with task-type classification to tailor the protocol
+    (bugfix → reproduce-fix-test, feature → orient-explore-implement, etc.).
 
     Args:
         task_description: The task for the agent to complete.
         retry_context: Optional context from a previous failed attempt.
     """
-    retry_block = f"\n{retry_context}" if retry_context else ""
-    return f"""\
-You are an AI coding agent working in an isolated git worktree.
+    from open_orchestrator.core.prompt_builder import PromptBuilder, get_protocol_for_task
 
-PROTOCOL — follow these steps in order:
-1. ORIENT: Read README.md and .claude/CLAUDE.md to understand the project
-2. EXPLORE: Read the source files relevant to your task
-3. IMPLEMENT: Make changes following existing code patterns
-4. TEST: Run the project's test suite and fix failures
-5. VERIFY: Run `git diff` to review all your changes
-6. COMMIT: git add -A && git commit -m 'feat: <what you did>'
+    builder = (
+        PromptBuilder()
+        .add_section(
+            "role",
+            "You are an AI coding agent working in an isolated git worktree.",
+            priority=100,
+        )
+        .add_section("protocol", get_protocol_for_task(task_description), priority=90)
+        .add_section("task", f"TASK: {task_description}", priority=95)
+        .add_section(
+            "rules",
+            (
+                "RULES:\n"
+                "- You MUST commit your work. Uncommitted work is lost when this session ends.\n"
+                "- Commit using raw git commands: git add -A && git commit -m 'message'\n"
+                "- Do NOT use /commit, the built-in commit workflow, or any interactive commit\n"
+                "  confirmation. These block indefinitely in automated mode.\n"
+                "- If you can only partially complete the task, commit what you have with a\n"
+                "  clear message about what remains.\n"
+                "- Do NOT create stub files or placeholder implementations.\n"
+                "- If you reach a good milestone before finishing, commit progress:\n"
+                "  git add -A && git commit -m 'wip: <what you completed so far>'\n"
+                "  Then continue with the remaining work."
+            ),
+            priority=85,
+        )
+    )
 
-If you reach a good milestone before finishing everything, commit progress:
-  git add -A && git commit -m 'wip: <what you completed so far>'
-Then continue with the remaining work.
+    if retry_context:
+        builder = builder.add_section("retry", retry_context, priority=80)
 
-TASK: {task_description}
-
-RULES:
-- You MUST commit your work. Uncommitted work is lost when this session ends.
-- Commit using raw git commands: git add -A && git commit -m 'message'
-- Do NOT use /commit, the built-in commit workflow, or any interactive commit
-  confirmation. These block indefinitely in automated mode.
-- If you can only partially complete the task, commit what you have with a
-  clear message about what remains.
-- Do NOT create stub files or placeholder implementations.
-{retry_block}"""
+    return builder.build()
 
 
 def popup_result_path(workspace_name: str) -> str:

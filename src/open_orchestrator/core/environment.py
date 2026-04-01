@@ -625,6 +625,81 @@ def inject_coordination_context(
     )
 
 
+def build_claude_md_context(
+    worktree_path: str | Path,
+    *,
+    shared_notes: list[str] | None = None,
+    project_config: "ProjectConfig | None" = None,
+    parent_summaries: list[str] | None = None,
+    coordination_messages: list[str] | None = None,
+) -> None:
+    """Write all OWT sections to CLAUDE.md in a single atomic operation.
+
+    Consolidates inject_shared_notes, inject_project_context,
+    inject_dag_context, and inject_coordination_context into one
+    read-modify-write cycle to avoid race conditions and reduce I/O.
+    """
+    worktree_path = Path(worktree_path).resolve()
+    claude_md = worktree_path / ".claude" / "CLAUDE.md"
+    if not claude_md.exists():
+        return
+
+    content = claude_md.read_text()
+
+    # Build all sections
+    sections: list[tuple[str, str, str]] = []  # (marker_id, title, body)
+
+    if shared_notes is not None:
+        body = "".join(f"- {note}\n" for note in shared_notes) if shared_notes else ""
+        sections.append(("SHARED-NOTES", "Shared Notes (OWT)", body))
+
+    if project_config is not None and (project_config.test_command or project_config.dev_command):
+        lines = [f"- Type: {project_config.project_type.value}"]
+        lines.append(f"- Package manager: {project_config.package_manager.value}")
+        if project_config.test_command:
+            lines.append(f"- Test: `{project_config.test_command}`")
+        if project_config.dev_command:
+            lines.append(f"- Dev: `{project_config.dev_command}`")
+        sections.append(("PROJECT-CONTEXT", "Project Commands (OWT)", "\n".join(lines)))
+
+    if parent_summaries is not None:
+        if parent_summaries:
+            body = "These tasks completed before yours. Use their output:\n\n"
+            body += "\n".join(f"{s}\n" for s in parent_summaries)
+        else:
+            body = ""
+        sections.append(("DAG-CONTEXT", "Parent Tasks (OWT DAG)", body))
+
+    if coordination_messages is not None:
+        body = "\n".join(f"- {msg}" for msg in coordination_messages) if coordination_messages else ""
+        sections.append(("COORDINATION", "Coordinator Alerts (OWT)", body))
+
+    # Apply all sections in one pass
+    for marker_id, section_title, body in sections:
+        body = _sanitize_injection(body)
+        marker_start = f"<!-- OWT-{marker_id}-START -->"
+        marker_end = f"<!-- OWT-{marker_id}-END -->"
+
+        if body:
+            block = f"\n{marker_start}\n## {section_title}\n\n{body}\n{marker_end}\n"
+        else:
+            block = ""
+
+        if marker_start in content:
+            content = re.sub(
+                f"\n?{re.escape(marker_start)}.*?{re.escape(marker_end)}\n?",
+                block,
+                content,
+                flags=re.DOTALL,
+            )
+        elif block:
+            content = content.rstrip() + "\n" + block
+
+    # Single atomic write
+    claude_md.write_text(content)
+    logger.info("Wrote %d OWT section(s) to %s", len(sections), claude_md)
+
+
 __all__ = [
     "EnvironmentSetup",
     "EnvironmentSetupError",
@@ -634,4 +709,5 @@ __all__ = [
     "inject_shared_notes",
     "inject_dag_context",
     "inject_coordination_context",
+    "build_claude_md_context",
 ]
