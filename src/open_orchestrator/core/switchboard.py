@@ -74,8 +74,18 @@ TICK_MS = 150
 HEAVY_EVERY = 14  # _build_cards runs every HEAVY_EVERY ticks (~2.1s at 150ms)
 RECHECKABLE_STATUSES = {AIActivityStatus.WORKING, AIActivityStatus.WAITING, AIActivityStatus.BLOCKED, AIActivityStatus.IDLE}
 HOOK_FRESHNESS_SECONDS = 10  # Trust hook-set status if updated within this window
-HOOK_CAPABLE_TOOLS = {AITool.CLAUDE.value, AITool.DROID.value}  # Scraper must not downgrade WORKING → WAITING
 HOOK_TRUST_MAX_SECONDS = 15  # After 15s with no hook update, let scraper recover stale WORKING
+
+
+def _hook_capable_tools() -> set[str]:
+    """Get tools that support hooks from the registry."""
+    from open_orchestrator.core.tool_registry import get_registry
+
+    return {name for name in get_registry().list_names() if get_registry().supports_hooks(name)}
+
+
+# Backward-compatible constant populated from registry
+HOOK_CAPABLE_TOOLS = _hook_capable_tools()
 
 # Pre-compiled regex patterns for pane status detection
 # Must match actual permission prompts, NOT agent thinking text like "Allow me to..."

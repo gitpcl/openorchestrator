@@ -264,6 +264,7 @@ class Config(BaseModel):
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     droid: DroidConfig = Field(default_factory=DroidConfig)
     templates: dict[str, WorktreeTemplate] = Field(default_factory=dict, description="Custom worktree templates")
+    tools: dict[str, dict[str, object]] = Field(default_factory=dict, description="Custom AI tool declarations")
 
     def get_template(self, name: str) -> WorktreeTemplate | None:
         """Get a template by name, checking custom then built-in."""
@@ -355,7 +356,12 @@ def load_config(config_path: str | None = None) -> Config:
         if path and path.exists():
             try:
                 data = toml.load(path)
-                return Config(**data)
+                config = Config(**data)
+                if config.tools:
+                    from open_orchestrator.core.tool_registry import get_registry, register_custom_tools
+
+                    register_custom_tools(get_registry(), config.tools)
+                return config
             except ValidationError as e:
                 raise ConfigError(_format_validation_error(e, path)) from e
             except toml.TomlDecodeError as e:
