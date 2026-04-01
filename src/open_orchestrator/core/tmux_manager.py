@@ -366,6 +366,40 @@ class TmuxManager:
             target,
         )
 
+    def wait_for_ai_ready(
+        self,
+        session_name: str,
+        timeout: float = 10.0,
+        pane_index: int = 0,
+    ) -> bool:
+        """Wait for an AI tool to be ready for input by polling pane content.
+
+        Looks for common input prompt indicators (>, $, %, Human:, etc.)
+        in the pane output. Returns True if ready, False on timeout.
+        """
+        ready_indicators = {"$", "%", ">", "Human:", ">>>", "claude>", "droid>"}
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
+            try:
+                result = subprocess.run(
+                    ["tmux", "capture-pane", "-t", session_name, "-p", "-J"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if result.returncode == 0:
+                    last_lines = result.stdout.strip().split("\n")[-3:]
+                    for line in last_lines:
+                        stripped = line.strip()
+                        if any(stripped.endswith(ind) or stripped.startswith(ind) for ind in ready_indicators):
+                            logger.debug("AI tool ready in %s after %.1fs", session_name, time.monotonic() - start)
+                            return True
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            time.sleep(0.5)
+        logger.warning("AI readiness timeout (%.1fs) for %s — sending anyway", timeout, session_name)
+        return False
+
     @classmethod
     def _send_command_to_pane(cls, pane: libtmux.Pane, command: str) -> None:
         """Send a command to a pane using send-keys -l (literal).

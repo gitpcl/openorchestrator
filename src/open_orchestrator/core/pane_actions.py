@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -253,6 +252,7 @@ def create_pane(
                 logger.debug("Project context injection skipped: %s", e)
 
         # 3. Create a live provider session so users can patch into automated work.
+        # Pass prompt= for stdin pipe delivery (cat file | claude -p)
         tmux_manager = TmuxManager()
         try:
             tmux_session = tmux_manager.create_worktree_session(
@@ -261,6 +261,7 @@ def create_pane(
                 ai_tool=ai_tool_enum,
                 plan_mode=plan_mode,
                 automated=bool(ai_instructions),
+                prompt=ai_instructions,
             )
             txn.tmux_session_created = True
             pane_index = 0
@@ -303,13 +304,6 @@ def create_pane(
                 )
         except Exception as e:
             logger.debug("Status tracking init skipped: %s", e)
-
-        if ai_instructions:
-            time.sleep(2)
-            tmux_manager.send_keys_to_pane(
-                session_name=tmux_session.session_name,
-                keys=ai_instructions,
-            )
 
     except PaneActionError:
         txn.rollback()

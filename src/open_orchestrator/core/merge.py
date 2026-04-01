@@ -428,10 +428,20 @@ class MergeManager:
             raise MergeError("Main repository is in detached HEAD state. Checkout a branch before running merge.")
 
         # Auto-stash main repo if dirty (prevents checkout failure)
+        # -u includes untracked files so .harness/ etc. don't block checkout
         main_stashed = False
         if self.repo.is_dirty(untracked_files=True):
-            self.repo.git.stash("push", "-m", "owt-merge-autostash")
+            self.repo.git.stash("push", "-u", "-m", "owt-merge-autostash")
             main_stashed = True
+
+        # Remove gitignored untracked files that would block checkout/merge
+        # -X (uppercase) only removes gitignored files — safe for user's work
+        try:
+            cleaned = self.repo.git.clean("-fdX")
+            if cleaned:
+                logger.debug("Cleaned gitignored files before Phase 2: %s", cleaned)
+        except GitCommandError as e:
+            logger.debug("git clean before Phase 2 skipped: %s", e)
 
         try:
             self.repo.git.checkout(target_branch)
@@ -455,10 +465,12 @@ class MergeManager:
                     self.repo.git.checkout(original_branch)
                 except GitCommandError as restore_err:
                     logger.warning("Could not restore branch '%s' in finally block: %s", original_branch, restore_err)
-            # Pop stash after restoring branch
+            # Pop stash after restoring branch (only if stash was created)
             if main_stashed:
                 try:
-                    self.repo.git.stash("pop")
+                    stash_list = self.repo.git.stash("list")
+                    if "owt-merge-autostash" in stash_list:
+                        self.repo.git.stash("pop")
                 except GitCommandError as stash_err:
                     logger.warning("Could not pop stash: %s. Run 'git stash pop' manually.", stash_err)
 
