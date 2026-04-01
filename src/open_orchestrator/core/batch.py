@@ -752,7 +752,7 @@ class BatchRunner:
                 if tmux.session_exists(session_name):
                     tmux.kill_session(session_name)
             except Exception:
-                pass
+                logger.debug("Failed to kill tmux session %s", session_name, exc_info=True)
 
             # Auto-commit any uncommitted work (safety net for agents
             # that create files but exit before committing)

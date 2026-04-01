@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import nullcontext
 
 import click
@@ -10,6 +11,8 @@ import click
 from open_orchestrator.commands._shared import console, get_worktree_manager
 from open_orchestrator.config import load_config
 from open_orchestrator.core.worktree import WorktreeNotFoundError
+
+logger = logging.getLogger(__name__)
 
 
 def register(main: click.Group) -> None:
@@ -124,5 +127,6 @@ def register(main: click.Group) -> None:
 
             ver = version("open-orchestrator")
         except Exception:
+            logger.debug("Failed to read package version", exc_info=True)
             ver = "dev"
         console.print(f"open-orchestrator {ver}")

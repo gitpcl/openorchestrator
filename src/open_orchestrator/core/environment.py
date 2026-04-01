@@ -256,6 +256,7 @@ class EnvironmentSetup:
                     fd_closed = True
                     os.replace(tmp_path, target_env)
                 except Exception:
+                    logger.debug("Failed to write .env via tempfile in %s", worktree_path, exc_info=True)
                     if not fd_closed:
                         os.close(fd)
                     if os.path.exists(tmp_path):

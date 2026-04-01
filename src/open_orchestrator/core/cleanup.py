@@ -221,6 +221,7 @@ class CleanupService:
             )
             return result.stdout.strip() or "unknown"
         except Exception:
+            logger.debug("Failed to get branch name for %s", worktree_path, exc_info=True)
             return "unknown"
 
     def _has_uncommitted_changes(self, worktree_path: Path) -> bool:
@@ -231,6 +232,7 @@ class CleanupService:
             )
             return bool(result.stdout.strip())
         except Exception:
+            logger.debug("Failed to check uncommitted changes for %s", worktree_path, exc_info=True)
             return True
 
     def _has_unpushed_commits(self, worktree_path: Path) -> bool:
@@ -241,6 +243,7 @@ class CleanupService:
             )
             return bool(result.stdout.strip())
         except Exception:
+            logger.debug("Failed to check unpushed commits for %s", worktree_path, exc_info=True)
             return True
 
     def _get_last_commit_date(self, worktree_path: Path) -> datetime | None:
@@ -256,6 +259,7 @@ class CleanupService:
 
             return None
         except Exception:
+            logger.debug("Failed to get last commit date for %s", worktree_path, exc_info=True)
             return None
 
     def should_protect_worktree(self, stats: WorktreeUsageStats) -> tuple[bool, str]:

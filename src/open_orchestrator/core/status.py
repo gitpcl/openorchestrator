@@ -143,6 +143,7 @@ def _resolve_repo_root(repo_path: str | Path | None = None) -> Path | None:
     try:
         return WorktreeManager(candidate).git_root
     except Exception:
+        logger.debug("Could not resolve repo root from %s", candidate, exc_info=True)
         return None
 
 

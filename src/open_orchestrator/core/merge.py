@@ -476,6 +476,7 @@ class MergeManager:
                 self.wt_manager.delete(worktree_name, force=True)
                 result.worktree_cleaned = True
             except Exception:
+                logger.debug("Worktree cleanup failed for %s", worktree_name, exc_info=True)
                 result.message += " (worktree cleanup failed — run 'owt delete' manually)"
 
         return result

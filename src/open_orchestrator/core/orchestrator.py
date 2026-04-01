@@ -247,6 +247,7 @@ class Orchestrator:
                 inspection = self._runtime.inspect_worktree_commits(task.worktree_name, self.state.feature_branch)
                 has_commits = inspection.has_commits
             except Exception:
+                logger.debug("Failed to inspect commits for task '%s'", task.id, exc_info=True)
                 has_commits = False
 
             if has_commits:
@@ -462,7 +463,7 @@ class Orchestrator:
                 if self.tmux.session_exists(session_name):
                     self.tmux.kill_session(session_name)
             except Exception:
-                pass
+                logger.debug("Failed to kill tmux session for task %s", task.id, exc_info=True)
 
             # Auto-commit uncommitted work (safety net for agents that
             # create files but exit before committing)
@@ -543,7 +544,7 @@ class Orchestrator:
                         result.stdout.strip()[:100],
                     )
             except Exception:
-                pass
+                logger.debug("Task description extraction failed for %s", task.id, exc_info=True)
 
     # ─── User Presence ─────────────────────────────────────────────────
 

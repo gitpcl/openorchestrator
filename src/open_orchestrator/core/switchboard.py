@@ -303,6 +303,7 @@ async def _build_cards_async(
             wt_manager = WorktreeManager()
         worktrees = [wt for wt in wt_manager.list_all() if not wt.is_main]
     except Exception:
+        logger.debug("Failed to list worktrees from git", exc_info=True)
         worktrees = []
 
     status_map = {s.worktree_name: s for s in tracker.get_all_statuses()}
@@ -1022,6 +1023,7 @@ class SwitchboardApp(App[None]):
         try:
             self._wt_manager: WorktreeManager | None = WorktreeManager()
         except Exception:
+            logger.debug("Failed to initialise WorktreeManager", exc_info=True)
             self._wt_manager = None
         # Pre-build cards synchronously so the first render already has content
         # (eliminates "No active worktrees" flash). asyncio.run() is safe here
@@ -1029,6 +1031,7 @@ class SwitchboardApp(App[None]):
         try:
             self._cards, self._file_map = _build_cards(self._tracker)
         except Exception:
+            logger.debug("Failed to pre-build switchboard cards", exc_info=True)
             self._cards, self._file_map = [], {}
         # Pre-cache statuses so elapsed times render on first frame
         self._cached_statuses: dict[str, WorktreeAIStatus] = {s.worktree_name: s for s in self._tracker.get_all_statuses()}
@@ -1154,7 +1157,7 @@ class SwitchboardApp(App[None]):
             if dag_progress:
                 parts.append(f"DAG: {dag_progress}")
         except Exception:
-            pass
+            logger.debug("Failed to read DAG progress", exc_info=True)
 
         stats = "  ".join(parts) + " "
 
@@ -1237,7 +1240,7 @@ class SwitchboardApp(App[None]):
                 try:
                     self._tmux.send_keys_to_pane(card.tmux_session, msg)
                 except Exception:
-                    pass
+                    logger.debug("Failed to send to %s", card.name, exc_info=True)
 
         self.push_screen(InputModal(f"Send to {card.name}: "), _on_input)
 
@@ -1464,7 +1467,7 @@ class SwitchboardApp(App[None]):
                             self._tmux.send_keys_to_pane(card.tmux_session, msg)
                             self._tracker.record_command(card.name, msg)
                         except Exception:
-                            pass
+                            logger.debug("Failed to broadcast to %s", card.name, exc_info=True)
 
         self.push_screen(InputModal("Broadcast to all: "), _on_input)
 

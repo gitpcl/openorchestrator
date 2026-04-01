@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 import click
@@ -10,6 +11,8 @@ import click
 from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
 from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
+
+logger = logging.getLogger(__name__)
 
 
 def register(main: click.Group) -> None:
@@ -82,7 +85,7 @@ def register(main: click.Group) -> None:
         try:
             tracker.record_command(worktree.name, msg)
         except Exception:
-            pass
+            logger.debug("Failed to record command for %s", worktree.name, exc_info=True)
 
     @main.command("wait")
     @click.argument("worktree_name")
@@ -174,7 +177,7 @@ def register(main: click.Group) -> None:
                 inject_shared_notes(s.worktree_path, notes)
                 injected += 1
             except Exception:
-                pass
+                logger.debug("Failed to inject notes into %s", s.worktree_name, exc_info=True)
 
         console.print(f"[green]Note shared with {injected} worktree(s):[/green] {note_text[:80]}")
 
@@ -204,4 +207,4 @@ def register(main: click.Group) -> None:
                 wt_status.updated_at = datetime.now()
                 tracker.set_status(wt_status)
         except Exception:
-            pass  # Hooks must never block the AI tool
+            logger.debug("Hook event handler failed for %s", worktree, exc_info=True)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import click
@@ -14,6 +15,8 @@ from open_orchestrator.core.worktree import (
     WorktreeNotFoundError,
 )
 from open_orchestrator.models.status import AIActivityStatus
+
+logger = logging.getLogger(__name__)
 
 
 def register(main: click.Group) -> None:
@@ -96,7 +99,7 @@ def register(main: click.Group) -> None:
                     branch = click.prompt("Enter a different branch name")
                     break
         except Exception:
-            pass
+            logger.debug("Git ref conflict check failed", exc_info=True)
 
         # Confirm branch name
         if not yes and not explicit_branch:
@@ -230,7 +233,7 @@ def register(main: click.Group) -> None:
             try:
                 tmux_manager.send_keys_to_pane(session_name=session_name, keys=tmpl_instructions)
             except Exception:
-                pass
+                logger.debug("Failed to send template instructions", exc_info=True)
 
         # 8. Attach if requested
         if attach and session_name:
