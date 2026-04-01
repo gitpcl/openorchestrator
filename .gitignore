@@ -23,6 +23,7 @@ ENV/
 # Testing
 .pytest_cache/
 .coverage
+coverage.json
 htmlcov/
 
 # Type checking
