@@ -1,13 +1,13 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI agent orchestration with Textual switchboard UI, optional Agno intelligence layer, and MCP peer communication. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot with quality gate (owt ship), (8) AI-powered task decomposition into dependency DAGs (owt plan), (9) Running batch autopilot tasks with DAG scheduling (owt batch), (10) Viewing optimal merge order (owt queue), (11) Sharing context across agents (owt note), (12) Headless CI/CD mode (owt new --headless, owt wait), (13) Orchestrating AI tools across branches (auto-detects claude, opencode, droid), (14) Agno-powered intelligent planning with codebase awareness, (15) Quality gate review before shipping, (16) AI-powered merge conflict resolution, (17) End-to-end orchestration into feature branch (owt orchestrate), (18) Stop/resume orchestration with persistent state, (19) User presence detection pauses auto-actions, (20) Cross-worktree coordination with Agno or template fallback, (21) MCP-based agent-to-agent peer communication (list_peers, send_message, check_messages). Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt plan, owt batch, owt queue, owt note, owt wait, owt orchestrate, auto-detect agents, conflict guard, autopilot, DAG, task planning, agno, quality gate, conflict resolution, intelligent planner, orchestrator, feature branch, coordination, stop resume, MCP, peer communication, agent messaging."
+description: "Git worktree + AI agent orchestration with Textual switchboard UI, plugin architecture, structured logging, optional Agno intelligence layer, and MCP peer communication. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot with quality gate (owt ship), (8) AI-powered task decomposition into dependency DAGs (owt plan), (9) Running batch autopilot tasks with DAG scheduling (owt batch), (10) Viewing optimal merge order (owt queue), (11) Sharing context across agents (owt note), (12) Headless CI/CD mode (owt new --headless, owt wait), (13) Orchestrating AI tools across branches (auto-detects claude, opencode, droid), (14) Agno-powered intelligent planning with codebase awareness, (15) Quality gate review before shipping, (16) AI-powered merge conflict resolution, (17) End-to-end orchestration into feature branch (owt orchestrate), (18) Stop/resume orchestration with persistent state, (19) User presence detection pauses auto-actions, (20) Cross-worktree coordination with Agno or template fallback, (21) MCP-based agent-to-agent peer communication (list_peers, send_message, check_messages), (22) Registering custom AI tools via config (plugin architecture), (23) Diagnosing orphaned resources (owt doctor), (24) Config validation and inspection (owt config validate/show), (25) Database maintenance (owt db purge/vacuum/health), (26) Structured logging with correlation IDs and JSON output, (27) Task-aware prompt building with type-specific protocols. Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt plan, owt batch, owt queue, owt note, owt wait, owt orchestrate, owt doctor, owt config, owt db, auto-detect agents, conflict guard, autopilot, DAG, task planning, agno, quality gate, conflict resolution, intelligent planner, orchestrator, feature branch, coordination, stop resume, MCP, peer communication, agent messaging, plugin, custom tool, structured logging, correlation ID, prompt builder."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
 Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **Textual-based switchboard UI**. The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, installs deps, and starts the AI tool in a tmux session. Run `owt` with no arguments to launch the switchboard — a card grid showing all active agents with status lights, diff stats, and file overlap warnings.
 
-## Commands (20 total)
+## Commands (28 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -35,6 +35,12 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync worktree(s) with upstream |
 | `owt cleanup [--force]` | | Remove stale worktrees (dry-run by default) |
+| `owt config validate` | | Validate configuration file |
+| `owt config show` | | Display effective config as TOML |
+| `owt db purge [--days N]` | | Delete messages older than N days (default 30) |
+| `owt db vacuum` | | Optimize and compact the database |
+| `owt db health [--check]` | | Database health diagnostics with CI thresholds |
+| `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
 | `owt version` | | Show version |
 
 ## The Switchboard
@@ -227,6 +233,56 @@ owt new "task" --ai-tool claude
 owt new "task" --ai-tool opencode
 owt new "task" --ai-tool droid
 ```
+
+### Custom AI Tools (Plugin Architecture)
+
+Register any AI coding tool via config without code changes:
+
+```toml
+[tools.mytool]
+binary = "my-ai-tool"
+command_template = "{binary} --interactive"
+prompt_flag = "-p"
+supports_hooks = false
+install_hint = "Install from https://..."
+known_paths = ["~/.local/bin/mytool"]
+```
+
+Built-in tools (`claude`, `opencode`, `droid`) use the same `AIToolProtocol` interface. The `ToolRegistry` singleton handles discovery, registration, and lookup.
+
+## Diagnostics & Maintenance
+
+```bash
+owt doctor              # Find orphaned worktrees, tmux sessions, status entries
+owt doctor --fix        # Auto-fix orphaned resources
+owt config validate     # Validate config file against schema
+owt config show         # Display effective config as TOML
+owt db health           # Database size, row counts, WAL status
+owt db health --check   # Exit non-zero if thresholds exceeded (CI-friendly)
+owt db purge --days 7   # Delete messages older than 7 days
+owt db vacuum           # Compact and optimize the database
+```
+
+## Structured Logging
+
+Correlation IDs and per-worktree context are injected into every log record via `ContextVar`-based tracking. JSON output is available for log aggregation:
+
+```bash
+owt --log-format json orchestrate plan.toml   # JSON output for jq/log pipelines
+owt --verbose new "task"                       # DEBUG-level output
+```
+
+## Task-Aware Prompt Builder
+
+Agents receive structured protocols based on task type (detected from keywords):
+
+- **Feature:** ORIENT → EXPLORE → IMPLEMENT → TEST → VERIFY → COMMIT
+- **Bugfix:** REPRODUCE → DIAGNOSE → FIX → VERIFY → REGRESSION → COMMIT
+- **Refactor:** BASELINE → PLAN → REFACTOR → VERIFY → CLEANUP → COMMIT
+- **Test:** SURVEY → IDENTIFY → WRITE → RUN → COVERAGE → COMMIT
+- **Docs:** READ → DRAFT → EXAMPLES → REVIEW → COMMIT
+
+The `PromptBuilder` assembles sections by priority with budget-aware truncation (drops lowest-priority sections first when approaching token limits).
 
 ## Project Detection
 

@@ -2,7 +2,7 @@
 
 Git Worktree + AI agent orchestration tool for parallel development workflows with Textual switchboard UI.
 
-## Commands (20 total)
+## Commands (28 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -30,6 +30,12 @@ Git Worktree + AI agent orchestration tool for parallel development workflows wi
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync worktree(s) with upstream |
 | `owt cleanup [--force]` | | Remove stale worktrees (dry-run by default) |
+| `owt config validate` | | Validate configuration file |
+| `owt config show` | | Display effective config as TOML |
+| `owt db purge [--days N]` | | Delete messages older than N days (default 30) |
+| `owt db vacuum` | | Optimize and compact the database |
+| `owt db health [--check]` | | Database health diagnostics with CI thresholds |
+| `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
 | `owt version` | `-v` | Show version |
 
 ## Slash Commands
@@ -52,12 +58,24 @@ uv run mypy src/
 
 ```
 src/open_orchestrator/
-├── cli.py              # CLI entry point (click, ~1465 LOC)
-├── config.py           # Configuration management (~327 LOC)
+├── cli.py              # CLI entry point + global options
+├── config.py           # Hierarchical config (TOML) + schema validation
+├── commands/           # Modular command registration
+│   ├── worktree.py     # new, list, switch, delete
+│   ├── agent.py        # send, wait, note, hook
+│   ├── merge_cmds.py   # merge, ship, queue
+│   ├── orchestrate_cmds.py  # plan, batch, orchestrate
+│   ├── maintenance.py  # sync, cleanup, version
+│   ├── config_cmd.py   # config validate/show
+│   ├── db_cmd.py       # db purge/vacuum/health
+│   └── doctor.py       # doctor diagnostic command
 ├── core/
 │   ├── worktree.py     # Git worktree operations
 │   ├── tmux_manager.py # tmux session management (SINGLE + MAIN_VERTICAL layouts)
 │   ├── switchboard.py  # Textual-based card grid UI (async polling, modal screens, broadcast)
+│   ├── prompt_builder.py    # Context-aware prompt builder (task-type detection)
+│   ├── tool_protocol.py     # AIToolProtocol + CustomTool (plugin interface)
+│   ├── tool_registry.py     # Singleton tool registry (discover/register AI tools)
 │   ├── project_detector.py  # Project type detection
 │   ├── environment.py  # Dependency, .env & CLAUDE.md setup
 │   ├── cleanup.py      # Worktree cleanup service
@@ -83,7 +101,9 @@ src/open_orchestrator/
 │   └── open-orchestrator/
 │       └── SKILL.md        # Claude Code skill definition
 └── utils/
-    └── io.py               # Safe file I/O utilities
+    ├── io.py               # Safe file I/O utilities
+    ├── logging.py          # Structured logging (correlation IDs, JSON output)
+    └── lazy.py             # LazyModule proxy for deferred imports
 ```
 
 ## Guidelines

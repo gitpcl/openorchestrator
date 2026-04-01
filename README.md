@@ -14,7 +14,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Features
 
-- **20 commands** — focused CLI surface, no bloat
+- **28 commands** — focused CLI surface, no bloat
 - **Switchboard UI** — Textual-based card grid with status lights, diff stats, file overlap warnings, and detail panels
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
@@ -35,6 +35,11 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Two-phase merge** — `owt merge` catches conflicts early with file overlap warnings, then auto-cleans. Supports `--rebase` for linear history, `--strategy ours|theirs` for auto-resolution, and `--leave-conflicts` for manual resolution
 - **Full teardown** — `owt delete` kills tmux session + removes worktree + cleans status
 - **Live status detection** — switchboard detects when agents are waiting for input or blocked
+- **Plugin Architecture** — register custom AI tools via config without code changes; built-in support for Claude, OpenCode, and Droid
+- **Structured Logging** — correlation IDs, per-worktree context, and JSON output (`--log-format json`) for log aggregation
+- **Task-Aware Prompts** — context-aware prompt builder with task-type detection (feature, bugfix, refactor, test, docs) and structured 5–6 step protocols per type
+- **Diagnostics** — `owt doctor` finds orphaned worktrees/sessions/status entries; `owt config validate` checks config; `owt db health` reports database stats
+- **Lazy Imports** — deferred heavy imports and `LazyModule` proxy for fast CLI startup
 - **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
 - **Project detection** — auto-detects Python, Node.js, Rust, Go, PHP and installs deps
 - **7 dependencies** — click, pydantic, rich, textual, toml, gitpython, libtmux (+ optional agno for intelligence, mcp for peer communication)
@@ -123,6 +128,12 @@ owt ship auth-jwt
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync with upstream |
 | `owt cleanup [--force]` | | Remove stale worktrees |
+| `owt config validate` | | Validate configuration file |
+| `owt config show` | | Display effective config as TOML |
+| `owt db purge [--days N]` | | Delete messages older than N days (default 30) |
+| `owt db vacuum` | | Optimize and compact the database |
+| `owt db health [--check]` | | Database health diagnostics with CI thresholds |
+| `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
 | `owt version` | | Show version |
 
 ## The Switchboard
@@ -296,6 +307,7 @@ copy_env_file = true
 | Variable | Set by | Purpose |
 |----------|--------|---------|
 | `OWT_AUTOMATED` | OWT (in orchestrated panes) | Lets user hooks distinguish automated agents from interactive sessions. Check `[ -n "$OWT_AUTOMATED" ]` in hooks to skip restrictions for agents. |
+| `OWT_WORKTREE_NAME` | OWT (in all panes) | Current worktree name. Used by MCP peer servers and hooks for identification. |
 | `OWT_DB_PATH` | OWT hook/MCP wiring or user override | Points hooks, MCP peer servers, and in-process status tracking at the same SQLite DB. If `~/.open-orchestrator/status.db` is not writable, orchestrator/batch fall back to repo-local or temp-backed storage. |
 
 ## AI Tool Support
@@ -312,6 +324,20 @@ Open Orchestrator auto-detects installed AI tools and offers a picker when multi
 owt new "task" --ai-tool claude --plan-mode
 owt new "task" --ai-tool opencode
 owt new "task" --ai-tool droid
+```
+
+### Custom AI Tools
+
+Register any AI coding tool via config — no code changes needed:
+
+```toml
+[tools.mytool]
+binary = "my-ai-tool"
+command_template = "{binary} --interactive"
+prompt_flag = "-p"
+supports_hooks = false
+install_hint = "Install from https://..."
+known_paths = ["~/.local/bin/mytool"]
 ```
 
 ## Project Detection
@@ -463,7 +489,7 @@ owt send api-refactor "Focus on the /users endpoint first"
 
 ```bash
 uv pip install -e .
-uv run pytest              # 698+ tests
+uv run pytest              # 743+ tests
 uv run ruff check src/
 uv run mypy src/
 ```
@@ -481,12 +507,24 @@ Use these slash commands in Claude Code sessions:
 
 ```
 src/open_orchestrator/
-├── cli.py                     # 20 CLI commands (click)
-├── config.py                  # Hierarchical config (TOML) + AgnoConfig
+├── cli.py                     # CLI entry point + global options
+├── config.py                  # Hierarchical config (TOML) + AgnoConfig + schema validation
+├── commands/                  # Modular command registration
+│   ├── worktree.py            # new, list, switch, delete
+│   ├── agent.py               # send, wait, note, hook
+│   ├── merge_cmds.py          # merge, ship, queue
+│   ├── orchestrate_cmds.py    # plan, batch, orchestrate
+│   ├── maintenance.py         # sync, cleanup, version
+│   ├── config_cmd.py          # config validate, config show
+│   ├── db_cmd.py              # db purge, db vacuum, db health
+│   └── doctor.py              # doctor diagnostic command
 ├── core/
 │   ├── switchboard.py         # Textual card grid UI (async polling, modal screens, broadcast)
 │   ├── intelligence.py        # Agno intelligence layer (planner, quality gate, conflict resolver, coordinator)
 │   ├── orchestrator.py        # Orchestrator agent (plan → execute → merge → feature branch)
+│   ├── prompt_builder.py      # Context-aware prompt builder (task-type detection, budget-aware assembly)
+│   ├── tool_protocol.py       # AIToolProtocol + CustomTool (plugin interface)
+│   ├── tool_registry.py       # Singleton tool registry (discover, register, look up AI tools)
 │   ├── worktree.py            # Git worktree CRUD
 │   ├── tmux_manager.py        # tmux session management
 │   ├── merge.py               # Two-phase merge + merge queue + conflict guard + AI resolution
@@ -510,7 +548,10 @@ src/open_orchestrator/
 │   └── status.py              # AI status models
 ├── popup/                     # tmux popup picker
 ├── skills/                    # Claude Code skill definition
-└── utils/                     # Safe file I/O
+└── utils/
+    ├── io.py                  # Safe file I/O
+    ├── logging.py             # Structured logging (correlation IDs, JSON output)
+    └── lazy.py                # LazyModule proxy for deferred imports
 ```
 
 ## License
