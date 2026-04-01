@@ -318,9 +318,9 @@ class Orchestrator:
         try:
             retry_context = None
             if task.retry_count > 0 and task.failure_reason:
-                retry_context = (
-                    f"RETRY ATTEMPT {task.retry_count}/{task.max_retries}: Previous attempt failed: {task.failure_reason}"
-                )
+                from open_orchestrator.core.prompt_builder import build_retry_context
+
+                retry_context = build_retry_context(task.retry_count, task.max_retries, task.failure_reason)
             pane = create_pane(
                 session_name=f"orch-{task.id}",
                 repo_path=self.state.repo_path,
@@ -579,7 +579,11 @@ class Orchestrator:
                         continue
                     targets = [task.worktree_name] + other_wts
                     who = ", ".join(targets)
-                    msg = f"[WARNING] File '{file_path}' is being modified by: {who}. Coordinate to avoid conflicts."
+                    msg = (
+                        f"[WARNING] File conflict detected: `{file_path}`\n"
+                        f"Also being modified by: {who}\n"
+                        f"Limit your changes to sections the other agents aren't touching."
+                    )
                     events.append((event_key, msg, targets))
             except Exception as e:
                 logger.debug("File overlap check failed for %s: %s", task.worktree_name, e)

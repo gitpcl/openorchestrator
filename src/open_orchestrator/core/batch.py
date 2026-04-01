@@ -628,27 +628,61 @@ class BatchRunner:
         return self.results
 
     def _capture_summary(self, worktree_name: str) -> str | None:
-        """Capture a git log summary from a completed worktree for context passing."""
+        """Capture a task-aware summary from a completed worktree for DAG context.
+
+        Includes task description, key file changes (diff stat), and commit count
+        instead of raw git log output.
+        """
         import subprocess
 
         status = self.tracker.get_status(worktree_name)
         if not status:
             return None
+
+        # Find the matching task for the description
+        task_desc = status.current_task or "completed"
+        for r in self.results:
+            if r.worktree_name == worktree_name:
+                task_desc = r.task.description
+                break
+
         try:
             base_ref = self._resolve_task_base_ref(worktree_name)
-            result = subprocess.run(
-                ["git", "log", "--oneline", "-10", f"{base_ref}..{status.branch}"],
+            cwd = status.worktree_path
+
+            # Get commit count
+            log_result = subprocess.run(
+                ["git", "rev-list", "--count", f"{base_ref}..{status.branch}"],
                 capture_output=True,
                 text=True,
-                cwd=status.worktree_path,
+                cwd=cwd,
                 timeout=5,
             )
-            if result.returncode == 0 and result.stdout.strip():
-                return f"**{worktree_name}** ({status.branch}):\n{result.stdout.strip()}"
+            commit_count = log_result.stdout.strip() if log_result.returncode == 0 else "?"
+
+            # Get diff stat (file changes summary)
+            diff_result = subprocess.run(
+                ["git", "diff", "--stat", "--stat-width=60", f"{base_ref}..{status.branch}"],
+                capture_output=True,
+                text=True,
+                cwd=cwd,
+                timeout=5,
+            )
+            diff_stat = diff_result.stdout.strip() if diff_result.returncode == 0 else ""
+
+            parts = [
+                f"## Completed Parent Task: {worktree_name}",
+                f"**Branch:** {status.branch}",
+                f"**Task:** {task_desc}",
+            ]
+            if diff_stat:
+                parts.append(f"**Key changes:**\n{diff_stat}")
+            parts.append(f"**Status:** {commit_count} commit(s)")
+            return "\n".join(parts)
+
         except (subprocess.TimeoutExpired, OSError):
-            pass
-        # Fallback: use task description
-        return f"**{worktree_name}**: {status.current_task or 'completed'}"
+            logger.debug("Failed to capture summary for %s", worktree_name, exc_info=True)
+        return f"## Completed Parent Task: {worktree_name}\n**Task:** {task_desc}"
 
     def _inject_parent_context(self, idx: int) -> None:
         """Collect parent summaries and prepare them for injection after pane creation."""
@@ -684,7 +718,9 @@ class BatchRunner:
                 return
             retry_context = None
             if result.retry_count > 0 and result.error:
-                retry_context = f"RETRY ATTEMPT {result.retry_count}: Previous attempt failed: {result.error}"
+                from open_orchestrator.core.prompt_builder import build_retry_context
+
+                retry_context = build_retry_context(result.retry_count, result.max_retries, result.error)
             pane = create_pane(
                 session_name=f"batch-{idx}",
                 repo_path=self.repo_path,

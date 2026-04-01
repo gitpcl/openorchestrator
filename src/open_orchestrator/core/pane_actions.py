@@ -89,7 +89,12 @@ def build_agent_prompt(
         task_description: The task for the agent to complete.
         retry_context: Optional context from a previous failed attempt.
     """
-    from open_orchestrator.core.prompt_builder import PromptBuilder, get_protocol_for_task
+    from open_orchestrator.core.prompt_builder import (
+        COMMIT_SAFETY,
+        TURN_EFFICIENCY,
+        PromptBuilder,
+        get_protocol_for_task,
+    )
 
     builder = (
         PromptBuilder()
@@ -98,16 +103,14 @@ def build_agent_prompt(
             "You are an AI coding agent working in an isolated git worktree.",
             priority=100,
         )
-        .add_section("protocol", get_protocol_for_task(task_description), priority=90)
+        .add_section("commit_safety", COMMIT_SAFETY, priority=98)
+        .add_section("turn_efficiency", TURN_EFFICIENCY, priority=97)
         .add_section("task", f"TASK: {task_description}", priority=95)
+        .add_section("protocol", get_protocol_for_task(task_description), priority=90)
         .add_section(
             "rules",
             (
                 "RULES:\n"
-                "- You MUST commit your work. Uncommitted work is lost when this session ends.\n"
-                "- Commit using raw git commands: git add -A && git commit -m 'message'\n"
-                "- Do NOT use /commit, the built-in commit workflow, or any interactive commit\n"
-                "  confirmation. These block indefinitely in automated mode.\n"
                 "- If you can only partially complete the task, commit what you have with a\n"
                 "  clear message about what remains.\n"
                 "- Do NOT create stub files or placeholder implementations.\n"

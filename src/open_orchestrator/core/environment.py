@@ -571,26 +571,77 @@ def inject_shared_notes(
     )
 
 
+def _get_conventions_for_type(project_type_value: str) -> list[str]:
+    """Return project-type-specific conventions."""
+    conventions: dict[str, list[str]] = {
+        "python": [
+            "Type hints on all function signatures (Python 3.10+ syntax: `str | None`)",
+            "Pydantic for data models, Click for CLI, Rich for output",
+            "Run `ruff check` and `ruff format` before committing",
+            "Run `mypy` for type checking",
+        ],
+        "node": [
+            "Use TypeScript strict mode where available",
+            "Run `eslint` and `prettier` before committing",
+            "Prefer `const` over `let`, avoid `any` types",
+        ],
+        "go": [
+            "Run `go vet` and `golangci-lint` before committing",
+            "Follow standard Go project layout",
+            "Error handling: check and return, don't panic",
+        ],
+        "rust": [
+            "Run `cargo clippy` and `cargo fmt` before committing",
+            "Prefer `Result` over `unwrap` for error handling",
+        ],
+    }
+    return conventions.get(project_type_value, ["Follow existing code patterns and conventions"])
+
+
 def inject_project_context(
     worktree_path: str | Path,
     project_config: "ProjectConfig",
 ) -> None:
-    """Inject detected project commands into a worktree's CLAUDE.md.
+    """Inject project context with trust boundaries and conventions into CLAUDE.md.
 
-    Gives agents immediate knowledge of how to build and test the project,
-    eliminating wasted tokens on discovery (init.sh pattern).
+    Gives agents project commands, trust boundaries, conventions, and a never-do
+    list — adapted to the detected project type.
     """
-    lines = [f"- Type: {project_config.project_type.value}"]
-    lines.append(f"- Package manager: {project_config.package_manager.value}")
+    sections: list[str] = []
+
+    # Project info
+    project_lines = [f"- Type: {project_config.project_type.value}"]
+    project_lines.append(f"- Package manager: {project_config.package_manager.value}")
     if project_config.test_command:
-        lines.append(f"- Test: `{project_config.test_command}`")
+        project_lines.append(f"- Test: `{project_config.test_command}`")
     if project_config.dev_command:
-        lines.append(f"- Dev: `{project_config.dev_command}`")
+        project_lines.append(f"- Dev: `{project_config.dev_command}`")
+    sections.append("### Project\n" + "\n".join(project_lines))
+
+    # Trust boundaries
+    sections.append(
+        "### Trust Boundaries\n"
+        "- **Trust:** project test suite, linter output, type checker results\n"
+        "- **Verify:** external API responses, user input, file contents from other worktrees\n"
+        "- **Never:** hardcode secrets, skip tests, modify files outside your worktree"
+    )
+
+    # Conventions (adapted to project type)
+    conv_lines = _get_conventions_for_type(project_config.project_type.value)
+    sections.append("### Conventions\n" + "\n".join(f"- {c}" for c in conv_lines))
+
+    # Files under limits
+    sections.append(
+        "### Limits\n"
+        "- Files under 800 lines, functions under 50 lines\n"
+        "- Immutable data patterns (frozen dataclasses, new objects over mutation)"
+    )
+
     _inject_claude_md_section(
         worktree_path,
         "PROJECT-CONTEXT",
-        "Project Commands (OWT)",
-        "\n".join(lines),
+        "Open Orchestrator Context (OWT)",
+        "\n\n".join(sections),
     )
 
 
@@ -616,13 +667,37 @@ def inject_coordination_context(
     worktree_path: str | Path,
     messages: list[str],
 ) -> None:
-    """Inject coordinator alerts into a worktree's CLAUDE.md."""
-    body = "\n".join(f"- {msg}" for msg in messages) if messages else ""
+    """Inject coordinator alerts with urgency levels into a worktree's CLAUDE.md.
+
+    Messages prefixed with [CRITICAL], [WARNING], or [INFO] get formatted
+    with urgency headers and actionable guidance.
+    """
+    if not messages:
+        _inject_claude_md_section(worktree_path, "COORDINATION", "Coordinator Alerts (OWT)", "")
+        return
+
+    parts: list[str] = []
+    for msg in messages:
+        # Extract urgency level from [LEVEL] prefix
+        urgency = "INFO"
+        body = msg
+        for level in ("CRITICAL", "WARNING", "INFO"):
+            if msg.startswith(f"[{level}]"):
+                urgency = level
+                body = msg[len(level) + 3 :].strip()
+                break
+
+        parts.append(f"### [{urgency}] Coordination Alert\n\n{body}\n")
+        if urgency == "CRITICAL":
+            parts.append("**Action required:** Stop and address this before continuing.\n")
+        elif urgency == "WARNING":
+            parts.append("**Action required:** Be aware and coordinate to avoid conflicts.\n")
+
     _inject_claude_md_section(
         worktree_path,
         "COORDINATION",
         "Coordinator Alerts (OWT)",
-        body,
+        "\n".join(parts),
     )
 
 
