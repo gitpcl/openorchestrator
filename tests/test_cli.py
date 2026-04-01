@@ -51,7 +51,7 @@ class TestListCommand:
     """Test 'owt list' command."""
 
     @patch("open_orchestrator.commands._shared.StatusTracker")
-    @patch("open_orchestrator.commands.worktree.TmuxManager")
+    @patch("open_orchestrator.core.tmux_manager.TmuxManager")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_list_worktrees_empty(
         self,
@@ -68,7 +68,7 @@ class TestListCommand:
         assert result.exit_code == 0
 
     @patch("open_orchestrator.commands._shared.StatusTracker")
-    @patch("open_orchestrator.commands.worktree.TmuxManager")
+    @patch("open_orchestrator.core.tmux_manager.TmuxManager")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_list_worktrees_with_results(
         self,
@@ -109,7 +109,7 @@ class TestSendCommand:
     """Test 'owt send' command."""
 
     @patch("open_orchestrator.commands._shared.StatusTracker")
-    @patch("open_orchestrator.commands.agent.TmuxManager")
+    @patch("open_orchestrator.core.tmux_manager.TmuxManager")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_to_worktree(
         self,
@@ -145,7 +145,7 @@ class TestSendCommand:
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
 
-    @patch("open_orchestrator.commands.agent.TmuxManager")
+    @patch("open_orchestrator.core.tmux_manager.TmuxManager")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_without_tmux_session(
         self,
@@ -213,7 +213,7 @@ class TestDeleteCommand:
 class TestSwitchCommand:
     """Test 'owt switch' command."""
 
-    @patch("open_orchestrator.commands.worktree.TmuxManager")
+    @patch("open_orchestrator.core.tmux_manager.TmuxManager")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_switch_to_worktree_no_session(
         self,

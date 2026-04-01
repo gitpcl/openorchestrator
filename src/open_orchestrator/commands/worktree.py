@@ -9,9 +9,6 @@ from rich.table import Table
 
 from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
 from open_orchestrator.config import AITool, load_config
-from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
-from open_orchestrator.core.project_detector import ProjectDetector
-from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager, TmuxSessionExistsError
 from open_orchestrator.core.worktree import (
     WorktreeError,
     WorktreeNotFoundError,
@@ -150,6 +147,9 @@ def register(main: click.Group) -> None:
         console.print(f"[green]Worktree created:[/green] {worktree.path}")
 
         # 2. Set up environment
+        from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
+        from open_orchestrator.core.project_detector import ProjectDetector
+
         try:
             project_config = ProjectDetector().detect(str(worktree.path))
             if project_config:
@@ -178,6 +178,8 @@ def register(main: click.Group) -> None:
             console.print(f"[green]Hooks installed:[/green] {ai_tool_enum.value} → owt status")
 
         # 4. Create tmux session + start AI tool (skip in headless mode)
+        from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager, TmuxSessionExistsError
+
         tmux_manager = TmuxManager()
         session_info = None
         session_name = None
@@ -254,6 +256,8 @@ def register(main: click.Group) -> None:
             console.print("[dim]No worktrees found.[/dim]")
             return
 
+        from open_orchestrator.core.tmux_manager import TmuxManager
+
         tracker = get_status_tracker(wt_manager.git_root)
         all_statuses = {s.worktree_name: s for s in tracker.get_all_statuses()}
         tmux = TmuxManager()
@@ -303,6 +307,8 @@ def register(main: click.Group) -> None:
         If inside tmux, switches the current client.
         If outside, attaches to the session.
         """
+        from open_orchestrator.core.tmux_manager import TmuxManager
+
         wt_manager = get_worktree_manager()
         try:
             worktree = wt_manager.get(identifier)

@@ -16,12 +16,34 @@ from open_orchestrator.commands import (
 
 
 @click.group(invoke_without_command=True)
+@click.option("--profile", is_flag=True, hidden=True, help="Show import timing breakdown.")
 @click.pass_context
-def main(ctx: click.Context) -> None:
+def main(ctx: click.Context, profile: bool) -> None:
     """Open Orchestrator — multi-agent worktree orchestration.
 
     Run 'owt' with no arguments to launch the Switchboard.
     """
+    if profile:
+        import time
+
+        timings: list[tuple[str, float]] = []
+        for name in [
+            "open_orchestrator.core.tmux_manager",
+            "open_orchestrator.core.worktree",
+            "open_orchestrator.core.status",
+            "open_orchestrator.config",
+            "rich.console",
+            "rich.table",
+        ]:
+            t0 = time.perf_counter()
+            __import__(name)
+            timings.append((name, (time.perf_counter() - t0) * 1000))
+        for name, ms in sorted(timings, key=lambda x: -x[1]):
+            click.echo(f"  {ms:6.1f}ms  {name}")
+        click.echo(f"  {'─' * 30}")
+        click.echo(f"  {sum(ms for _, ms in timings):6.1f}ms  total")
+        return
+
     if ctx.invoked_subcommand is None:
         from open_orchestrator.core.switchboard import launch_switchboard
 

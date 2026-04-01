@@ -8,7 +8,6 @@ import time
 import click
 
 from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
-from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
 from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
@@ -36,6 +35,8 @@ def register(main: click.Group) -> None:
             owt send --all "Run tests"
             owt send --working "Wrap up and commit"
         """
+        from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
+
         msg = " ".join(message)
         tmux = TmuxManager()
         tracker = get_status_tracker()
