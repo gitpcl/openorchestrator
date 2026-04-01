@@ -26,7 +26,6 @@ def register(main: click.Group) -> None:
         wt_manager = get_worktree_manager()
         tracker = get_status_tracker(wt_manager.git_root)
         tmux = TmuxManager()
-        prefix = tmux._config.session_prefix  # noqa: SLF001
 
         # Gather current state
         worktrees = {wt.name for wt in wt_manager.list_all() if not wt.is_main}
@@ -58,7 +57,7 @@ def register(main: click.Group) -> None:
         for name in sorted(orphan_wt_no_tmux):
             table.add_row("worktree", "[yellow]no tmux session[/yellow]", name)
         for name in sorted(orphan_tmux_no_wt):
-            table.add_row("tmux", "[yellow]no worktree[/yellow]", f"{prefix}-{name}")
+            table.add_row("tmux", "[yellow]no worktree[/yellow]", tmux.generate_session_name(name))
         for name in sorted(orphan_status_no_wt):
             table.add_row("status", "[yellow]no worktree[/yellow]", name)
 

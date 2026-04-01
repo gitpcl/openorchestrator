@@ -1,6 +1,5 @@
 """Tests for the MCP peer communication server."""
 
-import json
 import sqlite3
 from pathlib import Path
 
