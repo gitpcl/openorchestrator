@@ -23,23 +23,9 @@ import os
 import sqlite3
 from datetime import datetime
 
-from open_orchestrator.core.status import default_status_path
+from open_orchestrator.core.status import PEER_MESSAGES_SCHEMA, default_status_path
 
 logger = logging.getLogger(__name__)
-
-_PEER_SCHEMA_SQL = """\
-CREATE TABLE IF NOT EXISTS peer_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_peer TEXT NOT NULL,
-    to_peer TEXT NOT NULL,
-    message TEXT NOT NULL,
-    read INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_peer_messages_to_peer_read
-    ON peer_messages(to_peer, read);
-"""
 
 
 def _get_connection(db_path: str) -> sqlite3.Connection:
@@ -48,7 +34,7 @@ def _get_connection(db_path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
-    conn.executescript(_PEER_SCHEMA_SQL)
+    conn.executescript(PEER_MESSAGES_SCHEMA)
     conn.commit()
     return conn
 

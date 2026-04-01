@@ -11,7 +11,7 @@ import os
 import sqlite3
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from open_orchestrator.config import AITool
@@ -62,6 +62,20 @@ CREATE TABLE IF NOT EXISTS peer_messages (
     created_at TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_peer_messages_to_peer_read
+    ON peer_messages(to_peer, read);
+"""
+
+# Exported for mcp_peer.py to avoid duplicate schema definitions
+PEER_MESSAGES_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS peer_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_peer TEXT NOT NULL,
+    to_peer TEXT NOT NULL,
+    message TEXT NOT NULL,
+    read INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_peer_messages_to_peer_read
     ON peer_messages(to_peer, read);
 """
@@ -578,3 +592,45 @@ class StatusTracker:
             message_ids,
         )
         self._conn.commit()
+
+    # -- Database maintenance -----------------------------------------------
+
+    def purge_old_messages(self, days: int = 30) -> int:
+        """Delete peer messages older than the given number of days.
+
+        Returns the number of deleted rows.
+        """
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        cursor = self._conn.execute(
+            "DELETE FROM peer_messages WHERE created_at < ?",
+            (cutoff,),
+        )
+        self._conn.commit()
+        deleted = cursor.rowcount
+        if deleted:
+            logger.info("Purged %d peer message(s) older than %d days", deleted, days)
+        return deleted
+
+    def vacuum(self) -> None:
+        """Run PRAGMA optimize and VACUUM to reclaim space."""
+        self._conn.execute("PRAGMA optimize")
+        self._conn.execute("VACUUM")
+        logger.info("Database optimized and vacuumed: %s", self._storage_path)
+
+    def health_check(self) -> dict[str, object]:
+        """Return database health diagnostics (read-only)."""
+        schema_version = self.get_metadata("version") or "unknown"
+        worktree_count = self._conn.execute("SELECT COUNT(*) FROM worktree_status").fetchone()[0]
+        peer_msg_count = self._conn.execute("SELECT COUNT(*) FROM peer_messages").fetchone()[0]
+        unread_count = self._conn.execute("SELECT COUNT(*) FROM peer_messages WHERE read = 0").fetchone()[0]
+        db_size = self._storage_path.stat().st_size if self._storage_path.exists() else 0
+        wal_row = self._conn.execute("PRAGMA journal_mode").fetchone()
+        wal_mode = wal_row[0] if wal_row else "unknown"
+        return {
+            "schema_version": schema_version,
+            "worktree_count": worktree_count,
+            "peer_message_count": peer_msg_count,
+            "unread_message_count": unread_count,
+            "db_size_bytes": db_size,
+            "wal_mode": wal_mode,
+        }
