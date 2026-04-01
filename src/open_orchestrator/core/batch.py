@@ -369,10 +369,11 @@ class BatchRunner:
         tracker: StatusTracker | None = None,
         tmux: TmuxManager | None = None,
         merge_manager_factory: Callable[[], MergeManager] | None = None,
+        results: list[BatchResult] | None = None,
     ):
         self.config = config
         self.repo_path = repo_path
-        self.results: list[BatchResult] = [BatchResult(task=t) for t in config.tasks]
+        self.results: list[BatchResult] = results or [BatchResult(task=t) for t in config.tasks]
         self.tracker = tracker or StatusTracker(runtime_status_config(repo_path))
         self._tmux = tmux or TmuxManager()
         self._merge_manager_factory = merge_manager_factory or (lambda: MergeManager(repo_path=Path(self.repo_path)))
@@ -384,6 +385,85 @@ class BatchRunner:
         self._topo_order = _validate_dag(config.tasks, self._task_index)
         self._has_deps = any(t.depends_on for t in config.tasks)
         self._last_dag_progress = ""
+
+    @staticmethod
+    def _state_path(repo_path: str) -> Path:
+        return Path(repo_path) / ".owt-batch-state.json"
+
+    def _save_state(self) -> None:
+        """Persist current batch results to JSON for resume."""
+        import json
+
+        state = {
+            "repo_path": self.repo_path,
+            "config": {
+                "max_concurrent": self.config.max_concurrent,
+                "auto_ship": self.config.auto_ship,
+                "poll_interval": self.config.poll_interval,
+                "min_agent_runtime": self.config.min_agent_runtime,
+            },
+            "results": [
+                {
+                    "task": {
+                        "description": r.task.description,
+                        "id": r.task.id,
+                        "depends_on": r.task.depends_on,
+                        "branch": r.task.branch,
+                        "ai_tool": r.task.ai_tool,
+                        "plan_mode": r.task.plan_mode,
+                        "auto_ship": r.task.auto_ship,
+                    },
+                    "worktree_name": r.worktree_name,
+                    "status": r.status.value,
+                    "error": r.error,
+                    "retry_count": r.retry_count,
+                    "started_at": r.started_at,
+                }
+                for r in self.results
+            ],
+        }
+        self._state_path(self.repo_path).write_text(json.dumps(state, indent=2))
+
+    @classmethod
+    def resume(cls, repo_path: str) -> BatchRunner:
+        """Resume a batch run from saved state."""
+        import json
+
+        state_path = cls._state_path(repo_path)
+        if not state_path.exists():
+            raise FileNotFoundError(f"No batch state found at {state_path}")
+
+        data = json.loads(state_path.read_text())
+        config = BatchConfig(
+            tasks=[],
+            max_concurrent=data["config"]["max_concurrent"],
+            auto_ship=data["config"]["auto_ship"],
+            poll_interval=data["config"]["poll_interval"],
+            min_agent_runtime=data["config"]["min_agent_runtime"],
+        )
+
+        results: list[BatchResult] = []
+        tasks: list[BatchTask] = []
+        for r in data["results"]:
+            task = BatchTask(**r["task"])
+            tasks.append(task)
+            results.append(
+                BatchResult(
+                    task=task,
+                    worktree_name=r.get("worktree_name"),
+                    status=BatchStatus(r["status"]),
+                    error=r.get("error"),
+                    retry_count=r.get("retry_count", 0),
+                    started_at=r.get("started_at"),
+                )
+            )
+
+        config.tasks = tasks
+        runner = cls(config, repo_path, results=results)
+
+        # Clean up state file
+        state_path.unlink(missing_ok=True)
+        return runner
 
     def _deps_satisfied(self, idx: int) -> bool:
         """Check if all dependencies of a task are completed/shipped."""
@@ -534,6 +614,8 @@ class BatchRunner:
             done = sum(1 for r in self.results if r.status in (BatchStatus.COMPLETED, BatchStatus.SHIPPED, BatchStatus.FAILED))
             self._update_dag_progress(done, total)
 
+            self._save_state()
+
             if on_status:
                 on_status(self.results)
 
@@ -541,6 +623,8 @@ class BatchRunner:
                 time.sleep(self.config.poll_interval)
 
         self._clear_dag_progress()
+        # Clean up state file on successful completion
+        self._state_path(self.repo_path).unlink(missing_ok=True)
         return self.results
 
     def _capture_summary(self, worktree_name: str) -> str | None:

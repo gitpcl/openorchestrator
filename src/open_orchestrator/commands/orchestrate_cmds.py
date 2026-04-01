@@ -122,7 +122,7 @@ def register(main: click.Group) -> None:
         # 4. Optionally start orchestrator (--start)
         if start:
             from open_orchestrator.core.branch_namer import generate_branch_name
-            from open_orchestrator.core.orchestrator import Orchestrator
+            from open_orchestrator.core.orchestrator import Orchestrator, TaskPhase
 
             feature_branch = orch_branch
             if not feature_branch:
@@ -145,8 +145,8 @@ def register(main: click.Group) -> None:
 
             try:
                 final = orch.run(on_status=_print_orchestrator_status)
-                shipped = sum(1 for t in final.tasks if t.status == "shipped")
-                failed = sum(1 for t in final.tasks if t.status == "failed")
+                shipped = sum(1 for t in final.tasks if t.status == TaskPhase.SHIPPED)
+                failed = sum(1 for t in final.tasks if t.status == TaskPhase.FAILED)
                 console.print(
                     f"\n[bold green]Orchestration complete![/bold green] {shipped} shipped, {failed} failed → {feature_branch}"
                 )
@@ -185,11 +185,12 @@ def register(main: click.Group) -> None:
             )
 
     @main.command("batch")
-    @click.argument("tasks_file", type=click.Path(exists=True))
+    @click.argument("tasks_file", type=click.Path(exists=True), required=False)
     @click.option("--auto-ship", is_flag=True, help="Auto-ship completed tasks.")
     @click.option("--max-concurrent", type=int, default=3, help="Max parallel tasks.")
     @click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
-    def batch_run(tasks_file: str, auto_ship: bool, max_concurrent: int, json_output: bool) -> None:
+    @click.option("--resume", is_flag=True, help="Resume from saved state.")
+    def batch_run(tasks_file: str | None, auto_ship: bool, max_concurrent: int, json_output: bool, resume: bool) -> None:
         """Run a batch of tasks from a TOML file.
 
         Karpathy-style autopilot: creates worktrees, starts agents,
@@ -208,26 +209,38 @@ def register(main: click.Group) -> None:
         Examples:
             owt batch tasks.toml
             owt batch tasks.toml --auto-ship
+            owt batch --resume
         """
         from open_orchestrator.core.batch import BatchRunner, load_batch_config
 
-        config = load_batch_config(tasks_file)
-        if auto_ship:
-            config.auto_ship = True
-        if max_concurrent:
-            config.max_concurrent = max_concurrent
-
-        console.print(f"[bold]Batch: {len(config.tasks)} task(s), max {config.max_concurrent} concurrent[/bold]")
-
         wt_manager = get_worktree_manager()
-        runner = BatchRunner(config, str(wt_manager.git_root))
+        repo_path = str(wt_manager.git_root)
+
+        if resume:
+            try:
+                runner = BatchRunner.resume(repo_path)
+            except FileNotFoundError:
+                raise click.ClickException("No batch state found. Start with: owt batch <tasks.toml>")
+            pending = sum(1 for r in runner.results if r.status.value == "pending")
+            running = sum(1 for r in runner.results if r.status.value == "running")
+            console.print(f"[bold]Resuming batch:[/bold] {pending} pending, {running} running")
+        else:
+            if not tasks_file:
+                raise click.ClickException("Provide a tasks file, or use --resume")
+            config = load_batch_config(tasks_file)
+            if auto_ship:
+                config.auto_ship = True
+            if max_concurrent:
+                config.max_concurrent = max_concurrent
+            console.print(f"[bold]Batch: {len(config.tasks)} task(s), max {config.max_concurrent} concurrent[/bold]")
+            runner = BatchRunner(config, repo_path)
 
         status_cb = None if json_output else print_batch_status
 
         try:
             results = runner.run(on_status=status_cb)
         except KeyboardInterrupt:
-            console.print("\n[yellow]Batch interrupted. Worktrees left running.[/yellow]")
+            console.print("\n[yellow]Batch interrupted. State saved. Resume with: owt batch --resume[/yellow]")
             return
 
         if json_output:
@@ -265,7 +278,7 @@ def register(main: click.Group) -> None:
             owt orchestrate --stop
             owt orchestrate --status
         """
-        from open_orchestrator.core.orchestrator import Orchestrator, OrchestratorState
+        from open_orchestrator.core.orchestrator import Orchestrator, OrchestratorState, TaskPhase
 
         wt_manager = get_worktree_manager()
         repo_path = str(wt_manager.git_root)
@@ -338,8 +351,8 @@ def register(main: click.Group) -> None:
 
         try:
             final = orch.run(on_status=_print_orchestrator_status)
-            shipped = sum(1 for t in final.tasks if t.status == "shipped")
-            failed = sum(1 for t in final.tasks if t.status == "failed")
+            shipped = sum(1 for t in final.tasks if t.status == TaskPhase.SHIPPED)
+            failed = sum(1 for t in final.tasks if t.status == TaskPhase.FAILED)
             console.print(
                 f"\n[bold green]Orchestration complete![/bold green] {shipped} shipped, {failed} failed → {final.feature_branch}"
             )

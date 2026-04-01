@@ -16,6 +16,7 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -40,19 +41,30 @@ logger = logging.getLogger(__name__)
 # ─── State Models ──────────────────────────────────────────────────────────
 
 
+class TaskPhase(str, Enum):
+    """Typed lifecycle phases for orchestrator tasks."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    SHIPPED = "shipped"
+    FAILED = "failed"
+
+
 class TaskState(BaseModel):
     """Per-task persistent state within the orchestrator."""
 
     id: str
     description: str
     depends_on: list[str] = []
-    status: str = "pending"  # pending | running | completed | shipped | failed
+    status: TaskPhase = TaskPhase.PENDING
     worktree_name: str | None = None
     branch: str | None = None
     retry_count: int = 0
     max_retries: int = 1
     failure_reason: str | None = None
     started_at: str | None = None
+    last_heartbeat: str | None = None
 
 
 class OrchestratorState(BaseModel):
@@ -162,7 +174,9 @@ class Orchestrator:
             raise FileNotFoundError(f"No orchestrator state found at {state_path}")
 
         state = OrchestratorState.model_validate_json(state_path.read_text())
-        return cls(state, agno_config=_load_agno_config())
+        orch = cls(state, agno_config=_load_agno_config())
+        orch._reconcile_world_state()
+        return orch
 
     # ─── Main Loop ─────────────────────────────────────────────────────
 
@@ -208,6 +222,49 @@ class Orchestrator:
             repo.git.branch(self.state.feature_branch, base)
             logger.info("Created feature branch '%s' from '%s'", self.state.feature_branch, base)
 
+    # ─── Reconciliation ────────────────────────────────────────────────
+
+    def _reconcile_world_state(self) -> None:
+        """Check running tasks against real-world state on resume.
+
+        For each task marked as 'running':
+        - If tmux session is dead and worktree has commits → mark completed
+        - If tmux session is dead and no commits → mark failed
+        - If tmux session is alive → leave as running
+        """
+        for task in self.state.tasks:
+            if task.status != TaskPhase.RUNNING or not task.worktree_name:
+                continue
+
+            session_name = self.tmux.generate_session_name(task.worktree_name)
+            session_alive = self.tmux.session_exists(session_name)
+
+            if session_alive:
+                continue
+
+            # tmux is dead — check if the agent produced work
+            try:
+                inspection = self._runtime.inspect_worktree_commits(task.worktree_name, self.state.feature_branch)
+                has_commits = inspection.has_commits
+            except Exception:
+                has_commits = False
+
+            if has_commits:
+                task.status = TaskPhase.COMPLETED
+                logger.warning(
+                    "Reconciliation: task '%s' tmux dead but has commits → completed",
+                    task.id,
+                )
+            else:
+                task.status = TaskPhase.FAILED
+                task.failure_reason = "Agent exited without producing commits (detected on resume)"
+                logger.warning(
+                    "Reconciliation: task '%s' tmux dead, no commits → failed",
+                    task.id,
+                )
+
+        self._save_state()
+
     # ─── Task Scheduling ──────────────────────────────────────────────
 
     def _deps_satisfied(self, task: TaskState) -> bool:
@@ -222,12 +279,12 @@ class Orchestrator:
     def _deps_failed(self, task: TaskState) -> bool:
         for dep_id in task.depends_on:
             idx = self._task_index.get(dep_id)
-            if idx is not None and self.state.tasks[idx].status == "failed":
+            if idx is not None and self.state.tasks[idx].status == TaskPhase.FAILED:
                 return True
         return False
 
     def _running_count(self) -> int:
-        return sum(1 for t in self.state.tasks if t.status == "running")
+        return sum(1 for t in self.state.tasks if t.status == TaskPhase.RUNNING)
 
     def _start_ready_tasks(self) -> None:
         """Start pending tasks whose dependencies are satisfied."""
@@ -235,15 +292,15 @@ class Orchestrator:
         for task in self.state.tasks:
             if running >= self.state.max_concurrent:
                 break
-            if task.status != "pending":
+            if task.status != TaskPhase.PENDING:
                 continue
             if self._deps_failed(task):
-                task.status = "failed"
+                task.status = TaskPhase.FAILED
                 continue
             if not self._deps_satisfied(task):
                 continue
             self._start_task(task)
-            if task.status == "running":
+            if task.status == TaskPhase.RUNNING:
                 running += 1
 
     def _start_task(self, task: TaskState) -> None:
@@ -275,20 +332,22 @@ class Orchestrator:
             )
             task.worktree_name = pane.worktree_name
             task.branch = pane.branch
-            task.status = "running"
+            task.status = TaskPhase.RUNNING
             task.started_at = datetime.now(timezone.utc).isoformat()
             logger.info("Started task '%s' in worktree '%s'", task.id, pane.worktree_name)
         except PaneActionError as e:
-            task.status = "failed"
+            task.status = TaskPhase.FAILED
             logger.error("Failed to start task '%s': %s", task.id, e)
 
     # ─── Polling ───────────────────────────────────────────────────────
 
     def _poll_running_tasks(self) -> None:
         """Check running tasks for completion, merge into feature branch."""
+        now = datetime.now(timezone.utc).isoformat()
         for task in self.state.tasks:
-            if task.status != "running" or not task.worktree_name:
+            if task.status != TaskPhase.RUNNING or not task.worktree_name:
                 continue
+            task.last_heartbeat = now
 
             # Check user presence — skip auto-actions if user is attached
             if self._user_in_worktree(task.worktree_name):
@@ -334,7 +393,7 @@ class Orchestrator:
                     task.worktree_name,
                     int(elapsed),
                 )
-                task.status = "completed"
+                task.status = TaskPhase.COMPLETED
                 self._merge_to_feature_branch(task)
                 continue
 
@@ -366,9 +425,9 @@ class Orchestrator:
             task.worktree_name = None
             task.branch = None
             task.started_at = None
-            task.status = "pending"
+            task.status = TaskPhase.PENDING
         else:
-            task.status = "failed"
+            task.status = TaskPhase.FAILED
             logger.warning("Task '%s' failed permanently: %s", task.id, reason)
 
     def _check_worktree_has_commits(self, task: TaskState) -> bool:
@@ -450,7 +509,7 @@ class Orchestrator:
                 delete_worktree=True,
             )
             self.tracker.remove_status(task.worktree_name)
-            task.status = "shipped"
+            task.status = TaskPhase.SHIPPED
             logger.info("Shipped task '%s' (%d commits) into '%s'", task.id, commits, self.state.feature_branch)
         except Exception as e:
             self._handle_task_failure(task, f"Merge failed: {e}")
@@ -497,7 +556,7 @@ class Orchestrator:
 
     def _coordinate(self) -> None:
         """Detect cross-worktree events and push context."""
-        running_tasks = [t for t in self.state.tasks if t.status == "running" and t.worktree_name]
+        running_tasks = [t for t in self.state.tasks if t.status == TaskPhase.RUNNING and t.worktree_name]
         if len(running_tasks) < 2:
             return
 
