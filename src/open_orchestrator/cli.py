@@ -18,12 +18,19 @@ from open_orchestrator.commands import (
 
 @click.group(invoke_without_command=True)
 @click.option("--profile", is_flag=True, hidden=True, help="Show import timing breakdown.")
+@click.option("--log-format", type=click.Choice(["text", "json"]), default="text", hidden=True, help="Log output format.")
+@click.option("--verbose", is_flag=True, hidden=True, help="Enable DEBUG logging.")
 @click.pass_context
-def main(ctx: click.Context, profile: bool) -> None:
+def main(ctx: click.Context, profile: bool, log_format: str, verbose: bool) -> None:
     """Open Orchestrator — multi-agent worktree orchestration.
 
     Run 'owt' with no arguments to launch the Switchboard.
     """
+    if verbose or log_format == "json":
+        from open_orchestrator.utils.logging import configure_logging
+
+        configure_logging(verbose=verbose, json_format=log_format == "json")
+
     if profile:
         import time
 
