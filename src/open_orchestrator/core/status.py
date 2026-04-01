@@ -291,6 +291,19 @@ class StatusTracker:
     def reload(self) -> None:
         """No-op: SQLite reads are always fresh."""
 
+    def get_generation(self) -> str:
+        """Return a generation token for change detection.
+
+        Combines MAX(updated_at) and COUNT(*) into a single token so both
+        updates and row additions/deletions are detected. Cheap single query.
+        """
+        row = self._conn.execute("SELECT COALESCE(MAX(updated_at), '') || ':' || COUNT(*) as gen FROM worktree_status").fetchone()
+        return row["gen"] or ":0"
+
+    def has_changed_since(self, generation: str) -> bool:
+        """Check if any status has changed since the given generation token."""
+        return self.get_generation() != generation
+
     def get_status(self, worktree_name: str) -> WorktreeAIStatus | None:
         """Get status for a specific worktree."""
         row = self._conn.execute(

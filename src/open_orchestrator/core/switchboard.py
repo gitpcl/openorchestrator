@@ -847,8 +847,48 @@ class SearchableSelectModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class CardWidget(Static):
+    """Textual widget for a single worktree card with independent rendering."""
+
+    DEFAULT_CSS = f"""
+    CardWidget {{
+        width: {CARD_WIDTH + 4};
+        height: 5;
+    }}
+    """
+
+    def __init__(self, card: Card, index: int, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self.card = card
+        self.card_index = index
+
+    def render(self) -> Panel:
+        app: SwitchboardApp = self.app  # type: ignore[assignment]
+        selected = self.card_index == app._selected
+        content = _render_card(self.card, app._tick)
+        flash_remaining = self.card.flash_until - app._tick
+        if flash_remaining > 3:
+            border_style = "bold white reverse"
+        elif flash_remaining > 0:
+            border_style = "bold white"
+        elif selected:
+            border_style = "white"
+        else:
+            border_style = COLORS["card_border"]
+        return Panel(
+            content,
+            width=CARD_WIDTH + 2,
+            padding=(0, 1),
+            border_style=border_style,
+        )
+
+
 class CardGrid(Static):
-    """Single widget that renders all cards in a wrapping grid via Rich Columns."""
+    """Widget that renders all cards in a wrapping grid via Rich Columns.
+
+    Uses CardWidget instances for granular updates when possible,
+    but falls back to bulk Columns rendering for the grid layout.
+    """
 
     DEFAULT_CSS = """
     CardGrid {
@@ -872,25 +912,9 @@ class CardGrid(Static):
 
         panels = []
         for i, card in enumerate(app._cards):
-            selected = i == app._selected
-            content = _render_card(card, app._tick)
-            flash_remaining = card.flash_until - app._tick
-            if flash_remaining > 3:
-                border_style = "bold white reverse"
-            elif flash_remaining > 0:
-                border_style = "bold white"
-            elif selected:
-                border_style = "white"
-            else:
-                border_style = COLORS["card_border"]
-            panels.append(
-                Panel(
-                    content,
-                    width=CARD_WIDTH + 2,
-                    padding=(0, 1),
-                    border_style=border_style,
-                )
-            )
+            widget = CardWidget(card, i)
+            widget._app = app  # type: ignore[attr-defined]
+            panels.append(widget.render())
 
         return Columns(panels, padding=(0, 1))
 
@@ -1003,6 +1027,7 @@ class SwitchboardApp(App[None]):
         self._prev_statuses: dict[str, AIActivityStatus] = {}
         self._cols = 4
         self._heavy_refresh_count = 0
+        self._last_generation = ""  # Change-detection token from StatusTracker
         # Transient state for new-worktree modal flow
         self._new_wt_task: str = ""
         self._new_wt_branch: str = ""
@@ -1042,8 +1067,23 @@ class SwitchboardApp(App[None]):
         self.query_one("#card-grid", CardGrid).refresh()
 
     async def _heavy_refresh(self) -> None:
-        """Heavy refresh: parallel async pane + diff polling."""
+        """Heavy refresh: parallel async pane + diff polling.
+
+        Skips the expensive _build_cards_async when no status changes
+        have been detected since the last refresh (change-detection guard).
+        """
         self._heavy_refresh_count += 1
+
+        # Change-detection: skip expensive rebuild if nothing changed
+        if self._tracker.has_changed_since(self._last_generation):
+            self._last_generation = self._tracker.get_generation()
+        elif self._heavy_refresh_count > 1:
+            # Still update elapsed times from cache but skip full rebuild
+            logger.debug("Skipping heavy refresh — no status changes")
+            self._update_header()
+            self.query_one("#card-grid", CardGrid).refresh()
+            return
+
         self._cards, self._file_map = await _build_cards_async(self._tracker, self._wt_manager)
 
         # Periodic orphan cleanup (~every 20s)
