@@ -70,6 +70,7 @@ class BatchResult:
     completion_summary: str | None = None
     parent_summaries: list[str] = field(default_factory=list)
     started_at: float | None = None  # time.monotonic() when task started
+    ship_failed: bool = False  # True when work completed but merge failed
 
 
 @dataclass
@@ -418,6 +419,7 @@ class BatchRunner:
                     "error": r.error,
                     "retry_count": r.retry_count,
                     "started_at": r.started_at,
+                    "ship_failed": r.ship_failed,
                 }
                 for r in self.results
             ],
@@ -455,6 +457,7 @@ class BatchRunner:
                     error=r.get("error"),
                     retry_count=r.get("retry_count", 0),
                     started_at=r.get("started_at"),
+                    ship_failed=r.get("ship_failed", False),
                 )
             )
 
@@ -466,21 +469,33 @@ class BatchRunner:
         return runner
 
     def _deps_satisfied(self, idx: int) -> bool:
-        """Check if all dependencies of a task are completed/shipped."""
+        """Check if all dependencies of a task are completed/shipped.
+
+        Ship-failed tasks (work done, merge failed) also satisfy deps
+        since the work exists in the branch.
+        """
         task = self.results[idx].task
         for dep_id in task.depends_on:
             dep_idx = self._task_index[dep_id]
-            dep_status = self.results[dep_idx].status
-            if dep_status not in (BatchStatus.COMPLETED, BatchStatus.SHIPPED):
-                return False
+            dep_result = self.results[dep_idx]
+            if dep_result.status in (BatchStatus.COMPLETED, BatchStatus.SHIPPED):
+                continue
+            if dep_result.status == BatchStatus.FAILED and dep_result.ship_failed:
+                continue
+            return False
         return True
 
     def _deps_failed(self, idx: int) -> bool:
-        """Check if any dependency of a task has failed."""
+        """Check if any dependency's WORK failed (not just ship).
+
+        Ship failures (work complete but merge failed) don't cascade — the
+        work exists in the branch and dependents can still proceed.
+        """
         task = self.results[idx].task
         for dep_id in task.depends_on:
             dep_idx = self._task_index[dep_id]
-            if self.results[dep_idx].status == BatchStatus.FAILED:
+            dep_result = self.results[dep_idx]
+            if dep_result.status == BatchStatus.FAILED and not dep_result.ship_failed:
                 return True
         return False
 
@@ -810,7 +825,15 @@ class BatchRunner:
             self.tracker.remove_status(result.worktree_name)
             result.status = BatchStatus.SHIPPED
         except Exception as e:
-            self._handle_batch_failure(idx, f"Ship failed: {e}")
+            # Mark as ship-failed (work done, merge failed) — don't cascade
+            result.status = BatchStatus.FAILED
+            result.ship_failed = True
+            result.error = f"Ship failed: {e}"
+            logger.warning(
+                "Task %s completed but merge failed — manual merge needed: owt merge %s",
+                result.task.id or idx,
+                result.worktree_name,
+            )
 
     def _resolve_task_base_ref(self, worktree_name: str) -> str:
         """Resolve the base ref used for runtime commit detection."""

@@ -82,8 +82,18 @@ def detect_activity_from_pane_output(output: str) -> tuple[AIActivityStatus, boo
 
     if content_lines:
         last_line = TMUX_ANSI_RE.sub("", content_lines[0]).strip()
-        if len(last_line) < 15 and TMUX_PROMPT_RE.search(last_line):
+
+        # Check for known prompt patterns (no length limit — prompts can be long)
+        if TMUX_PROMPT_RE.search(last_line):
             return AIActivityStatus.WAITING, has_interrupted
+
+        # Check for common shell prompt endings (handles custom prompts)
+        shell_prompt_endings = {"$", "%", "#", "❯", "➜", ">"}
+        if last_line and last_line[-1] in shell_prompt_endings:
+            # Only treat as shell idle if no Claude activity in recent lines
+            has_activity = any(TMUX_TOOL_HEADER_RE.search(line) for line in content_lines[:4])
+            if not has_activity:
+                return AIActivityStatus.WAITING, has_interrupted
 
     return AIActivityStatus.WORKING, False
 
@@ -369,15 +379,20 @@ class TmuxManager:
     def wait_for_ai_ready(
         self,
         session_name: str,
-        timeout: float = 10.0,
+        timeout: float = 15.0,
         pane_index: int = 0,
     ) -> bool:
         """Wait for an AI tool to be ready for input by polling pane content.
 
-        Looks for common input prompt indicators (>, $, %, Human:, etc.)
-        in the pane output. Returns True if ready, False on timeout.
+        Polls every 0.5s looking for:
+        - Input prompt indicators (>, Human:, claude>, etc.)
+        - Claude's initial banner/welcome message
+        - Blocked state (permission prompts) — logs warning but returns True
+
+        Returns True if ready, False on timeout.
         """
-        ready_indicators = {"$", "%", ">", "Human:", ">>>", "claude>", "droid>"}
+        ready_indicators = {">", "Human:", ">>>", "claude>", "droid>"}
+        blocked_patterns = {"Allow", "Deny", "permission", "approve"}
         start = time.monotonic()
         while time.monotonic() - start < timeout:
             try:
@@ -388,12 +403,22 @@ class TmuxManager:
                     timeout=2,
                 )
                 if result.returncode == 0:
-                    last_lines = result.stdout.strip().split("\n")[-3:]
+                    content = result.stdout.strip()
+                    last_lines = content.split("\n")[-5:]
                     for line in last_lines:
                         stripped = line.strip()
+                        # Check for blocked state (permission prompts)
+                        if any(bp in stripped for bp in blocked_patterns):
+                            logger.warning("AI tool in %s appears blocked (permission prompt)", session_name)
+                            return True
+                        # Check for input readiness
                         if any(stripped.endswith(ind) or stripped.startswith(ind) for ind in ready_indicators):
                             logger.debug("AI tool ready in %s after %.1fs", session_name, time.monotonic() - start)
                             return True
+                    # Check for Claude's startup banner (Anthropic, claude code, etc.)
+                    if content and ("claude" in content.lower() or "anthropic" in content.lower()):
+                        logger.debug("Claude banner detected in %s after %.1fs", session_name, time.monotonic() - start)
+                        return True
             except (subprocess.TimeoutExpired, OSError):
                 pass
             time.sleep(0.5)

@@ -57,17 +57,23 @@ def test_create_pane_uses_live_session_and_display_task(
         status_tracker=tracker,
     )
 
-    # Prompt should be passed to create_worktree_session via prompt= parameter
+    # Session created in interactive mode (NO prompt= parameter)
     tmux_manager.create_worktree_session.assert_called_once_with(
         worktree_name="auth-jwt",
         worktree_path="/tmp/auth-jwt",
         ai_tool=AITool.CLAUDE,
         plan_mode=False,
         automated=True,
-        prompt="system prompt goes here",
     )
-    # send_keys_to_pane should NOT be called — prompt delivered via stdin pipe
-    tmux_manager.send_keys_to_pane.assert_not_called()
+    # Prompt delivered via wait_for_ai_ready + send_keys (not stdin pipe)
+    tmux_manager.wait_for_ai_ready.assert_called_once_with(
+        session_name="owt-auth-jwt",
+        timeout=15,
+    )
+    tmux_manager.send_keys_to_pane.assert_called_once_with(
+        session_name="owt-auth-jwt",
+        keys="system prompt goes here",
+    )
     tracker.update_task.assert_called_once_with(
         "auth-jwt",
         "Implement JWT auth",
