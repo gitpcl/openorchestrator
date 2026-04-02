@@ -305,15 +305,18 @@ def create_pane(
         except Exception as e:
             logger.debug("Status tracking init skipped: %s", e)
 
-        # 6. Deliver prompt via send-keys after waiting for AI readiness
+        # 6. Deliver prompt after waiting for AI readiness.
+        # Use tmux load-buffer + paste-buffer to handle long prompts
+        # (2K+ chars) that exceed send-keys -l buffer limits.
+        # Claude stays in interactive mode (no -p flag).
         if ai_instructions:
             tmux_manager.wait_for_ai_ready(
                 session_name=tmux_session.session_name,
                 timeout=15,
             )
-            tmux_manager.send_keys_to_pane(
+            tmux_manager.paste_to_pane(
                 session_name=tmux_session.session_name,
-                keys=ai_instructions,
+                text=ai_instructions,
             )
 
     except PaneActionError:

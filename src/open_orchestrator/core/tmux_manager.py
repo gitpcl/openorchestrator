@@ -602,6 +602,56 @@ class TmuxManager:
         except subprocess.CalledProcessError as e:
             raise TmuxError(f"Failed to send keys to pane: {e}") from e
 
+    def paste_to_pane(
+        self,
+        session_name: str,
+        text: str,
+        pane_index: int = 0,
+        window_index: int = 0,
+    ) -> None:
+        """Paste text into a pane using tmux load-buffer + paste-buffer.
+
+        Unlike ``send_keys_to_pane`` (which uses ``send-keys -l``), this
+        method handles arbitrarily long text without buffer truncation.
+        After pasting, it sends Enter to submit the text to the application.
+
+        The text is written to a temp file, loaded into a tmux buffer, then
+        pasted — bypassing the send-keys character limit entirely.
+        """
+        if not self.session_exists(session_name):
+            raise TmuxSessionNotFoundError(f"Session '{session_name}' not found.")
+        target = f"{session_name}:{window_index}.{pane_index}"
+
+        # Write to temp file, load into tmux buffer, paste, then Enter.
+        prompt_path = self._write_prompt_file(text)
+        try:
+            subprocess.run(
+                ["tmux", "load-buffer", prompt_path],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["tmux", "paste-buffer", "-d", "-t", target],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            # Submit the pasted text
+            subprocess.run(
+                ["tmux", "send-keys", "-t", target, "Enter"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise TmuxError(f"Failed to paste to pane: {e}") from e
+        finally:
+            try:
+                os.unlink(prompt_path)
+            except OSError:
+                pass
+
     def is_ai_running_in_session(self, session_name: str) -> bool:
         """Check if an AI tool process is still running in the session's pane.
 

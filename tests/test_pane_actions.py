@@ -65,14 +65,14 @@ def test_create_pane_uses_live_session_and_display_task(
         plan_mode=False,
         automated=True,
     )
-    # Prompt delivered via wait_for_ai_ready + send_keys (not stdin pipe)
+    # Prompt delivered via wait_for_ai_ready + paste_to_pane (handles long prompts)
     tmux_manager.wait_for_ai_ready.assert_called_once_with(
         session_name="owt-auth-jwt",
         timeout=15,
     )
-    tmux_manager.send_keys_to_pane.assert_called_once_with(
+    tmux_manager.paste_to_pane.assert_called_once_with(
         session_name="owt-auth-jwt",
-        keys="system prompt goes here",
+        text="system prompt goes here",
     )
     tracker.update_task.assert_called_once_with(
         "auth-jwt",
