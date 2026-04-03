@@ -194,24 +194,24 @@ class TestDetectPaneStatus:
     def test_none_session_returns_none(self) -> None:
         assert _detect_pane_status(None) is None
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_subprocess_error_returns_none(self, mock_run: MagicMock) -> None:
         import subprocess as sp
         mock_run.side_effect = sp.CalledProcessError(1, "tmux")
         assert _detect_pane_status("owt-test") is None
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_subprocess_timeout_returns_none(self, mock_run: MagicMock) -> None:
         import subprocess as sp
         mock_run.side_effect = sp.TimeoutExpired("tmux", 2)
         assert _detect_pane_status("owt-test") is None
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_empty_output_returns_none(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(stdout="\n\n\n")
         assert _detect_pane_status("owt-test") is None
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_detects_blocked_yn_prompt(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
             "Some output",
@@ -220,7 +220,7 @@ class TestDetectPaneStatus:
         result = _detect_pane_status("owt-test")
         assert result == (AIActivityStatus.BLOCKED, True)
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_detects_blocked_allow_tool(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
             "I need to read a file",
@@ -229,7 +229,7 @@ class TestDetectPaneStatus:
         result = _detect_pane_status("owt-test")
         assert result == (AIActivityStatus.BLOCKED, True)
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_detects_waiting_prompt(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
             "Done implementing the feature.",
@@ -239,7 +239,7 @@ class TestDetectPaneStatus:
         assert status == AIActivityStatus.WAITING
         assert high_conf is False
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_detects_waiting_with_interrupted_high_confidence(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
             "Searched for 5 patterns, read 4 files",
@@ -250,7 +250,7 @@ class TestDetectPaneStatus:
         assert status == AIActivityStatus.WAITING
         assert high_conf is True
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_detects_working_no_prompt(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
             "Reading file src/main.py...",
@@ -260,7 +260,7 @@ class TestDetectPaneStatus:
         result = _detect_pane_status("owt-test")
         assert result == (AIActivityStatus.WORKING, False)
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_filters_status_bar_lines(self, mock_run: MagicMock) -> None:
         """Status bar with 'permissions' should NOT trigger BLOCKED."""
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
@@ -272,7 +272,7 @@ class TestDetectPaneStatus:
         # Status bar lines filtered out, remaining text shows active work
         assert status == AIActivityStatus.WORKING
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_allow_in_middle_of_output_not_blocked(self, mock_run: MagicMock) -> None:
         """'Allow me to explain...' in middle of output should NOT trigger BLOCKED."""
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
@@ -285,7 +285,7 @@ class TestDetectPaneStatus:
         status, _ = _detect_pane_status("owt-test")
         assert status != AIActivityStatus.BLOCKED
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_short_prompt_char_is_waiting(self, mock_run: MagicMock) -> None:
         """Short '❯' line on last line → WAITING."""
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
@@ -295,7 +295,7 @@ class TestDetectPaneStatus:
         status, _ = _detect_pane_status("owt-test")
         assert status == AIActivityStatus.WAITING
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_long_line_with_prompt_char_not_waiting(self, mock_run: MagicMock) -> None:
         """Long line containing '❯' as part of output is NOT WAITING."""
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
@@ -304,7 +304,7 @@ class TestDetectPaneStatus:
         status, _ = _detect_pane_status("owt-test")
         assert status == AIActivityStatus.WORKING
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_tool_header_in_last_two_lines_is_working_high_confidence(self, mock_run: MagicMock) -> None:
         """Tool header like 'Read: src/foo.py' → WORKING with high confidence."""
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
@@ -314,7 +314,7 @@ class TestDetectPaneStatus:
         result = _detect_pane_status("owt-test")
         assert result == (AIActivityStatus.WORKING, True)
 
-    @patch("open_orchestrator.core.switchboard.subprocess.run")
+    @patch("open_orchestrator.core.switchboard_cards.subprocess.run")
     def test_old_yn_prompt_deep_in_history_not_blocked(self, mock_run: MagicMock) -> None:
         """Old y/N prompt deep in history (beyond last 2 lines) should NOT trigger BLOCKED."""
         mock_run.return_value = MagicMock(stdout=_make_pane_output(
@@ -334,8 +334,8 @@ class TestDetectPaneStatus:
 # ---------------------------------------------------------------------------
 
 
-@patch("open_orchestrator.core.switchboard._tmux_session_exists_raw", return_value=True)
-@patch("open_orchestrator.core.switchboard.WorktreeManager")
+@patch("open_orchestrator.core.switchboard_cards._tmux_session_exists_raw", return_value=True)
+@patch("open_orchestrator.core.switchboard_cards.WorktreeManager")
 class TestHookGuardLogic:
     """Test the hook trust guard that prevents false WORKING → WAITING downgrades.
 
@@ -362,8 +362,8 @@ class TestHookGuardLogic:
             updated_at=updated_at or datetime.now(),
         )
 
-    @patch("open_orchestrator.core.switchboard._get_diff_info", return_value=([], ""))
-    @patch("open_orchestrator.core.switchboard._detect_pane_status")
+    @patch("open_orchestrator.core.switchboard_cards._get_diff_info", return_value=([], ""))
+    @patch("open_orchestrator.core.switchboard_cards._detect_pane_status")
     def test_blocks_low_confidence_working_to_waiting_for_claude(
         self, mock_detect: MagicMock, mock_diff: MagicMock, mock_wt_manager: MagicMock, mock_session: MagicMock,
     ) -> None:
@@ -383,8 +383,8 @@ class TestHookGuardLogic:
         assert cards[0].status == AIActivityStatus.WORKING
         tracker.set_status.assert_not_called()
 
-    @patch("open_orchestrator.core.switchboard._get_diff_info", return_value=([], ""))
-    @patch("open_orchestrator.core.switchboard._detect_pane_status")
+    @patch("open_orchestrator.core.switchboard_cards._get_diff_info", return_value=([], ""))
+    @patch("open_orchestrator.core.switchboard_cards._detect_pane_status")
     def test_allows_high_confidence_working_to_waiting_for_claude(
         self, mock_detect: MagicMock, mock_diff: MagicMock, mock_wt_manager: MagicMock, mock_session: MagicMock,
     ) -> None:
@@ -403,8 +403,8 @@ class TestHookGuardLogic:
         assert cards[0].status == AIActivityStatus.WAITING
         tracker.set_status.assert_called_once()
 
-    @patch("open_orchestrator.core.switchboard._get_diff_info", return_value=([], ""))
-    @patch("open_orchestrator.core.switchboard._detect_pane_status")
+    @patch("open_orchestrator.core.switchboard_cards._get_diff_info", return_value=([], ""))
+    @patch("open_orchestrator.core.switchboard_cards._detect_pane_status")
     def test_allows_working_to_blocked_for_claude(
         self, mock_detect: MagicMock, mock_diff: MagicMock, mock_wt_manager: MagicMock, mock_session: MagicMock,
     ) -> None:
@@ -422,8 +422,8 @@ class TestHookGuardLogic:
         cards, _ = _build_cards(tracker)
         assert cards[0].status == AIActivityStatus.BLOCKED
 
-    @patch("open_orchestrator.core.switchboard._get_diff_info", return_value=([], ""))
-    @patch("open_orchestrator.core.switchboard._detect_pane_status")
+    @patch("open_orchestrator.core.switchboard_cards._get_diff_info", return_value=([], ""))
+    @patch("open_orchestrator.core.switchboard_cards._detect_pane_status")
     def test_stale_hook_allows_scraper_recovery(
         self, mock_detect: MagicMock, mock_diff: MagicMock, mock_wt_manager: MagicMock, mock_session: MagicMock,
     ) -> None:
@@ -442,8 +442,8 @@ class TestHookGuardLogic:
         cards, _ = _build_cards(tracker)
         assert cards[0].status == AIActivityStatus.WAITING
 
-    @patch("open_orchestrator.core.switchboard._get_diff_info", return_value=([], ""))
-    @patch("open_orchestrator.core.switchboard._detect_pane_status")
+    @patch("open_orchestrator.core.switchboard_cards._get_diff_info", return_value=([], ""))
+    @patch("open_orchestrator.core.switchboard_cards._detect_pane_status")
     def test_opencode_not_guarded(
         self, mock_detect: MagicMock, mock_diff: MagicMock, mock_wt_manager: MagicMock, mock_session: MagicMock,
     ) -> None:
@@ -464,8 +464,8 @@ class TestHookGuardLogic:
         cards, _ = _build_cards(tracker)
         assert cards[0].status == AIActivityStatus.WAITING
 
-    @patch("open_orchestrator.core.switchboard._get_diff_info", return_value=([], ""))
-    @patch("open_orchestrator.core.switchboard._detect_pane_status")
+    @patch("open_orchestrator.core.switchboard_cards._get_diff_info", return_value=([], ""))
+    @patch("open_orchestrator.core.switchboard_cards._detect_pane_status")
     def test_fresh_hook_skips_scraper_entirely(
         self, mock_detect: MagicMock, mock_diff: MagicMock, mock_wt_manager: MagicMock, mock_session: MagicMock,
     ) -> None:
