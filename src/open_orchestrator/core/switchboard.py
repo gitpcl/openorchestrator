@@ -869,7 +869,7 @@ class CardWidget(Static):
     """
 
     def __init__(self, card: Card, index: int, **kwargs: object) -> None:
-        super().__init__(**kwargs)
+        super().__init__(**kwargs)  # type: ignore[arg-type]
         self.card = card
         self.card_index = index
 

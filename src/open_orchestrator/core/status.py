@@ -272,7 +272,7 @@ class StatusTracker:
         if not json_path or data is None:
             return
         try:
-            for name, s in data.get("statuses", {}).items():
+            for name, s in data.get("statuses", {}).items():  # type: ignore[attr-defined]
                 status = WorktreeAIStatus(
                     worktree_name=s.get("worktree_name", name),
                     worktree_path=s.get("worktree_path", ""),
@@ -288,7 +288,7 @@ class StatusTracker:
                     updated_at=_str_to_dt(s.get("updated_at")) or datetime.now(),
                 )
                 self._upsert_status(status)
-            for note in data.get("shared_notes", []):
+            for note in data.get("shared_notes", []):  # type: ignore[attr-defined]
                 self.add_shared_note(note)
             self._repository.backup_legacy_json(json_path)
         except (OSError, ValueError) as e:

@@ -21,7 +21,7 @@ class LazyModule:
         object.__setattr__(self, "_module", None)
 
     def _load(self) -> ModuleType:
-        mod = object.__getattribute__(self, "_module")
+        mod: ModuleType | None = object.__getattribute__(self, "_module")
         if mod is not None:
             return mod
         name = object.__getattribute__(self, "_module_name")

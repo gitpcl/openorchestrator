@@ -24,9 +24,9 @@ class StructuredLogFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.correlation_id = getattr(record, "correlation_id", None) or correlation_id.get()  # type: ignore[attr-defined]
-        record.worktree = getattr(record, "worktree", None) or current_worktree.get()  # type: ignore[attr-defined]
-        record.component = getattr(record, "component", None) or current_component.get()  # type: ignore[attr-defined]
+        record.correlation_id = getattr(record, "correlation_id", None) or correlation_id.get()
+        record.worktree = getattr(record, "worktree", None) or current_worktree.get()
+        record.component = getattr(record, "component", None) or current_component.get()
         return True
 
 

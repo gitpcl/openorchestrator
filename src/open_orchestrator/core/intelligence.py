@@ -271,7 +271,7 @@ class AgnoPlanner:
         Returns:
             Path to the generated plan.toml.
         """
-        from agno.agent import Agent
+        from agno.agent import Agent  # type: ignore[import-not-found]
 
         global _active_repo_root  # noqa: PLW0603
         _active_repo_root = repo_path

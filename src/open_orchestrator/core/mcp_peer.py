@@ -46,7 +46,7 @@ def create_server():  # type: ignore[no-untyped-def]
     - ``OWT_WORKTREE_NAME``: this agent's worktree name
     - ``OWT_DB_PATH``: path to the shared status.db
     """
-    from mcp.server.fastmcp import FastMCP  # type: ignore[import-not-found]
+    from mcp.server.fastmcp import FastMCP
 
     server = FastMCP("owt-peers")
 
@@ -137,11 +137,12 @@ def create_server():  # type: ignore[no-untyped-def]
         ).fetchone()
         if not row:
             return []
-        return json.loads(row["modified_files"] or "[]")
+        files: list[str] = json.loads(row["modified_files"] or "[]")
+        return files
 
     return server
 
 
 if __name__ == "__main__":
-    server = create_server()
+    server = create_server()  # type: ignore[no-untyped-call]
     server.run(transport="stdio")

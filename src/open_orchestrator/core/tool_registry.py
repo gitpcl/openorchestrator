@@ -126,7 +126,7 @@ def register_custom_tools(registry: ToolRegistry, tools_config: dict[str, dict[s
             binary=str(cfg.get("binary", name)),
             command_template=str(cfg.get("command_template", "{binary}")),
             prompt_flag=str(cfg["prompt_flag"]) if cfg.get("prompt_flag") else None,
-            known_paths=[str(p) for p in cfg.get("known_paths", [])],  # type: ignore[union-attr]
+            known_paths=[str(p) for p in cfg.get("known_paths", [])],  # type: ignore[attr-defined]
             supports_hooks=bool(cfg.get("supports_hooks", False)),
             install_hint=str(cfg.get("install_hint", "")),
         )

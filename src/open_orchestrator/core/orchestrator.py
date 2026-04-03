@@ -31,7 +31,11 @@ from open_orchestrator.core.batch import (
 from open_orchestrator.core.merge import MergeManager
 from open_orchestrator.core.pane_actions import PaneActionError, build_agent_prompt, create_pane, teardown_worktree
 from open_orchestrator.core.runtime import RuntimeOutcome, TaskRuntimeCoordinator
-from open_orchestrator.core.status import StatusTracker, runtime_status_config
+from open_orchestrator.core.status import (
+    StatusTracker,
+    default_status_path,
+    runtime_status_config,
+)
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.models.status import AIActivityStatus
 
@@ -301,7 +305,7 @@ class Orchestrator:
             if not self._deps_satisfied(task):
                 continue
             self._start_task(task)
-            if task.status == TaskPhase.RUNNING:
+            if task.status == TaskPhase.RUNNING:  # type: ignore[comparison-overlap]
                 running += 1
 
     def _start_task(self, task: TaskState) -> None:
@@ -437,6 +441,8 @@ class Orchestrator:
         Runs directly in the worktree repo (not the main repo) to avoid
         branch resolution issues with count_commits_ahead.
         """
+        if not task.worktree_name:
+            return False
         try:
             inspection = self._runtime.inspect_worktree_commits(
                 task.worktree_name,
@@ -656,7 +662,7 @@ class Orchestrator:
     @staticmethod
     def _state_path(repo_path: str | None = None) -> Path:
         repo_name = Path(repo_path or ".").resolve().name
-        state_root = runtime_status_config(repo_path).storage_path
+        state_root = runtime_status_config(repo_path).storage_path or default_status_path()
         return state_root.parent / f"orchestrator-{repo_name}.json"
 
     def _all_done(self) -> bool:
