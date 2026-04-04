@@ -72,7 +72,10 @@ src/open_orchestrator/
 ├── core/
 │   ├── worktree.py     # Git worktree operations
 │   ├── tmux_manager.py # tmux session management (SINGLE + MAIN_VERTICAL layouts)
-│   ├── switchboard.py  # Textual-based card grid UI (async polling, modal screens, broadcast)
+│   ├── switchboard.py       # SwitchboardApp Textual app + card widgets
+│   ├── switchboard_cards.py # Card data, constants, status detection, rendering
+│   ├── switchboard_modals.py # Modal screens (input, confirm, detail, searchable select)
+│   ├── switchboard_tmux.py  # Switchboard tmux session lifecycle + keybindings
 │   ├── prompt_builder.py    # Context-aware prompt builder (task-type detection)
 │   ├── tool_protocol.py     # AIToolProtocol + CustomTool (plugin interface)
 │   ├── tool_registry.py     # Singleton tool registry (discover/register AI tools)
@@ -85,6 +88,7 @@ src/open_orchestrator/
 │   ├── intelligence.py # Agno intelligence layer (planner, quality gate, conflict resolver, coordinator)
 │   ├── merge.py        # Two-phase merge logic + merge queue + conflict guard + AI resolution
 │   ├── batch.py        # Autopilot loop + DAG scheduler + AI planner (Agno or subprocess)
+│   ├── batch_models.py # Batch data models + Pydantic validation for TOML parsing
 │   ├── orchestrator.py # Orchestrator agent (plan → execute → merge → feature branch)
 │   ├── pane_actions.py # Shared pane lifecycle (create/remove orchestration)
 │   ├── agent_detector.py  # Detect installed AI coding tools
