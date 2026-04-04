@@ -153,8 +153,8 @@ class TestCleanupService:
         }
 
         with patch.object(service, "_get_worktree_stats") as mock_stats:
-            mock_stats.side_effect = (
-                lambda path: WorktreeUsageStats(
+            mock_stats.side_effect = lambda path: (
+                WorktreeUsageStats(
                     worktree_path=path,
                     branch_name="test",
                     created_at=old_date,
@@ -371,10 +371,12 @@ class TestGetWorktreeStats:
         worktree_dir.mkdir()
         mock_tracker.get_stats.return_value = None
 
-        with patch.object(svc, "_get_branch_name", return_value="feat/test"), \
-             patch.object(svc, "_has_uncommitted_changes", return_value=False), \
-             patch.object(svc, "_has_unpushed_commits", return_value=False), \
-             patch.object(svc, "_get_last_commit_date", return_value=None):
+        with (
+            patch.object(svc, "_get_branch_name", return_value="feat/test"),
+            patch.object(svc, "_has_uncommitted_changes", return_value=False),
+            patch.object(svc, "_has_unpushed_commits", return_value=False),
+            patch.object(svc, "_get_last_commit_date", return_value=None),
+        ):
             result = svc._get_worktree_stats(str(worktree_dir))
 
         assert result is not None
@@ -393,10 +395,12 @@ class TestGetWorktreeStats:
             "access_count": 5,
         }
 
-        with patch.object(svc, "_get_branch_name", return_value="feat/tracked"), \
-             patch.object(svc, "_has_uncommitted_changes", return_value=False), \
-             patch.object(svc, "_has_unpushed_commits", return_value=False), \
-             patch.object(svc, "_get_last_commit_date", return_value=None):
+        with (
+            patch.object(svc, "_get_branch_name", return_value="feat/tracked"),
+            patch.object(svc, "_has_uncommitted_changes", return_value=False),
+            patch.object(svc, "_has_unpushed_commits", return_value=False),
+            patch.object(svc, "_get_last_commit_date", return_value=None),
+        ):
             result = svc._get_worktree_stats(str(worktree_dir))
 
         assert result is not None
@@ -414,10 +418,12 @@ class TestGetWorktreeStats:
             # no branch_name key
         }
 
-        with patch.object(svc, "_get_branch_name", return_value="feat/fallback"), \
-             patch.object(svc, "_has_uncommitted_changes", return_value=False), \
-             patch.object(svc, "_has_unpushed_commits", return_value=False), \
-             patch.object(svc, "_get_last_commit_date", return_value=None):
+        with (
+            patch.object(svc, "_get_branch_name", return_value="feat/fallback"),
+            patch.object(svc, "_has_uncommitted_changes", return_value=False),
+            patch.object(svc, "_has_unpushed_commits", return_value=False),
+            patch.object(svc, "_get_last_commit_date", return_value=None),
+        ):
             result = svc._get_worktree_stats(str(worktree_dir))
 
         assert result is not None
@@ -429,10 +435,12 @@ class TestGetWorktreeStats:
         worktree_dir.mkdir()
         mock_tracker.get_stats.return_value = None
 
-        with patch.object(svc, "_get_branch_name", return_value="feat/dirty"), \
-             patch.object(svc, "_has_uncommitted_changes", return_value=True), \
-             patch.object(svc, "_has_unpushed_commits", return_value=True), \
-             patch.object(svc, "_get_last_commit_date", return_value=None):
+        with (
+            patch.object(svc, "_get_branch_name", return_value="feat/dirty"),
+            patch.object(svc, "_has_uncommitted_changes", return_value=True),
+            patch.object(svc, "_has_unpushed_commits", return_value=True),
+            patch.object(svc, "_get_last_commit_date", return_value=None),
+        ):
             result = svc._get_worktree_stats(str(worktree_dir))
 
         assert result is not None
@@ -540,8 +548,7 @@ class TestCleanupActualDelete:
             has_unpushed_commits=False,
         )
 
-        with patch.object(svc, "get_stale_worktrees", return_value=[stale]), \
-             patch.object(svc, "_delete_worktree") as mock_delete:
+        with patch.object(svc, "get_stale_worktrees", return_value=[stale]), patch.object(svc, "_delete_worktree") as mock_delete:
             report = svc.cleanup(["/path/stale"], dry_run=False)
 
         mock_delete.assert_called_once_with("/path/stale", force=False)
@@ -562,8 +569,10 @@ class TestCleanupActualDelete:
             has_unpushed_commits=False,
         )
 
-        with patch.object(svc, "get_stale_worktrees", return_value=[stale]), \
-             patch.object(svc, "_delete_worktree", side_effect=RuntimeError("git error")):
+        with (
+            patch.object(svc, "get_stale_worktrees", return_value=[stale]),
+            patch.object(svc, "_delete_worktree", side_effect=RuntimeError("git error")),
+        ):
             report = svc.cleanup(["/path/error"], dry_run=False)
 
         assert report.worktrees_cleaned == 0

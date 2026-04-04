@@ -306,26 +306,27 @@ class TestOrchestrator:
 
         # started_at must be far enough in the past to pass min_agent_runtime guard
         old_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-        tasks = [TaskState(id="a", description="Task A", status="running",
-                           worktree_name="wt-a", started_at=old_start)]
+        tasks = [TaskState(id="a", description="Task A", status="running", worktree_name="wt-a", started_at=old_start)]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
         mock_status = MagicMock()
         mock_status.activity_status = AIActivityStatus.WORKING
 
-        with patch.object(orch, "_user_in_worktree", return_value=False), \
-             patch.object(orch.tracker, "get_status", return_value=mock_status), \
-             patch.object(
-                 orch._runtime,
-                 "evaluate_completion",
-                 return_value=RuntimeDecision(
-                     outcome=RuntimeOutcome.COMPLETED,
-                     classification="process_exited_with_commits",
-                     elapsed_seconds=300,
-                 ),
-             ), \
-             patch.object(orch, "_merge_to_feature_branch"):
+        with (
+            patch.object(orch, "_user_in_worktree", return_value=False),
+            patch.object(orch.tracker, "get_status", return_value=mock_status),
+            patch.object(
+                orch._runtime,
+                "evaluate_completion",
+                return_value=RuntimeDecision(
+                    outcome=RuntimeOutcome.COMPLETED,
+                    classification="process_exited_with_commits",
+                    elapsed_seconds=300,
+                ),
+            ),
+            patch.object(orch, "_merge_to_feature_branch"),
+        ):
             orch._poll_running_tasks()
 
         assert state.tasks[0].status == "completed"
@@ -336,17 +337,18 @@ class TestOrchestrator:
 
         # started_at is very recent (within poll_interval grace period)
         recent_start = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
-        tasks = [TaskState(id="a", description="Task A", status="running",
-                           worktree_name="wt-a", started_at=recent_start)]
+        tasks = [TaskState(id="a", description="Task A", status="running", worktree_name="wt-a", started_at=recent_start)]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
         mock_status = MagicMock()
         mock_status.activity_status = AIActivityStatus.WORKING
 
-        with patch.object(orch, "_user_in_worktree", return_value=False), \
-             patch.object(orch.tracker, "get_status", return_value=mock_status), \
-             patch.object(orch.tmux, "is_ai_running_in_session") as mock_ai:
+        with (
+            patch.object(orch, "_user_in_worktree", return_value=False),
+            patch.object(orch.tracker, "get_status", return_value=mock_status),
+            patch.object(orch.tmux, "is_ai_running_in_session") as mock_ai,
+        ):
             orch._poll_running_tasks()
 
         # Should NOT have checked tmux — grace period skipped it
@@ -360,27 +362,28 @@ class TestOrchestrator:
 
         # started_at past grace period (>30s) but under min_agent_runtime (60s)
         recent_start = (datetime.now(timezone.utc) - timedelta(seconds=45)).isoformat()
-        tasks = [TaskState(id="a", description="Task A", status="running",
-                           worktree_name="wt-a", started_at=recent_start)]
+        tasks = [TaskState(id="a", description="Task A", status="running", worktree_name="wt-a", started_at=recent_start)]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
         mock_status = MagicMock()
         mock_status.activity_status = AIActivityStatus.WORKING
 
-        with patch.object(orch, "_user_in_worktree", return_value=False), \
-             patch.object(orch.tracker, "get_status", return_value=mock_status), \
-             patch.object(
-                 orch._runtime,
-                 "evaluate_completion",
-                 return_value=RuntimeDecision(
-                     outcome=RuntimeOutcome.FAILED,
-                     classification="premature_exit",
-                     elapsed_seconds=45,
-                     reason="Agent exited after 45s with no commits — likely a silent failure",
-                 ),
-             ), \
-             patch.object(orch, "_handle_task_failure") as mock_fail:
+        with (
+            patch.object(orch, "_user_in_worktree", return_value=False),
+            patch.object(orch.tracker, "get_status", return_value=mock_status),
+            patch.object(
+                orch._runtime,
+                "evaluate_completion",
+                return_value=RuntimeDecision(
+                    outcome=RuntimeOutcome.FAILED,
+                    classification="premature_exit",
+                    elapsed_seconds=45,
+                    reason="Agent exited after 45s with no commits — likely a silent failure",
+                ),
+            ),
+            patch.object(orch, "_handle_task_failure") as mock_fail,
+        ):
             orch._poll_running_tasks()
 
         mock_fail.assert_called_once()
@@ -392,8 +395,7 @@ class TestOrchestrator:
         from open_orchestrator.core.runtime import RuntimeDecision, RuntimeOutcome
 
         recent_start = (datetime.now(timezone.utc) - timedelta(seconds=25)).isoformat()
-        tasks = [TaskState(id="a", description="Task A", status="running",
-                           worktree_name="wt-a", started_at=recent_start)]
+        tasks = [TaskState(id="a", description="Task A", status="running", worktree_name="wt-a", started_at=recent_start)]
         state = self._make_state(tasks)
         state.poll_interval = 10
         orch = Orchestrator(state)
@@ -401,18 +403,20 @@ class TestOrchestrator:
         mock_status = MagicMock()
         mock_status.activity_status = AIActivityStatus.WORKING
 
-        with patch.object(orch, "_user_in_worktree", return_value=False), \
-             patch.object(orch.tracker, "get_status", return_value=mock_status), \
-             patch.object(
-                 orch._runtime,
-                 "evaluate_completion",
-                 return_value=RuntimeDecision(
-                     outcome=RuntimeOutcome.COMPLETED,
-                     classification="process_exited_with_commits",
-                     elapsed_seconds=25,
-                 ),
-             ), \
-             patch.object(orch, "_merge_to_feature_branch"):
+        with (
+            patch.object(orch, "_user_in_worktree", return_value=False),
+            patch.object(orch.tracker, "get_status", return_value=mock_status),
+            patch.object(
+                orch._runtime,
+                "evaluate_completion",
+                return_value=RuntimeDecision(
+                    outcome=RuntimeOutcome.COMPLETED,
+                    classification="process_exited_with_commits",
+                    elapsed_seconds=25,
+                ),
+            ),
+            patch.object(orch, "_merge_to_feature_branch"),
+        ):
             orch._poll_running_tasks()
 
         assert state.tasks[0].status == "completed"
@@ -428,10 +432,12 @@ class TestOrchestrator:
         mock_status = MagicMock()
         mock_status.activity_status = AIActivityStatus.WORKING
 
-        with patch.object(orch, "_user_in_worktree", return_value=False), \
-             patch.object(orch.tracker, "get_status", return_value=mock_status), \
-             patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"), \
-             patch.object(orch.tmux, "is_ai_running_in_session", return_value=True):
+        with (
+            patch.object(orch, "_user_in_worktree", return_value=False),
+            patch.object(orch.tracker, "get_status", return_value=mock_status),
+            patch.object(orch.tmux, "generate_session_name", return_value="owt-wt-a"),
+            patch.object(orch.tmux, "is_ai_running_in_session", return_value=True),
+        ):
             orch._poll_running_tasks()
 
         assert state.tasks[0].status == "running"
@@ -444,8 +450,10 @@ class TestOrchestrator:
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
-        with patch("open_orchestrator.core.orchestrator.create_pane") as mock_create, \
-             patch("open_orchestrator.core.branch_namer.generate_branch_name", return_value="feat/x"):
+        with (
+            patch("open_orchestrator.core.orchestrator.create_pane") as mock_create,
+            patch("open_orchestrator.core.branch_namer.generate_branch_name", return_value="feat/x"),
+        ):
             mock_create.return_value = MagicMock(worktree_name="wt-a", branch="feat/x")
             orch._start_task(state.tasks[0])
 
@@ -458,18 +466,19 @@ class TestOrchestrator:
         """Issue 10: empty branch triggers retry, then fails permanently."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
-        tasks = [TaskState(id="a", description="Do X", status="completed",
-                           worktree_name="wt-a", branch="feat/x")]
+        tasks = [TaskState(id="a", description="Do X", status="completed", worktree_name="wt-a", branch="feat/x")]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
         mock_wt = MagicMock()
         mock_wt.branch = "feat/x"
 
-        with patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM, \
-             patch("open_orchestrator.core.orchestrator.teardown_worktree"), \
-             patch.object(orch.tmux, "session_exists", return_value=False), \
-             patch.object(orch.tracker, "remove_status"):
+        with (
+            patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM,
+            patch("open_orchestrator.core.orchestrator.teardown_worktree"),
+            patch.object(orch.tmux, "session_exists", return_value=False),
+            patch.object(orch.tracker, "remove_status"),
+        ):
             mm = MockMM.return_value
             mm.auto_commit_worktree.return_value = 0
             mm.wt_manager.get.return_value = mock_wt
@@ -492,17 +501,18 @@ class TestOrchestrator:
         """Branches with new commits should be shipped."""
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
-        tasks = [TaskState(id="a", description="Do X", status="completed",
-                           worktree_name="wt-a", branch="feat/x")]
+        tasks = [TaskState(id="a", description="Do X", status="completed", worktree_name="wt-a", branch="feat/x")]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
         mock_wt = MagicMock()
         mock_wt.branch = "feat/x"
 
-        with patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM, \
-             patch.object(orch.tmux, "session_exists", return_value=False), \
-             patch.object(orch.tracker, "remove_status"):
+        with (
+            patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM,
+            patch.object(orch.tmux, "session_exists", return_value=False),
+            patch.object(orch.tracker, "remove_status"),
+        ):
             mm = MockMM.return_value
             mm.auto_commit_worktree.return_value = 0
             mm.wt_manager.get.return_value = mock_wt
@@ -518,16 +528,17 @@ class TestOrchestrator:
         from open_orchestrator.core.orchestrator import Orchestrator, TaskState
 
         past = (datetime.now(timezone.utc) - timedelta(seconds=3600)).isoformat()
-        tasks = [TaskState(id="a", description="Slow task", status="running",
-                           worktree_name="wt-a", started_at=past)]
+        tasks = [TaskState(id="a", description="Slow task", status="running", worktree_name="wt-a", started_at=past)]
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
-        with patch("open_orchestrator.core.orchestrator.teardown_worktree"), \
-             patch.object(orch, "_user_in_worktree", return_value=False), \
-             patch.object(orch, "_update_running_progress"), \
-             patch.object(orch.tracker, "get_status", return_value=None), \
-             patch.object(orch.tracker, "remove_status"):
+        with (
+            patch("open_orchestrator.core.orchestrator.teardown_worktree"),
+            patch.object(orch, "_user_in_worktree", return_value=False),
+            patch.object(orch, "_update_running_progress"),
+            patch.object(orch.tracker, "get_status", return_value=None),
+            patch.object(orch.tracker, "remove_status"),
+        ):
             orch._poll_running_tasks()
 
         assert state.tasks[0].status == "pending"  # retried
@@ -541,8 +552,10 @@ class TestOrchestrator:
         state = self._make_state(tasks)
         orch = Orchestrator(state)
 
-        with patch("open_orchestrator.core.orchestrator.create_pane") as mock_create, \
-             patch("open_orchestrator.core.branch_namer.generate_branch_name", return_value="feat/x"):
+        with (
+            patch("open_orchestrator.core.orchestrator.create_pane") as mock_create,
+            patch("open_orchestrator.core.branch_namer.generate_branch_name", return_value="feat/x"),
+        ):
             mock_create.return_value = MagicMock(worktree_name="wt-a", branch="feat/x")
             orch._start_task(state.tasks[0])
 
@@ -574,8 +587,10 @@ class TestAgnoCoordinator:
         mock_agent_cls = MagicMock()
         mock_agent_cls.return_value.run.return_value = mock_response
 
-        with patch("open_orchestrator.core.intelligence._resolve_model"), \
-             patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+        with (
+            patch("open_orchestrator.core.intelligence._resolve_model"),
+            patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}),
+        ):
             coordinator = AgnoCoordinator(config, repo_path="/tmp/repo")
             result = coordinator.analyze(
                 events=[("overlap:routes.py", "File overlap on routes.py")],
@@ -603,8 +618,10 @@ class TestAgnoCoordinator:
         mock_agent_cls = MagicMock()
         mock_agent_cls.return_value.run.return_value = mock_response
 
-        with patch("open_orchestrator.core.intelligence._resolve_model") as mock_resolve, \
-             patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+        with (
+            patch("open_orchestrator.core.intelligence._resolve_model") as mock_resolve,
+            patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}),
+        ):
             coordinator = AgnoCoordinator(config)
             coordinator.analyze(events=[], running_worktrees=[])
             mock_resolve.assert_called_once_with(
@@ -628,8 +645,10 @@ class TestAgnoCoordinator:
         mock_agent_cls = MagicMock()
         mock_agent_cls.return_value.run.return_value = mock_response
 
-        with patch("open_orchestrator.core.intelligence._resolve_model"), \
-             patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+        with (
+            patch("open_orchestrator.core.intelligence._resolve_model"),
+            patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}),
+        ):
             coordinator = AgnoCoordinator(config, repo_path=str(tmp_path))
             coordinator.analyze(events=[], running_worktrees=[])
             assert "db" in mock_agent_cls.call_args.kwargs

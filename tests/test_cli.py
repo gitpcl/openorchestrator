@@ -251,9 +251,7 @@ class TestSwitchboardLaunch:
     """Test switchboard launches when no subcommand given."""
 
     @patch("open_orchestrator.core.switchboard.launch_switchboard")
-    def test_no_args_launches_switchboard(
-        self, mock_switchboard: MagicMock, cli_runner: CliRunner
-    ) -> None:
+    def test_no_args_launches_switchboard(self, mock_switchboard: MagicMock, cli_runner: CliRunner) -> None:
         """Test that 'owt' with no args launches the switchboard."""
         cli_runner.invoke(main, [])
         mock_switchboard.assert_called_once()

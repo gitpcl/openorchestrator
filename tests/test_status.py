@@ -79,10 +79,7 @@ class TestStatusTrackerInit:
         else:
             assert tracker._storage_path.name == "status.db"
             repo_local = Path.cwd() / ".open-orchestrator" / "status.db"
-            assert (
-                str(tracker._storage_path).startswith(tempfile.gettempdir())
-                or tracker._storage_path == repo_local
-            )
+            assert str(tracker._storage_path).startswith(tempfile.gettempdir()) or tracker._storage_path == repo_local
 
     def test_migrate_existing_json(self, status_file: Path, status_config: StatusConfig) -> None:
         """Test migrating an existing JSON status store into SQLite."""
@@ -155,9 +152,7 @@ class TestInitializeStatus:
         # Verify directly in SQLite
         conn = sqlite3.connect(str(status_file))
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT * FROM worktree_status WHERE worktree_name = ?", ("persist-test",)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM worktree_status WHERE worktree_name = ?", ("persist-test",)).fetchone()
         conn.close()
         assert row is not None
         assert row["branch"] == "feature/persist"

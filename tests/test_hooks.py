@@ -164,8 +164,8 @@ class TestMCPConfig:
 
     def test_mcp_config_skipped_when_sdk_missing(self, tmp_path: Path):
         import sys
-        with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"), \
-             patch.dict(sys.modules, {"mcp": None}):
+
+        with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"), patch.dict(sys.modules, {"mcp": None}):
             install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
 
         settings_path = tmp_path / ".claude" / "settings.local.json"

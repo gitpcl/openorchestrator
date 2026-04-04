@@ -74,10 +74,10 @@ def server(peer_db: Path, monkeypatch: pytest.MonkeyPatch):
 
     _insert_worktree(peer_db, "agent-self", "feat/self")
     _insert_worktree(peer_db, "agent-alpha", "feat/alpha", notes="building auth")
-    _insert_worktree(peer_db, "agent-beta", "feat/beta", task="REST API",
-                     modified_files='["api.py", "models.py"]')
+    _insert_worktree(peer_db, "agent-beta", "feat/beta", task="REST API", modified_files='["api.py", "models.py"]')
 
     from open_orchestrator.core.mcp_peer import create_server
+
     return create_server()
 
 
@@ -96,17 +96,13 @@ def _call_tool(server, name: str, **kwargs):
 class TestPeerSchema:
     def test_peer_messages_table_created(self, peer_db: Path) -> None:
         conn = sqlite3.connect(str(peer_db))
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         table_names = [t[0] for t in tables]
         assert "peer_messages" in table_names
 
     def test_index_created(self, peer_db: Path) -> None:
         conn = sqlite3.connect(str(peer_db))
-        indexes = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='index'"
-        ).fetchall()
+        indexes = conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
         index_names = [i[0] for i in indexes]
         assert "idx_peer_messages_to_peer_read" in index_names
 
@@ -114,6 +110,7 @@ class TestPeerSchema:
         monkeypatch.setenv("OWT_WORKTREE_NAME", "test")
         monkeypatch.setenv("OWT_DB_PATH", str(peer_db))
         from open_orchestrator.core.mcp_peer import _get_connection
+
         # Calling twice should not raise
         _get_connection(str(peer_db))
         _get_connection(str(peer_db))
@@ -146,6 +143,7 @@ class TestListPeers:
         conn.commit()
         conn.close()
         from open_orchestrator.core.mcp_peer import create_server
+
         s = create_server()
         assert _call_tool(s, "list_peers") == []
 
@@ -168,9 +166,7 @@ class TestSendMessage:
     def test_broadcast_excludes_self(self, server, peer_db: Path) -> None:
         _call_tool(server, "send_message", to_peer="*", message="broadcast")
         conn = sqlite3.connect(str(peer_db))
-        rows = conn.execute(
-            "SELECT to_peer FROM peer_messages WHERE message = 'broadcast'"
-        ).fetchall()
+        rows = conn.execute("SELECT to_peer FROM peer_messages WHERE message = 'broadcast'").fetchall()
         recipients = [r[0] for r in rows]
         assert "agent-self" not in recipients
 
@@ -226,9 +222,7 @@ class TestSetSummary:
         assert result["updated"] is True
 
         conn = sqlite3.connect(str(peer_db))
-        row = conn.execute(
-            "SELECT notes FROM worktree_status WHERE worktree_name = 'agent-self'"
-        ).fetchone()
+        row = conn.execute("SELECT notes FROM worktree_status WHERE worktree_name = 'agent-self'").fetchone()
         assert row[0] == "refactoring auth module"
 
 

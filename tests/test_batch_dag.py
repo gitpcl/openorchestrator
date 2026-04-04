@@ -225,10 +225,12 @@ class TestBatchRunnerDag:
     def test_deps_satisfied(self):
         from open_orchestrator.core.batch import BatchRunner
 
-        config = BatchConfig(tasks=[
-            BatchTask(description="A", id="a"),
-            BatchTask(description="B", id="b", depends_on=["a"]),
-        ])
+        config = BatchConfig(
+            tasks=[
+                BatchTask(description="A", id="a"),
+                BatchTask(description="B", id="b", depends_on=["a"]),
+            ]
+        )
         runner = BatchRunner(config, "/tmp/fake")
         # Before A completes, B's deps are not satisfied
         assert not runner._deps_satisfied(1)
@@ -239,10 +241,12 @@ class TestBatchRunnerDag:
     def test_deps_satisfied_shipped(self):
         from open_orchestrator.core.batch import BatchRunner
 
-        config = BatchConfig(tasks=[
-            BatchTask(description="A", id="a"),
-            BatchTask(description="B", id="b", depends_on=["a"]),
-        ])
+        config = BatchConfig(
+            tasks=[
+                BatchTask(description="A", id="a"),
+                BatchTask(description="B", id="b", depends_on=["a"]),
+            ]
+        )
         runner = BatchRunner(config, "/tmp/fake")
         runner.results[0].status = BatchStatus.SHIPPED
         assert runner._deps_satisfied(1)
@@ -250,10 +254,12 @@ class TestBatchRunnerDag:
     def test_deps_failed_detection(self):
         from open_orchestrator.core.batch import BatchRunner
 
-        config = BatchConfig(tasks=[
-            BatchTask(description="A", id="a"),
-            BatchTask(description="B", id="b", depends_on=["a"]),
-        ])
+        config = BatchConfig(
+            tasks=[
+                BatchTask(description="A", id="a"),
+                BatchTask(description="B", id="b", depends_on=["a"]),
+            ]
+        )
         runner = BatchRunner(config, "/tmp/fake")
         runner.results[0].status = BatchStatus.FAILED
         assert runner._deps_failed(1)
@@ -261,11 +267,13 @@ class TestBatchRunnerDag:
     def test_select_ready_respects_deps(self):
         from open_orchestrator.core.batch import BatchRunner
 
-        config = BatchConfig(tasks=[
-            BatchTask(description="A", id="a"),
-            BatchTask(description="B", id="b", depends_on=["a"]),
-            BatchTask(description="C", id="c"),
-        ])
+        config = BatchConfig(
+            tasks=[
+                BatchTask(description="A", id="a"),
+                BatchTask(description="B", id="b", depends_on=["a"]),
+                BatchTask(description="C", id="c"),
+            ]
+        )
         runner = BatchRunner(config, "/tmp/fake")
 
         # Both A and C have no deps; B depends on A
@@ -280,11 +288,13 @@ class TestBatchRunnerDag:
         """Old-style tasks with no deps get topological order (all in parallel)."""
         from open_orchestrator.core.batch import BatchRunner
 
-        config = BatchConfig(tasks=[
-            BatchTask(description="A"),
-            BatchTask(description="B"),
-            BatchTask(description="C"),
-        ])
+        config = BatchConfig(
+            tasks=[
+                BatchTask(description="A"),
+                BatchTask(description="B"),
+                BatchTask(description="C"),
+            ]
+        )
         runner = BatchRunner(config, "/tmp/fake")
         assert set(runner._topo_order) == {0, 1, 2}
         assert not runner._has_deps
@@ -292,23 +302,21 @@ class TestBatchRunnerDag:
     def test_dag_progress_metadata(self):
         from open_orchestrator.core.batch import BatchRunner
 
-        config = BatchConfig(tasks=[
-            BatchTask(description="A", id="a"),
-            BatchTask(description="B", id="b", depends_on=["a"]),
-        ])
+        config = BatchConfig(
+            tasks=[
+                BatchTask(description="A", id="a"),
+                BatchTask(description="B", id="b", depends_on=["a"]),
+            ]
+        )
         runner = BatchRunner(config, "/tmp/fake")
         runner._update_dag_progress(1, 2)
 
-        row = runner.tracker._conn.execute(
-            "SELECT value FROM metadata WHERE key = 'dag_progress'"
-        ).fetchone()
+        row = runner.tracker._conn.execute("SELECT value FROM metadata WHERE key = 'dag_progress'").fetchone()
         assert row is not None
         assert row["value"] == "1/2"
 
         runner._clear_dag_progress()
-        row = runner.tracker._conn.execute(
-            "SELECT value FROM metadata WHERE key = 'dag_progress'"
-        ).fetchone()
+        row = runner.tracker._conn.execute("SELECT value FROM metadata WHERE key = 'dag_progress'").fetchone()
         assert row is None
 
 
@@ -411,9 +419,7 @@ class TestMergeOrderDependency:
                 mock_tracker.get_all_statuses.return_value = statuses
                 mock_tracker_cls.return_value = mock_tracker
 
-                result = mgr.plan_merge_order(
-                    dependency_order=["a-task", "b-task", "c-task"]
-                )
+                result = mgr.plan_merge_order(dependency_order=["a-task", "b-task", "c-task"])
 
             names = [r[0] for r in result]
             assert names == ["a-task", "b-task", "c-task"]

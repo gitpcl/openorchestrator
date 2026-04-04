@@ -286,8 +286,10 @@ class TestAgnoPlanner:
         mock_agent_cls = MagicMock()
         mock_agent_cls.return_value.run.return_value = mock_response
 
-        with patch("open_orchestrator.core.intelligence._resolve_model"), \
-             patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+        with (
+            patch("open_orchestrator.core.intelligence._resolve_model"),
+            patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}),
+        ):
             planner = AgnoPlanner(config)
             output = planner.plan("Add auth", str(tmp_path))
 
@@ -331,8 +333,10 @@ class TestAgnoQualityGate:
         mock_agent_cls = MagicMock()
         mock_agent_cls.return_value.run.return_value = mock_response
 
-        with patch("open_orchestrator.core.intelligence._resolve_model"), \
-             patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+        with (
+            patch("open_orchestrator.core.intelligence._resolve_model"),
+            patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}),
+        ):
             gate = AgnoQualityGate(config)
             return gate.review(diff, task_desc, active_wts)
 
@@ -354,12 +358,15 @@ class TestAgnoQualityGate:
     def test_review_with_active_worktrees(self):
         config = AgnoConfig()
         verdict = QualityVerdict(
-            score=0.5, passed=False, summary="Potential conflicts",
+            score=0.5,
+            passed=False,
+            summary="Potential conflicts",
             cross_worktree_conflicts=["auth-jwt modifies routes.py"],
         )
 
         result = self._run_gate(
-            config, verdict,
+            config,
+            verdict,
             active_wts=[{"name": "auth-jwt", "branch": "feat/jwt", "task": "Add JWT"}],
         )
         assert len(result.cross_worktree_conflicts) == 1
@@ -378,8 +385,10 @@ class TestAgnoConflictResolver:
         mock_agent_cls = MagicMock()
         mock_agent_cls.return_value.run.return_value = mock_response
 
-        with patch("open_orchestrator.core.intelligence._resolve_model"), \
-             patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+        with (
+            patch("open_orchestrator.core.intelligence._resolve_model"),
+            patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}),
+        ):
             resolver = AgnoConflictResolver(config)
             return resolver.resolve(
                 conflicted_files=files or {"file.py": "<<<< HEAD\nours\n====\ntheirs\n>>>>"},
@@ -477,7 +486,10 @@ class TestBuildMemoryContext:
 
         config = AgnoConfig(memory_enabled=True, memory_db_path=str(tmp_path / "mem.db"))
         agent_kw, run_kw, instr = _build_memory_context(
-            config, str(tmp_path), "planner", "test instruction",
+            config,
+            str(tmp_path),
+            "planner",
+            "test instruction",
         )
         assert "db" in agent_kw
         assert agent_kw["enable_agentic_memory"] is True
@@ -490,7 +502,10 @@ class TestBuildMemoryContext:
 
         config = AgnoConfig(memory_enabled=False)
         agent_kw, run_kw, instr = _build_memory_context(
-            config, "/tmp/repo", "planner", "test",
+            config,
+            "/tmp/repo",
+            "planner",
+            "test",
         )
         assert agent_kw == {}
         assert run_kw == {}
@@ -501,7 +516,10 @@ class TestBuildMemoryContext:
 
         config = AgnoConfig(memory_enabled=True)
         agent_kw, run_kw, instr = _build_memory_context(
-            config, None, "planner", "test",
+            config,
+            None,
+            "planner",
+            "test",
         )
         assert agent_kw == {}
         assert run_kw == {}
@@ -526,8 +544,10 @@ class TestAgentMemoryIntegration:
     def _run_agent(self, cls_name: str, tmp_path: Path, call_fn):
         config = AgnoConfig(memory_enabled=True, memory_db_path=str(tmp_path / "mem.db"))
         mock_agent_cls = MagicMock()
-        with patch("open_orchestrator.core.intelligence._resolve_model"), \
-             patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+        with (
+            patch("open_orchestrator.core.intelligence._resolve_model"),
+            patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}),
+        ):
             call_fn(config, mock_agent_cls, tmp_path)
         return mock_agent_cls
 
@@ -535,8 +555,10 @@ class TestAgentMemoryIntegration:
         from open_orchestrator.core.intelligence import AgnoPlanner
 
         mock_plan = TaskPlan(
-            goal="Test", tasks=[PlannedTask(id="a", description="Task A")],
-            max_concurrent=2, rationale="Simple",
+            goal="Test",
+            tasks=[PlannedTask(id="a", description="Task A")],
+            max_concurrent=2,
+            rationale="Simple",
         )
 
         def call(config, mock_cls, path):
@@ -566,12 +588,16 @@ class TestAgentMemoryIntegration:
         def call(config, mock_cls, path):
             mock_cls.return_value.run.return_value = MagicMock(
                 content=ConflictResolution(
-                    confidence=0.9, resolutions={"f.py": "r"},
-                    explanation="Done", requires_human=False,
+                    confidence=0.9,
+                    resolutions={"f.py": "r"},
+                    explanation="Done",
+                    requires_human=False,
                 ),
             )
             AgnoConflictResolver(config, repo_path=str(path)).resolve(
-                {"f.py": "conflict"}, "feat/x", "main",
+                {"f.py": "conflict"},
+                "feat/x",
+                "main",
             )
 
         mock = self._run_agent("AgnoConflictResolver", tmp_path, call)
@@ -583,14 +609,18 @@ class TestAgentMemoryIntegration:
 
         config = AgnoConfig(memory_enabled=False)
         mock_plan = TaskPlan(
-            goal="Test", tasks=[PlannedTask(id="a", description="Task A")],
-            max_concurrent=2, rationale="Simple",
+            goal="Test",
+            tasks=[PlannedTask(id="a", description="Task A")],
+            max_concurrent=2,
+            rationale="Simple",
         )
         mock_agent_cls = MagicMock()
         mock_agent_cls.return_value.run.return_value = MagicMock(content=mock_plan)
 
-        with patch("open_orchestrator.core.intelligence._resolve_model"), \
-             patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}):
+        with (
+            patch("open_orchestrator.core.intelligence._resolve_model"),
+            patch.dict(sys.modules, {"agno.agent": MagicMock(Agent=mock_agent_cls)}),
+        ):
             AgnoPlanner(config, repo_path=str(tmp_path)).plan("Test", str(tmp_path))
             assert "db" not in mock_agent_cls.call_args.kwargs
             assert "user_id" not in mock_agent_cls.return_value.run.call_args.kwargs
@@ -605,13 +635,9 @@ class TestFallbackBehavior:
         config = Config()
         config.agno.enabled = False
 
-        toml_output = (
-            '```toml\n[batch]\nmax_concurrent = 2\n\n'
-            '[[tasks]]\nid = "a"\ndescription = "Task"\ndepends_on = []\n```'
-        )
+        toml_output = '```toml\n[batch]\nmax_concurrent = 2\n\n[[tasks]]\nid = "a"\ndescription = "Task"\ndepends_on = []\n```'
 
-        with patch("open_orchestrator.config.load_config", return_value=config), \
-             patch("subprocess.run") as mock_run:
+        with patch("open_orchestrator.config.load_config", return_value=config), patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout=toml_output, stderr="")
 
             from open_orchestrator.core.batch import plan_tasks

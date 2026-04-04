@@ -468,6 +468,7 @@ class TestCheckUncommittedChangesError:
 
     def test_raises_merge_error_when_worktree_not_found(self, merge_manager: MergeManager):
         from open_orchestrator.core.worktree import WorktreeNotFoundError
+
         with patch.object(merge_manager.wt_manager, "get", side_effect=WorktreeNotFoundError("ghost")):
             with pytest.raises(MergeError, match="Worktree not found"):
                 merge_manager.check_uncommitted_changes("ghost")
@@ -835,16 +836,21 @@ class TestMergePhase2Failure:
 
         # Mock wt_manager.get to return our worktree, and Phase 1 wt_repo is clean
         # Then make Phase 2 checkout fail on the main repo
-        with patch.object(merge_manager.wt_manager, "get", return_value=worktree_info), \
-             patch.object(merge_manager, "check_uncommitted_changes", return_value=[]), \
-             patch.object(merge_manager, "count_commits_ahead", return_value=1), \
-             patch("open_orchestrator.core.merge.Repo", return_value=MagicMock(
-                 git=MagicMock(
-                     fetch=MagicMock(),
-                     rev_parse=MagicMock(side_effect=GitCommandError("rev-parse", 128)),
-                     merge=MagicMock(),
-                 )
-             )):
+        with (
+            patch.object(merge_manager.wt_manager, "get", return_value=worktree_info),
+            patch.object(merge_manager, "check_uncommitted_changes", return_value=[]),
+            patch.object(merge_manager, "count_commits_ahead", return_value=1),
+            patch(
+                "open_orchestrator.core.merge.Repo",
+                return_value=MagicMock(
+                    git=MagicMock(
+                        fetch=MagicMock(),
+                        rev_parse=MagicMock(side_effect=GitCommandError("rev-parse", 128)),
+                        merge=MagicMock(),
+                    )
+                ),
+            ),
+        ):
             # Now make the main repo checkout fail
             original_git = merge_manager.repo.git
             mock_main_git = MagicMock()
@@ -1008,10 +1014,12 @@ class TestMergeOriginRefUsed:
         mock_wt_git.rev_parse.return_value = "abc123"
         mock_wt_git.merge.return_value = None  # Phase 1 succeeds
 
-        with patch.object(merge_manager.wt_manager, "get", return_value=worktree_info), \
-             patch.object(merge_manager, "check_uncommitted_changes", return_value=[]), \
-             patch.object(merge_manager, "count_commits_ahead", return_value=1), \
-             patch("open_orchestrator.core.merge.Repo", return_value=MagicMock(git=mock_wt_git)):
+        with (
+            patch.object(merge_manager.wt_manager, "get", return_value=worktree_info),
+            patch.object(merge_manager, "check_uncommitted_changes", return_value=[]),
+            patch.object(merge_manager, "count_commits_ahead", return_value=1),
+            patch("open_orchestrator.core.merge.Repo", return_value=MagicMock(git=mock_wt_git)),
+        ):
             result = merge_manager.merge(
                 worktree_name="origin-ref",
                 base_branch=base,
@@ -1045,14 +1053,17 @@ class TestMergeCheckUncommittedDeduplicateEmpty:
         wt_repo_mock.untracked_files = []
 
         from open_orchestrator.models.worktree_info import WorktreeInfo
+
         worktree_info = WorktreeInfo(
             path=wt_path,
             branch="feat/empty-files",
             head_commit="abc1234",
         )
 
-        with patch.object(merge_manager.wt_manager, "get", return_value=worktree_info), \
-             patch("open_orchestrator.core.merge.Repo", return_value=wt_repo_mock):
+        with (
+            patch.object(merge_manager.wt_manager, "get", return_value=worktree_info),
+            patch("open_orchestrator.core.merge.Repo", return_value=wt_repo_mock),
+        ):
             result = merge_manager.check_uncommitted_changes("empty-files")
 
         assert "" not in result
@@ -1098,11 +1109,13 @@ class TestMergeFinallyDetachedHead:
             raise TypeError("HEAD is detached")
 
         detached_prop = property(active_branch_side_effect)
-        with patch.object(merge_manager.wt_manager, "get", return_value=worktree_info), \
-             patch.object(merge_manager, "check_uncommitted_changes", return_value=[]), \
-             patch.object(merge_manager, "count_commits_ahead", return_value=1), \
-             patch("open_orchestrator.core.merge.Repo", return_value=MagicMock(git=mock_wt_git)), \
-             patch.object(type(merge_manager.repo), "active_branch", detached_prop):
+        with (
+            patch.object(merge_manager.wt_manager, "get", return_value=worktree_info),
+            patch.object(merge_manager, "check_uncommitted_changes", return_value=[]),
+            patch.object(merge_manager, "count_commits_ahead", return_value=1),
+            patch("open_orchestrator.core.merge.Repo", return_value=MagicMock(git=mock_wt_git)),
+            patch.object(type(merge_manager.repo), "active_branch", detached_prop),
+        ):
             # Should not raise — finally block handles TypeError gracefully
             result = merge_manager.merge(
                 worktree_name="finally-detach",
