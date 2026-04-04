@@ -27,6 +27,15 @@ def _darken(hex_color: str, factor: float = 0.7) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def _lighten(hex_color: str, factor: float = 1.3) -> str:
+    """Lighten a hex color by a factor (1.0=unchanged, 2.0=double brightness)."""
+    hex_color = hex_color.lstrip("#")
+    r = min(255, int(int(hex_color[0:2], 16) * factor))
+    g = min(255, int(int(hex_color[2:4], 16) * factor))
+    b = min(255, int(int(hex_color[4:6], 16) * factor))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def _apply_modal_bg(modal: ModalScreen, dialog_id: str) -> None:  # type: ignore[type-arg]
     """Apply detected background to modal overlay and dialog."""
     bg = getattr(modal.app, "_bg_color", None)
@@ -47,7 +56,7 @@ class InputModal(ModalScreen[str | None]):
         align: center middle;
     }}
     #input-dialog {{
-        width: 55;
+        width: 70;
         max-width: 90%;
         height: auto;
         padding: 1 2;
@@ -60,7 +69,7 @@ class InputModal(ModalScreen[str | None]):
         border-left: tall {COLORS["input_border"]};
         padding: 0 0 0 1;
         margin: 1 0;
-        min-height: 2;
+        height: 1;
     }}
     #input-dialog Input:focus {{
         border: none;
@@ -231,7 +240,7 @@ class SearchableSelectModal(ModalScreen[str | None]):
         align: center middle;
     }}
     #select-dialog {{
-        width: 55;
+        width: 70;
         max-width: 90%;
         height: auto;
         max-height: 60%;
@@ -258,6 +267,7 @@ class SearchableSelectModal(ModalScreen[str | None]):
         background: transparent;
         border-left: tall {COLORS["input_border"]};
         padding: 0 0 0 1;
+        height: 1;
     }}
     #select-search:focus {{
         border: none;
@@ -283,6 +293,7 @@ class SearchableSelectModal(ModalScreen[str | None]):
     }}
     .select-hint {{
         margin-top: 1;
+        height: 1;
         color: {COLORS["text_secondary"]};
         text-style: dim;
     }}
@@ -377,8 +388,20 @@ class SearchableSelectModal(ModalScreen[str | None]):
                 item.data_index = idx  # type: ignore[attr-defined]
                 if idx == self._highlight_index:
                     item.add_class("highlighted")
+                    self._apply_highlight_style(item)
                 container.mount(item)
                 idx += 1
+
+    def _get_highlight_color(self) -> str | None:
+        """Get lighter variant of terminal bg for highlights."""
+        bg = getattr(self.app, "_bg_color", None)
+        return _lighten(bg, 1.6) if bg else None
+
+    def _apply_highlight_style(self, item: object) -> None:
+        """Apply highlight background to an item."""
+        color = self._get_highlight_color()
+        if color and hasattr(item, "styles"):
+            item.styles.background = color
 
     def _update_highlight(self, new_index: int) -> None:
         """Move highlight by toggling CSS classes (avoids full remount)."""
@@ -389,8 +412,10 @@ class SearchableSelectModal(ModalScreen[str | None]):
         self._highlight_index = new_index
         if 0 <= old < len(items):
             items[old].remove_class("highlighted")
+            items[old].styles.background = "transparent"
         if 0 <= new_index < len(items):
             items[new_index].add_class("highlighted")
+            self._apply_highlight_style(items[new_index])
 
     def action_move_up(self) -> None:
         if self._filtered and self._highlight_index > 0:
