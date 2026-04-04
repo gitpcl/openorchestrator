@@ -7,12 +7,88 @@ global keybindings, and resolving worktree names from session names.
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import subprocess
+import sys
 
 from open_orchestrator.core.tmux_manager import TmuxManager
 
+logger = logging.getLogger(__name__)
+
 SWITCHBOARD_SESSION = "owt-switchboard"
+
+
+def detect_terminal_background() -> str | None:
+    """Detect terminal background color using OSC 11 query.
+
+    Sends the OSC 11 escape sequence (``\\033]11;?\\033\\\\``) and parses
+    the terminal's response (``\\033]11;rgb:RRRR/GGGG/BBBB\\033\\\\``).
+    Works with iTerm2, Kitty, Alacritty, WezTerm, macOS Terminal, and
+    most modern terminal emulators.
+
+    Returns hex color string (e.g. ``#1a1b2e``) or None if detection fails.
+    """
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return None
+
+    try:
+        import select
+        import termios
+        import tty
+    except ImportError:
+        logger.debug("termios/tty not available (non-Unix platform)")
+        return None
+
+    try:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            # Send OSC 11 query
+            os.write(sys.stdout.fileno(), b"\033]11;?\033\\")
+
+            # Read response with timeout
+            response = b""
+            while select.select([sys.stdin], [], [], 0.15)[0]:
+                chunk = os.read(fd, 64)
+                if not chunk:
+                    break
+                response += chunk
+                # Stop once we see the string terminator
+                if b"\033\\" in response or b"\x07" in response:
+                    break
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+        decoded = response.decode("latin-1", errors="replace")
+        return _parse_osc11_response(decoded)
+    except Exception:
+        logger.debug("Terminal background detection failed", exc_info=True)
+        return None
+
+
+def _parse_osc11_response(response: str) -> str | None:
+    """Parse OSC 11 response into hex color.
+
+    Response format: ``\\033]11;rgb:RRRR/GGGG/BBBB\\033\\\\``
+    where R/G/B are 2 or 4 hex digits per channel.
+    """
+    match = re.search(r"rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)", response)
+    if not match:
+        return None
+
+    r_raw, g_raw, b_raw = match.group(1), match.group(2), match.group(3)
+
+    def _to_byte(channel: str) -> int:
+        if len(channel) <= 2:
+            return int(channel, 16)
+        # 4-digit channel: take high byte (e.g. "1a1a" → 0x1a)
+        return int(channel[:2], 16)
+
+    r, g, b = _to_byte(r_raw), _to_byte(g_raw), _to_byte(b_raw)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def _is_inside_switchboard_session() -> bool:
@@ -164,16 +240,27 @@ def launch_switchboard() -> None:
     """
     if _is_inside_switchboard_session():
         # We're already in the switchboard session — run Textual directly
+        # Background was detected before tmux and passed via OWT_BACKGROUND
         from open_orchestrator.core.switchboard import SwitchboardApp
 
-        app = SwitchboardApp()
+        app = SwitchboardApp(detected_bg=os.environ.get("OWT_BACKGROUND"))
         app.run()
         return
+
+    # Detect terminal background NOW, before entering tmux
+    bg = detect_terminal_background()
 
     tmux = TmuxManager()
 
     # Create the switchboard session if it doesn't exist
     if not tmux.session_exists(SWITCHBOARD_SESSION):
+        # Propagate detected background via tmux set-environment (avoids shell quoting)
+        if bg:
+            subprocess.run(
+                ["tmux", "set-environment", "-g", "OWT_BACKGROUND", bg],
+                capture_output=True,
+                check=False,
+            )
         subprocess.run(
             ["tmux", "new-session", "-d", "-s", SWITCHBOARD_SESSION, "-n", "switchboard", "owt"],
             check=False,

@@ -178,6 +178,7 @@ class SwitchboardApp(App[None]):
     CSS = f"""
     Screen {{
         layout: vertical;
+        background: {COLORS["background"]};
     }}
     #header {{
         dock: top;
@@ -258,8 +259,10 @@ class SwitchboardApp(App[None]):
         pos = f"Card {self._selected + 1}/{n}" if n > 0 else "No cards"
         return f" {self._FOOTER_KEYS}  [bold]{pos}[/bold]"
 
-    def __init__(self) -> None:
+    def __init__(self, detected_bg: str | None = None) -> None:
         super().__init__()
+        self._detected_bg = detected_bg
+        self._bg_color: str | None = None
         self._tracker = StatusTracker(runtime_status_config())
         self._tmux = TmuxManager()
         try:
@@ -298,10 +301,39 @@ class SwitchboardApp(App[None]):
             yield Static(self._build_footer(), id="footer")
 
     def on_mount(self) -> None:
+        # Apply custom background color from env var or config
+        self._apply_background_color()
         self.set_interval(TICK_MS / 1000.0, self._on_tick)
         self.set_interval(HEAVY_EVERY * TICK_MS / 1000.0, self._heavy_refresh)
         # Defer first refresh until size is known
         self.call_after_refresh(self._heavy_refresh)
+
+    def _apply_background_color(self) -> None:
+        """Apply terminal background color (auto-detected, env var, or config)."""
+        import os
+
+        bg = self._detected_bg
+        if not bg:
+            bg = os.environ.get("OWT_BACKGROUND")
+        if not bg:
+            try:
+                from open_orchestrator.config import load_config
+
+                bg = load_config().switchboard.background_color
+            except Exception:
+                pass
+        if bg:
+            from open_orchestrator.core.switchboard_modals import _darken
+
+            self._bg_color = bg
+            darker = _darken(bg, 0.75)
+            self.screen.styles.background = bg
+            # Header/footer slightly darker than bg
+            try:
+                self.query_one("#header").styles.background = darker
+                self.query_one("#footer").styles.background = darker
+            except Exception:
+                pass
 
     def on_resize(self) -> None:
         """Recalculate columns for navigation on terminal resize."""

@@ -300,6 +300,9 @@ mouse_mode = true
 [environment]
 auto_install_deps = true
 copy_env_file = true
+
+[switchboard]
+background_color = "#1a1b2e"  # match your terminal background (auto-detected if omitted)
 ```
 
 ### Environment Variables
@@ -309,6 +312,7 @@ copy_env_file = true
 | `OWT_AUTOMATED` | OWT (in orchestrated panes) | Lets user hooks distinguish automated agents from interactive sessions. Check `[ -n "$OWT_AUTOMATED" ]` in hooks to skip restrictions for agents. |
 | `OWT_WORKTREE_NAME` | OWT (in all panes) | Current worktree name. Used by MCP peer servers and hooks for identification. |
 | `OWT_DB_PATH` | OWT hook/MCP wiring or user override | Points hooks, MCP peer servers, and in-process status tracking at the same SQLite DB. If `~/.open-orchestrator/status.db` is not writable, orchestrator/batch fall back to repo-local or temp-backed storage. |
+| `OWT_BACKGROUND` | OWT (auto-detected) or user override | Terminal background hex color for the switchboard. Auto-detected via OSC 11 at launch; set manually if detection fails. |
 
 ## AI Tool Support
 

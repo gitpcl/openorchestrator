@@ -240,6 +240,14 @@ class EnvironmentConfig(BaseModel):
     )
 
 
+class SwitchboardConfig(BaseModel):
+    """Configuration for switchboard UI."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    background_color: str | None = Field(default=None, description="Background hex color (e.g. '#1a1b2e') to match terminal")
+
+
 class SyncConfig(BaseModel):
     """Configuration for sync operations."""
 
@@ -258,6 +266,7 @@ class Config(BaseModel):
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
+    switchboard: SwitchboardConfig = Field(default_factory=SwitchboardConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
     agno: AgnoConfig = Field(default_factory=AgnoConfig)
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)

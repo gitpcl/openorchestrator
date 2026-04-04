@@ -18,6 +18,27 @@ from textual.widgets import Input, Label, Static
 from open_orchestrator.core.theme import COLORS
 
 
+def _darken(hex_color: str, factor: float = 0.7) -> str:
+    """Darken a hex color by a factor (0.0=black, 1.0=unchanged)."""
+    hex_color = hex_color.lstrip("#")
+    r = int(int(hex_color[0:2], 16) * factor)
+    g = int(int(hex_color[2:4], 16) * factor)
+    b = int(int(hex_color[4:6], 16) * factor)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _apply_modal_bg(modal: ModalScreen, dialog_id: str) -> None:  # type: ignore[type-arg]
+    """Apply detected background to modal overlay and dialog."""
+    bg = getattr(modal.app, "_bg_color", None)
+    if not bg:
+        return
+    modal.styles.background = f"{bg} 60%"
+    try:
+        modal.query_one(f"#{dialog_id}").styles.background = _darken(bg, 0.85)
+    except Exception:
+        pass
+
+
 class InputModal(ModalScreen[str | None]):
     """Modal screen for text input (send, new, broadcast)."""
 
@@ -68,6 +89,7 @@ class InputModal(ModalScreen[str | None]):
             yield Static("[dim]Enter[/dim] submit | [dim]Esc[/dim] cancel", classes="modal-hint")
 
     def on_mount(self) -> None:
+        _apply_modal_bg(self, "input-dialog")
         self.query_one("#modal-input", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -114,6 +136,9 @@ class ConfirmModal(ModalScreen[bool]):
         super().__init__()
         self._message = message
 
+    def on_mount(self) -> None:
+        _apply_modal_bg(self, "confirm-dialog")
+
     def compose(self) -> ComposeResult:
         with Container(id="confirm-dialog"):
             yield Label(self._message)
@@ -158,6 +183,9 @@ class DetailModal(ModalScreen[None]):
         super().__init__()
         self._title = title
         self._lines = lines
+
+    def on_mount(self) -> None:
+        _apply_modal_bg(self, "detail-panel")
 
     def compose(self) -> ComposeResult:
         with Container(id="detail-panel"):
@@ -297,6 +325,7 @@ class SearchableSelectModal(ModalScreen[str | None]):
             )
 
     def on_mount(self) -> None:
+        _apply_modal_bg(self, "select-dialog")
         self._rebuild_list()
         self.query_one("#select-search", Input).focus()
 
