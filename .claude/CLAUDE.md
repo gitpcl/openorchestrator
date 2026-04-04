@@ -92,6 +92,9 @@ src/open_orchestrator/
 │   ├── batch_models.py # Batch data models + Pydantic validation for TOML parsing
 │   ├── orchestrator.py # Orchestrator agent (plan → execute → merge → feature branch)
 │   ├── pane_actions.py # Shared pane lifecycle (create/remove orchestration)
+│   ├── runtime.py      # Task completion evaluation (commits, tmux, grace periods)
+│   ├── hooks.py        # AI tool hook installation (Claude, Droid status reporting)
+│   ├── theme.py        # Color constants for switchboard + CLI
 │   ├── agent_detector.py  # Detect installed AI coding tools
 │   └── mcp_peer.py    # MCP peer communication server (optional, FastMCP)
 ├── models/
