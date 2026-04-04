@@ -153,6 +153,79 @@ def read_popup_result(popup_file: str, cleanup: bool = True) -> dict[str, object
     return data
 
 
+def _setup_pane_environment(worktree_path: str, repo_path: str, config: object) -> None:
+    """Set up environment and inject project context for a new pane."""
+    project_config = None
+    try:
+        project_config = ProjectDetector().detect(worktree_path)
+        if project_config:
+            EnvironmentSetup(project_config).setup_worktree(
+                worktree_path=worktree_path,
+                source_path=repo_path,
+                install_deps=config.environment.auto_install_deps,  # type: ignore[attr-defined]
+                copy_env=config.environment.copy_env_file,  # type: ignore[attr-defined]
+            )
+    except EnvironmentSetupError as e:
+        logger.warning("Environment setup issue: %s", e)
+
+    if project_config and (project_config.test_command or project_config.dev_command):
+        try:
+            from open_orchestrator.core.environment import inject_project_context
+
+            inject_project_context(worktree_path, project_config)
+        except Exception as e:
+            logger.debug("Project context injection skipped: %s", e)
+
+
+def _init_pane_tracking(
+    worktree: object,
+    ai_tool: AITool,
+    tmux_session_name: str,
+    repo_path: str,
+    ai_instructions: str | None,
+    display_task: str | None,
+    status_tracker: StatusTracker | None,
+    status_config: StatusConfig | None,
+    txn: PaneTransaction,
+) -> StatusTracker:
+    """Install hooks and initialize status tracking. Returns the tracker."""
+    tracker_config = status_config or runtime_status_config(repo_path)
+    tracker = status_tracker or StatusTracker(tracker_config)
+    try:
+        from open_orchestrator.core.hooks import install_hooks
+
+        install_hooks(
+            worktree.path,  # type: ignore[attr-defined]
+            worktree.name,  # type: ignore[attr-defined]
+            ai_tool,
+            db_path=tracker.storage_path,
+        )
+    except Exception as e:
+        logger.debug("Hook installation skipped: %s", e)
+
+    try:
+        tracker.initialize_status(
+            worktree_name=worktree.name,  # type: ignore[attr-defined]
+            worktree_path=str(worktree.path),  # type: ignore[attr-defined]
+            branch=worktree.branch,  # type: ignore[attr-defined]
+            tmux_session=tmux_session_name,
+            ai_tool=ai_tool,
+        )
+        txn.status_initialized = True
+        if ai_instructions:
+            from open_orchestrator.models.status import AIActivityStatus
+
+            tracker.update_task(
+                worktree.name,  # type: ignore[attr-defined]
+                (display_task or ai_instructions or "")[:100],
+                AIActivityStatus.WORKING,
+            )
+    except Exception as e:
+        logger.debug("Status tracking init skipped: %s", e)
+
+    return tracker
+
+
 def create_pane(
     session_name: str,
     repo_path: str,
@@ -228,32 +301,10 @@ def create_pane(
 
         txn.worktree_name = worktree.name
 
-        # 2. Set up environment
-        project_config = None
-        try:
-            project_config = ProjectDetector().detect(str(worktree.path))
-            if project_config:
-                EnvironmentSetup(project_config).setup_worktree(
-                    worktree_path=str(worktree.path),
-                    source_path=repo_path,
-                    install_deps=config.environment.auto_install_deps,
-                    copy_env=config.environment.copy_env_file,
-                )
-        except EnvironmentSetupError as e:
-            logger.warning("Environment setup issue: %s", e)
+        # 2-2b. Set up environment + project context
+        _setup_pane_environment(str(worktree.path), repo_path, config)
 
-        # 2b. Inject project context (test/dev commands) into CLAUDE.md
-        if project_config and (project_config.test_command or project_config.dev_command):
-            try:
-                from open_orchestrator.core.environment import inject_project_context
-
-                inject_project_context(str(worktree.path), project_config)
-            except Exception as e:
-                logger.debug("Project context injection skipped: %s", e)
-
-        # 3. Create a live provider session in interactive mode.
-        # DO NOT pass prompt= here — it triggers -p (print) mode which exits
-        # after one response, making the session non-interactive.
+        # 3. Create tmux session
         tmux_manager = TmuxManager()
         try:
             tmux_session = tmux_manager.create_worktree_session(
@@ -268,42 +319,18 @@ def create_pane(
         except TmuxError as e:
             raise PaneActionError(f"Failed to create session: {e}") from e
 
-        # 4. Install AI tool hooks for status reporting
-        tracker_config = status_config or runtime_status_config(repo_path)
-        tracker = status_tracker or StatusTracker(tracker_config)
-        try:
-            from open_orchestrator.core.hooks import install_hooks
-
-            install_hooks(
-                worktree.path,
-                worktree.name,
-                ai_tool_enum,
-                db_path=tracker.storage_path,
-            )
-        except Exception as e:
-            logger.debug("Hook installation skipped: %s", e)
-
-        # 5. Initialize status tracking
-        initial_status = "working" if ai_instructions else "idle"
-        try:
-            tracker.initialize_status(
-                worktree_name=worktree.name,
-                worktree_path=str(worktree.path),
-                branch=worktree.branch,
-                tmux_session=tmux_session.session_name,
-                ai_tool=ai_tool_enum,
-            )
-            txn.status_initialized = True
-            if initial_status == "working":
-                from open_orchestrator.models.status import AIActivityStatus
-
-                tracker.update_task(
-                    worktree.name,
-                    (display_task or ai_instructions or "")[:100],
-                    AIActivityStatus.WORKING,
-                )
-        except Exception as e:
-            logger.debug("Status tracking init skipped: %s", e)
+        # 4-5. Install hooks + initialize status
+        _init_pane_tracking(
+            worktree=worktree,
+            ai_tool=ai_tool_enum,
+            tmux_session_name=tmux_session.session_name,
+            repo_path=repo_path,
+            ai_instructions=ai_instructions,
+            display_task=display_task,
+            status_tracker=status_tracker,
+            status_config=status_config,
+            txn=txn,
+        )
 
         # 6. Deliver prompt after waiting for AI readiness.
         # Use tmux load-buffer + paste-buffer to handle long prompts

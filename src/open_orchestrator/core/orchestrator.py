@@ -567,18 +567,36 @@ class Orchestrator:
         if len(running_tasks) < 2:
             return
 
-        # Detect file overlaps between running worktrees
-        events: list[tuple[str, str, list[str]]] = []  # (event_key, message, target_worktrees)
+        events = self._detect_overlap_events(running_tasks)
+        if not events:
+            return
+
+        messages = self._build_coordination_messages(events, running_tasks)
+
+        from open_orchestrator.core.environment import inject_coordination_context
+
+        for wt_name, wt_messages in messages.items():
+            status = self.tracker.get_status(wt_name)
+            if not status or status.activity_status != AIActivityStatus.WORKING:
+                continue
+            try:
+                inject_coordination_context(status.worktree_path, wt_messages)
+            except Exception as e:
+                logger.debug("Coordination injection failed for %s: %s", wt_name, e)
+
+        for event_key, _, _ in events:
+            self._set_cooldown(event_key)
+
+    def _detect_overlap_events(self, running_tasks: list[TaskState]) -> list[tuple[str, str, list[str]]]:
+        """Detect file overlaps between running worktrees. Returns (event_key, message, targets)."""
+        events: list[tuple[str, str, list[str]]] = []
         merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
 
         for task in running_tasks:
             if not task.worktree_name:
                 continue
             try:
-                overlaps = merge_mgr.check_file_overlaps(
-                    task.worktree_name,
-                    self.state.feature_branch,
-                )
+                overlaps = merge_mgr.check_file_overlaps(task.worktree_name, self.state.feature_branch)
                 for file_path, other_wts in overlaps.items():
                     event_key = f"overlap:{file_path}"
                     if self._in_cooldown(event_key):
@@ -593,13 +611,15 @@ class Orchestrator:
                     events.append((event_key, msg, targets))
             except Exception as e:
                 logger.debug("File overlap check failed for %s: %s", task.worktree_name, e)
-                continue
+        return events
 
-        if not events:
-            return
-
-        # Try Agno coordinator for richer context, fall back to template messages
-        coordination_messages: dict[str, list[str]] = {}  # worktree -> messages
+    def _build_coordination_messages(
+        self,
+        events: list[tuple[str, str, list[str]]],
+        running_tasks: list[TaskState],
+    ) -> dict[str, list[str]]:
+        """Build coordination messages, trying Agno first then falling back to templates."""
+        messages: dict[str, list[str]] = {}
 
         if self.agno_config and self.agno_config.enabled:
             try:
@@ -615,33 +635,18 @@ class Orchestrator:
                 )
                 for action in actions:
                     for wt_name in action.target_worktrees:
-                        coordination_messages.setdefault(wt_name, []).append(f"[{action.urgency.upper()}] {action.message}")
+                        messages.setdefault(wt_name, []).append(f"[{action.urgency.upper()}] {action.message}")
             except ImportError:
                 logger.debug("Agno not available, using template coordination")
             except Exception as e:
                 logger.warning("Agno coordinator failed: %s", e)
 
-        # Fallback: use template messages for events not covered by Agno
-        if not coordination_messages:
-            for event_key, msg, targets in events:
+        if not messages:
+            for _event_key, msg, targets in events:
                 for wt_name in targets:
-                    coordination_messages.setdefault(wt_name, []).append(msg)
+                    messages.setdefault(wt_name, []).append(msg)
 
-        # Inject messages and set cooldowns
-        from open_orchestrator.core.environment import inject_coordination_context
-
-        for wt_name, messages in coordination_messages.items():
-            # Only inject into WORKING worktrees
-            status = self.tracker.get_status(wt_name)
-            if not status or status.activity_status != AIActivityStatus.WORKING:
-                continue
-            try:
-                inject_coordination_context(status.worktree_path, messages)
-            except Exception as e:
-                logger.debug("Coordination injection failed for %s: %s", wt_name, e)
-
-        for event_key, _, _ in events:
-            self._set_cooldown(event_key)
+        return messages
 
     def _in_cooldown(self, event_key: str) -> bool:
         expires = self._cooldowns.get(event_key, 0)
