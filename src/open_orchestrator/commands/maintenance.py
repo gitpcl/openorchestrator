@@ -49,7 +49,7 @@ def register(main: click.Group) -> None:
                 report = sync_service.sync_all(worktree_paths)
 
             if json_output:
-                console.print(json.dumps(report.model_dump(mode="json"), indent=2, default=str))
+                click.echo(json.dumps(report.model_dump(mode="json"), indent=2, default=str))
             else:
                 console.print(
                     f"\n[bold]Sync complete:[/bold] {report.successful} ok, "
@@ -72,7 +72,7 @@ def register(main: click.Group) -> None:
 
             result = sync_service.sync_worktree(str(worktree.path))
             if json_output:
-                console.print(json.dumps(result.model_dump(mode="json"), indent=2, default=str))
+                click.echo(json.dumps(result.model_dump(mode="json"), indent=2, default=str))
             else:
                 console.print(f"[bold]{result.branch_name}:[/bold] {result.message}")
         else:
@@ -103,7 +103,7 @@ def register(main: click.Group) -> None:
             report = service.cleanup(worktree_paths, dry_run=not force, force=force)
 
         if json_output:
-            console.print(json.dumps(report.model_dump(mode="json"), indent=2, default=str))
+            click.echo(json.dumps(report.model_dump(mode="json"), indent=2, default=str))
             return
 
         if report.stale_worktrees_found == 0:
