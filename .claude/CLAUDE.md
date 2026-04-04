@@ -80,7 +80,8 @@ src/open_orchestrator/
 │   ├── tool_protocol.py     # AIToolProtocol + CustomTool (plugin interface)
 │   ├── tool_registry.py     # Singleton tool registry (discover/register AI tools)
 │   ├── project_detector.py  # Project type detection
-│   ├── environment.py  # Dependency, .env & CLAUDE.md setup
+│   ├── environment.py       # Dependency installation & .env setup
+│   ├── environment_claude_md.py # CLAUDE.md sync, injection, atomic writes
 │   ├── cleanup.py      # Worktree cleanup service
 │   ├── sync.py         # Upstream sync service
 │   ├── status.py       # AI activity status tracking (SQLite + WAL)
