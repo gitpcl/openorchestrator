@@ -282,20 +282,11 @@ def _compute_overlaps(
 # ---------------------------------------------------------------------------
 
 
-async def _build_cards_async(
+def _gather_statuses(
     tracker: StatusTracker,
     wt_manager: WorktreeManager | None = None,
-) -> tuple[list[Card], dict[str, list[str]]]:
-    """Build card list from git worktrees enriched with status data.
-
-    Uses git worktrees as the source of truth (same as ``owt list``),
-    enriched with status DB data for activity tracking. Runs tmux pane
-    captures and git diff calls concurrently via asyncio.to_thread.
-
-    Returns (cards, file_map) where file_map maps worktree names to modified files.
-    """
-    # Git worktrees are the source of truth — same as `owt list`.
-    # Fall back to status DB entries if git is unavailable (e.g. in tests).
+) -> list[WorktreeAIStatus]:
+    """Gather worktree statuses, merging git worktrees with status DB."""
     try:
         if wt_manager is None:
             wt_manager = WorktreeManager()
@@ -306,39 +297,41 @@ async def _build_cards_async(
 
     status_map = {s.worktree_name: s for s in tracker.get_all_statuses()}
 
-    if worktrees:
-        # Merge: git worktrees enriched with status DB
-        valid_names = {wt.name for wt in worktrees}
-        statuses: list[WorktreeAIStatus] = []
-        for wt in worktrees:
-            s = status_map.get(wt.name)
-            if s is None:
-                s = WorktreeAIStatus(
-                    worktree_name=wt.name,
-                    worktree_path=str(wt.path),
-                    branch=wt.branch,
-                    activity_status=AIActivityStatus.IDLE,
-                )
-            statuses.append(s)
-        # Auto-prune orphaned status entries (worktree deleted outside OWT)
-        orphan_names = set(status_map.keys()) - valid_names
-        if orphan_names:
-            try:
-                tracker.cleanup_orphans(list(valid_names))
-                logger.debug("Pruned %d orphaned status entries: %s", len(orphan_names), orphan_names)
-            except Exception as e:
-                logger.debug("Orphan cleanup failed: %s", e)
-    else:
-        # Fallback: use status DB directly (test environments, no git repo)
-        statuses = list(status_map.values())
+    if not worktrees:
+        return list(status_map.values())
 
-    now = datetime.now()
+    valid_names = {wt.name for wt in worktrees}
+    statuses: list[WorktreeAIStatus] = []
+    for wt in worktrees:
+        s = status_map.get(wt.name)
+        if s is None:
+            s = WorktreeAIStatus(
+                worktree_name=wt.name,
+                worktree_path=str(wt.path),
+                branch=wt.branch,
+                activity_status=AIActivityStatus.IDLE,
+            )
+        statuses.append(s)
 
-    # Schedule parallel I/O: session checks + pane detection + diff info
+    orphan_names = set(status_map.keys()) - valid_names
+    if orphan_names:
+        try:
+            tracker.cleanup_orphans(list(valid_names))
+            logger.debug("Pruned %d orphaned status entries: %s", len(orphan_names), orphan_names)
+        except Exception as e:
+            logger.debug("Orphan cleanup failed: %s", e)
+
+    return statuses
+
+
+def _schedule_io_tasks(
+    statuses: list[WorktreeAIStatus],
+    now: datetime,
+) -> tuple[list[collections.abc.Awaitable[object]], list[tuple[str, int]]]:
+    """Schedule parallel I/O tasks for session checks, pane detection, and diffs."""
     tasks: list[collections.abc.Awaitable[object]] = []
-    task_meta: list[tuple[str, int]] = []  # ("session"|"pane"|"diff", status_index)
+    task_meta: list[tuple[str, int]] = []
 
-    # Session existence checks (parallel)
     for i, s in enumerate(statuses):
         if s.tmux_session:
             tasks.append(asyncio.to_thread(_tmux_session_exists_raw, s.tmux_session))
@@ -355,39 +348,21 @@ async def _build_cards_async(
             tasks.append(asyncio.to_thread(_get_diff_info, s.worktree_path, s.branch))
             task_meta.append(("diff", i))
 
-    results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
+    return tasks, task_meta
 
-    pane_results: dict[int, tuple[AIActivityStatus, bool] | None] = {}
-    diff_results: dict[int, tuple[list[str], str]] = {}
-    stale_sessions: set[int] = set()
-    for (kind, idx), result in zip(task_meta, results):
-        if isinstance(result, BaseException):
-            continue
-        if kind == "session":
-            if not result:  # session doesn't exist
-                stale_sessions.add(idx)
-        elif kind == "pane":
-            pane_results[idx] = result  # type: ignore[assignment]
-        else:
-            diff_results[idx] = result  # type: ignore[assignment]
 
-    # Clear stale tmux sessions before processing
-    for idx in stale_sessions:
-        s = statuses[idx]
-        s.tmux_session = None
-        if s.activity_status in (AIActivityStatus.WORKING, AIActivityStatus.BLOCKED):
-            s.activity_status = AIActivityStatus.WAITING
-        s.updated_at = now
-        tracker.set_status(s)
-        # Discard any pane detection for this stale entry
-        pane_results.pop(idx, None)
-
-    # Process results and build cards
+def _apply_results_and_build_cards(
+    statuses: list[WorktreeAIStatus],
+    pane_results: dict[int, tuple[AIActivityStatus, bool] | None],
+    diff_results: dict[int, tuple[list[str], str]],
+    tracker: StatusTracker,
+    now: datetime,
+) -> tuple[list[Card], dict[str, list[str]]]:
+    """Apply pane detection and diff results, then build Card objects."""
     cards = []
     file_map: dict[str, list[str]] = {}
 
     for i, s in enumerate(statuses):
-        # Apply pane detection (skip entries with stale sessions)
         detection = pane_results.get(i)
         if detection is not None:
             detected, high_confidence = detection
@@ -405,7 +380,6 @@ async def _build_cards_async(
                     s.updated_at = now
                     tracker.set_status(s)
 
-        # Apply diff results
         diff_stat = ""
         if i in diff_results:
             mod_files, diff_stat = diff_results[i]
@@ -431,6 +405,53 @@ async def _build_cards_async(
 
     _compute_overlaps(cards, file_map)
     return cards, file_map
+
+
+async def _build_cards_async(
+    tracker: StatusTracker,
+    wt_manager: WorktreeManager | None = None,
+) -> tuple[list[Card], dict[str, list[str]]]:
+    """Build card list from git worktrees enriched with status data.
+
+    Uses git worktrees as the source of truth (same as ``owt list``),
+    enriched with status DB data for activity tracking. Runs tmux pane
+    captures and git diff calls concurrently via asyncio.to_thread.
+
+    Returns (cards, file_map) where file_map maps worktree names to modified files.
+    """
+    statuses = _gather_statuses(tracker, wt_manager)
+    now = datetime.now()
+
+    # Run parallel I/O
+    tasks, task_meta = _schedule_io_tasks(statuses, now)
+    results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
+
+    # Categorize results
+    pane_results: dict[int, tuple[AIActivityStatus, bool] | None] = {}
+    diff_results: dict[int, tuple[list[str], str]] = {}
+    stale_sessions: set[int] = set()
+    for (kind, idx), result in zip(task_meta, results):
+        if isinstance(result, BaseException):
+            continue
+        if kind == "session":
+            if not result:
+                stale_sessions.add(idx)
+        elif kind == "pane":
+            pane_results[idx] = result  # type: ignore[assignment]
+        else:
+            diff_results[idx] = result  # type: ignore[assignment]
+
+    # Clear stale tmux sessions
+    for idx in stale_sessions:
+        s = statuses[idx]
+        s.tmux_session = None
+        if s.activity_status in (AIActivityStatus.WORKING, AIActivityStatus.BLOCKED):
+            s.activity_status = AIActivityStatus.WAITING
+        s.updated_at = now
+        tracker.set_status(s)
+        pane_results.pop(idx, None)
+
+    return _apply_results_and_build_cards(statuses, pane_results, diff_results, tracker, now)
 
 
 def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str]]]:

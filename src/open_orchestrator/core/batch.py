@@ -458,66 +458,7 @@ class BatchRunner:
 
             # Poll running tasks (reload from disk to see hook-pushed updates)
             self.tracker.reload()
-            still_running: list[int] = []
-            for idx in running:
-                result = self.results[idx]
-                if result.worktree_name:
-                    status = self.tracker.get_status(result.worktree_name)
-                    if not status:
-                        still_running.append(idx)
-                    elif status.activity_status in (
-                        AIActivityStatus.WAITING,
-                        AIActivityStatus.COMPLETED,
-                    ):
-                        # Capture summary before shipping (for child context)
-                        if self._has_deps:
-                            result.completion_summary = self._capture_summary(result.worktree_name)
-                        if result.task.auto_ship or self.config.auto_ship:
-                            self._ship_task(idx)
-                        else:
-                            self.tracker.mark_completed(result.worktree_name)
-                            result.status = BatchStatus.COMPLETED
-                    elif status.activity_status == AIActivityStatus.ERROR:
-                        result.status = BatchStatus.FAILED
-                        result.error = "Agent reported error"
-                    else:
-                        task_elapsed = time.monotonic() - result.started_at if result.started_at else 0
-                        try:
-                            base_ref = self._resolve_task_base_ref(result.worktree_name)
-                        except Exception as e:
-                            self._handle_batch_failure(
-                                idx,
-                                f"Base ref resolution failed: {e}",
-                            )
-                            continue
-                        decision = self._runtime.evaluate_completion(
-                            worktree_name=result.worktree_name,
-                            base_ref=base_ref,
-                            session_name=self._tmux.generate_session_name(result.worktree_name),
-                            elapsed_seconds=task_elapsed,
-                            activity_status=status.activity_status,
-                            startup_grace_period=self.config.poll_interval,
-                            min_agent_runtime=self.config.min_agent_runtime,
-                        )
-                        if decision.outcome == RuntimeOutcome.RUNNING:
-                            still_running.append(idx)
-                        elif decision.outcome == RuntimeOutcome.COMPLETED:
-                            if self._has_deps:
-                                result.completion_summary = self._capture_summary(result.worktree_name)
-                            if result.task.auto_ship or self.config.auto_ship:
-                                self._ship_task(idx)
-                            else:
-                                self.tracker.mark_completed(result.worktree_name)
-                                result.status = BatchStatus.COMPLETED
-                        else:
-                            self._handle_batch_failure(
-                                idx,
-                                decision.reason or "Task failed",
-                            )
-                else:
-                    still_running.append(idx)
-
-            running = still_running
+            running = self._poll_running_tasks(running)
 
             # Update DAG progress
             done = sum(1 for r in self.results if r.status in (BatchStatus.COMPLETED, BatchStatus.SHIPPED, BatchStatus.FAILED))
@@ -603,6 +544,68 @@ class BatchRunner:
             if dep_result.completion_summary:
                 summaries.append(dep_result.completion_summary)
         self.results[idx].parent_summaries = summaries
+
+    def _poll_running_tasks(self, running: list[int]) -> list[int]:
+        """Poll running tasks and return those still running."""
+        still_running: list[int] = []
+        for idx in running:
+            result = self.results[idx]
+            if not result.worktree_name:
+                still_running.append(idx)
+                continue
+            status = self.tracker.get_status(result.worktree_name)
+            if not status:
+                still_running.append(idx)
+            elif status.activity_status in (AIActivityStatus.WAITING, AIActivityStatus.COMPLETED):
+                self._complete_task(idx, result)
+            elif status.activity_status == AIActivityStatus.ERROR:
+                result.status = BatchStatus.FAILED
+                result.error = "Agent reported error"
+            else:
+                self._evaluate_running_task(idx, result, status, still_running)
+        return still_running
+
+    def _complete_task(self, idx: int, result: BatchResult) -> None:
+        """Handle task completion: capture summary, ship or mark completed."""
+        wt_name = result.worktree_name or ""
+        if self._has_deps:
+            result.completion_summary = self._capture_summary(wt_name)
+        if result.task.auto_ship or self.config.auto_ship:
+            self._ship_task(idx)
+        else:
+            self.tracker.mark_completed(wt_name)
+            result.status = BatchStatus.COMPLETED
+
+    def _evaluate_running_task(
+        self,
+        idx: int,
+        result: BatchResult,
+        status: object,
+        still_running: list[int],
+    ) -> None:
+        """Evaluate a still-running task using the runtime coordinator."""
+        wt_name = result.worktree_name or ""
+        task_elapsed = time.monotonic() - result.started_at if result.started_at else 0
+        try:
+            base_ref = self._resolve_task_base_ref(wt_name)
+        except Exception as e:
+            self._handle_batch_failure(idx, f"Base ref resolution failed: {e}")
+            return
+        decision = self._runtime.evaluate_completion(
+            worktree_name=wt_name,
+            base_ref=base_ref,
+            session_name=self._tmux.generate_session_name(wt_name),
+            elapsed_seconds=task_elapsed,
+            activity_status=status.activity_status,  # type: ignore[attr-defined]
+            startup_grace_period=self.config.poll_interval,
+            min_agent_runtime=self.config.min_agent_runtime,
+        )
+        if decision.outcome == RuntimeOutcome.RUNNING:
+            still_running.append(idx)
+        elif decision.outcome == RuntimeOutcome.COMPLETED:
+            self._complete_task(idx, result)
+        else:
+            self._handle_batch_failure(idx, decision.reason or "Task failed")
 
     def _start_task(self, idx: int) -> None:
         """Start a single batch task."""
