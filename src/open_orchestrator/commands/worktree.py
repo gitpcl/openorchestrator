@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 import click
 from rich.table import Table
@@ -84,6 +85,98 @@ def _check_git_ref_conflicts(branch: str) -> str:
     except Exception:
         logger.debug("Git ref conflict check failed", exc_info=True)
     return branch
+
+
+def _setup_environment_and_hooks(
+    config: object,
+    wt_manager: object,
+    worktree: object,
+    ai_tool_enum: AITool,
+) -> Any:
+    """Set up worktree environment, project detection, and hooks. Returns tracker."""
+    from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
+    from open_orchestrator.core.hooks import install_hooks
+    from open_orchestrator.core.project_detector import ProjectDetector
+
+    try:
+        project_config = ProjectDetector().detect(str(worktree.path))  # type: ignore[attr-defined]
+        if project_config:
+            with console.status("[bold blue]Setting up environment..."):
+                EnvironmentSetup(project_config).setup_worktree(
+                    worktree_path=str(worktree.path),  # type: ignore[attr-defined]
+                    source_path=str(wt_manager.git_root),  # type: ignore[attr-defined]
+                    install_deps=config.environment.auto_install_deps,  # type: ignore[attr-defined]
+                    copy_env=config.environment.copy_env_file,  # type: ignore[attr-defined]
+                )
+            console.print("[green]Environment ready[/green]")
+    except EnvironmentSetupError as e:
+        console.print(f"[yellow]Environment setup warning: {e}[/yellow]")
+
+    tracker = get_status_tracker(wt_manager.git_root)  # type: ignore[attr-defined]
+    hooks_installed = install_hooks(
+        worktree.path,  # type: ignore[attr-defined]
+        worktree.name,  # type: ignore[attr-defined]
+        ai_tool_enum,
+        db_path=tracker.storage_path,
+    )
+    if hooks_installed:
+        console.print(f"[green]Hooks installed:[/green] {ai_tool_enum.value} \u2192 owt status")
+    return tracker
+
+
+def _create_tmux_session(
+    worktree: object,
+    ai_tool_enum: AITool,
+    plan_mode: bool,
+    headless: bool,
+) -> tuple[Any, str | None]:
+    """Create tmux session for worktree. Returns (tmux_manager, session_name)."""
+    from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager, TmuxSessionExistsError
+
+    tmux_manager = TmuxManager()
+    session_info = None
+    session_name: str | None = None
+
+    if not headless:
+        try:
+            session_info = tmux_manager.create_worktree_session(
+                worktree_name=worktree.name,  # type: ignore[attr-defined]
+                worktree_path=str(worktree.path),  # type: ignore[attr-defined]
+                ai_tool=ai_tool_enum,
+                plan_mode=plan_mode,
+            )
+            console.print(f"[green]tmux session:[/green] {session_info.session_name}")
+        except TmuxSessionExistsError:
+            session_name = tmux_manager.generate_session_name(worktree.name)  # type: ignore[attr-defined]
+            console.print(f"[yellow]tmux session already exists:[/yellow] {session_name}")
+            session_info = tmux_manager.get_session_for_worktree(worktree.name)  # type: ignore[attr-defined]
+        except TmuxError as e:
+            console.print(f"[yellow]tmux warning: {e}[/yellow]")
+
+        session_name = session_info.session_name if session_info else session_name
+    else:
+        console.print("[dim]Headless mode \u2014 no tmux session created[/dim]")
+
+    return tmux_manager, session_name
+
+
+def _send_initial_prompt(
+    tmux_manager: object,
+    session_name: str | None,
+    task_description: str,
+    tracker: object,
+    worktree_name: str,
+) -> None:
+    """Send task description as initial prompt to the AI agent."""
+    if not (task_description and session_name):
+        return
+    time.sleep(2)
+    try:
+        tmux_manager.send_keys_to_pane(session_name=session_name, keys=task_description)  # type: ignore[attr-defined]
+        console.print(f"[cyan]Sent task:[/cyan] {task_description[:80]}{'...' if len(task_description) > 80 else ''}")
+        tracker.update_task(worktree_name, task_description[:100])  # type: ignore[attr-defined]
+    except Exception as e:
+        console.print(f"[yellow]Could not send prompt: {e}[/yellow]")
 
 
 # ---------------------------------------------------------------------------
@@ -168,62 +261,11 @@ def new_worktree(
 
     console.print(f"[green]Worktree created:[/green] {worktree.path}")
 
-    # 2. Set up environment
-    from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
-    from open_orchestrator.core.project_detector import ProjectDetector
-
-    try:
-        project_config = ProjectDetector().detect(str(worktree.path))
-        if project_config:
-            with console.status("[bold blue]Setting up environment..."):
-                EnvironmentSetup(project_config).setup_worktree(
-                    worktree_path=str(worktree.path),
-                    source_path=str(wt_manager.git_root),
-                    install_deps=config.environment.auto_install_deps,
-                    copy_env=config.environment.copy_env_file,
-                )
-            console.print("[green]Environment ready[/green]")
-    except EnvironmentSetupError as e:
-        console.print(f"[yellow]Environment setup warning: {e}[/yellow]")
-
-    # 3. Install AI tool hooks for status reporting
-    from open_orchestrator.core.hooks import install_hooks
-
-    tracker = get_status_tracker(wt_manager.git_root)
-    hooks_installed = install_hooks(
-        worktree.path,
-        worktree.name,
-        ai_tool_enum,
-        db_path=tracker.storage_path,
-    )
-    if hooks_installed:
-        console.print(f"[green]Hooks installed:[/green] {ai_tool_enum.value} \u2192 owt status")
+    # 2-3. Set up environment + hooks
+    tracker = _setup_environment_and_hooks(config, wt_manager, worktree, ai_tool_enum)
 
     # 4. Create tmux session + start AI tool (skip in headless mode)
-    from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager, TmuxSessionExistsError
-
-    tmux_manager = TmuxManager()
-    session_info = None
-    session_name = None
-    if not headless:
-        try:
-            session_info = tmux_manager.create_worktree_session(
-                worktree_name=worktree.name,
-                worktree_path=str(worktree.path),
-                ai_tool=ai_tool_enum,
-                plan_mode=plan_mode,
-            )
-            console.print(f"[green]tmux session:[/green] {session_info.session_name}")
-        except TmuxSessionExistsError:
-            session_name = tmux_manager.generate_session_name(worktree.name)
-            console.print(f"[yellow]tmux session already exists:[/yellow] {session_name}")
-            session_info = tmux_manager.get_session_for_worktree(worktree.name)
-        except TmuxError as e:
-            console.print(f"[yellow]tmux warning: {e}[/yellow]")
-
-        session_name = session_info.session_name if session_info else session_name
-    else:
-        console.print("[dim]Headless mode \u2014 no tmux session created[/dim]")
+    tmux_manager, session_name = _create_tmux_session(worktree, ai_tool_enum, plan_mode, headless)
 
     # 5. Initialize status tracking
     try:
@@ -238,14 +280,7 @@ def new_worktree(
         console.print(f"[yellow]Status tracking init failed: {e}[/yellow]")
 
     # 6. Send task description as initial prompt
-    if task_description and session_name:
-        time.sleep(2)
-        try:
-            tmux_manager.send_keys_to_pane(session_name=session_name, keys=task_description)
-            console.print(f"[cyan]Sent task:[/cyan] {task_description[:80]}{'...' if len(task_description) > 80 else ''}")
-            tracker.update_task(worktree.name, task_description[:100])
-        except Exception as e:
-            console.print(f"[yellow]Could not send prompt: {e}[/yellow]")
+    _send_initial_prompt(tmux_manager, session_name, task_description, tracker, worktree.name)
 
     # 7. Send template instructions
     if tmpl_instructions and session_name:
