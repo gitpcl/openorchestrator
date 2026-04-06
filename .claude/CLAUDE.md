@@ -100,6 +100,7 @@ src/open_orchestrator/
 │   ├── orchestrator.py # Orchestrator agent (plan → execute → merge → feature branch)
 │   ├── pane_actions.py # Shared pane lifecycle (create/remove orchestration)
 │   ├── runtime.py      # Task completion evaluation (commits, tmux, grace periods)
+│   ├── subagent.py      # SubagentManager (fork-join, context inheritance, timeout, cleanup)
 │   ├── hooks.py        # AI tool hook installation (Claude, Droid status reporting)
 │   ├── theme.py        # Color constants for switchboard + CLI
 │   ├── agent_detector.py  # Detect installed AI coding tools
@@ -110,6 +111,7 @@ src/open_orchestrator/
 │   ├── project_config.py   # Project config models
 │   ├── maintenance.py      # Cleanup/sync models
 │   ├── memory.py           # Memory models (MemoryType, MemoryEntry, TopicFile, SearchResult)
+│   ├── subagent.py         # Subagent models (SubagentRole, SubagentState, SubagentResult, ForkJoinRequest)
 │   └── status.py           # AI status models
 ├── popup/
 │   └── picker.py           # Popup picker for pane creation (tmux display-popup)
