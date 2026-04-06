@@ -118,6 +118,10 @@ warn_unused_ignores = true
 module = ["mcp.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["open_orchestrator.core.mcp_peer"]
+disallow_untyped_decorators = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
