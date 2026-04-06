@@ -104,6 +104,7 @@ src/open_orchestrator/
 │   ├── runtime.py      # Task completion evaluation (commits, tmux, grace periods)
 │   ├── subagent.py      # SubagentManager (fork-join, context inheritance, timeout, cleanup)
 │   ├── critic.py        # CriticAgent (pre-action safety: overlaps, uncommitted, empty branch)
+│   ├── compaction.py    # Context compaction (snip, microcompact, reactive_compact)
 │   ├── hooks.py        # AI tool hook installation (Claude, Droid status reporting)
 │   ├── theme.py        # Color constants for switchboard + CLI
 │   ├── agent_detector.py  # Detect installed AI coding tools
@@ -115,6 +116,7 @@ src/open_orchestrator/
 │   ├── maintenance.py      # Cleanup/sync models
 │   ├── memory.py           # Memory models (MemoryType, MemoryEntry, TopicFile, SearchResult)
 │   ├── subagent.py         # Subagent models (SubagentRole, SubagentState, SubagentResult, ForkJoinRequest)
+│   ├── compaction.py       # Compaction models (Message, MessageRole, CompactionResult)
 │   └── status.py           # AI status models
 ├── popup/
 │   └── picker.py           # Popup picker for pane creation (tmux display-popup)
