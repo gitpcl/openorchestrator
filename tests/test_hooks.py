@@ -10,8 +10,20 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from open_orchestrator.config import AITool
 from open_orchestrator.core.hooks import install_hooks
+
+_has_mcp: bool
+try:
+    import mcp  # noqa: F401
+
+    _has_mcp = True
+except ImportError:
+    _has_mcp = False
+
+requires_mcp = pytest.mark.skipif(not _has_mcp, reason="MCP SDK not installed")
 
 
 class TestInstallClaudeHooks:
@@ -129,6 +141,7 @@ class TestUnsupportedTool:
 class TestMCPConfig:
     """Tests for MCP peer server config injection."""
 
+    @requires_mcp
     def test_mcp_config_injected_with_hooks(self, tmp_path: Path):
         with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
             install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
@@ -138,6 +151,7 @@ class TestMCPConfig:
         assert "mcpServers" in data
         assert "owt-peers" in data["mcpServers"]
 
+    @requires_mcp
     def test_mcp_config_has_correct_structure(self, tmp_path: Path):
         with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
             install_hooks(tmp_path, "auth-feature", AITool.CLAUDE)
@@ -151,6 +165,7 @@ class TestMCPConfig:
         assert mcp["env"]["OWT_WORKTREE_NAME"] == "auth-feature"
         assert "status.db" in mcp["env"]["OWT_DB_PATH"]
 
+    @requires_mcp
     def test_mcp_config_preserves_existing_hooks(self, tmp_path: Path):
         with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
             install_hooks(tmp_path, "my-feature", AITool.CLAUDE)
@@ -174,6 +189,7 @@ class TestMCPConfig:
         # Hooks still installed
         assert "hooks" in data
 
+    @requires_mcp
     def test_mcp_config_idempotent(self, tmp_path: Path):
         with patch("open_orchestrator.core.hooks._owt_path", return_value="/usr/bin/owt"):
             install_hooks(tmp_path, "my-feature", AITool.CLAUDE)

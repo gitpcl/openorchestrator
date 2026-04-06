@@ -1063,6 +1063,7 @@ dev = [
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "twine" },
     { name = "types-pyyaml" },
+    { name = "types-toml" },
 ]
 mcp = [
     { name = "mcp" },
@@ -1096,6 +1097,7 @@ requires-dist = [
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'", specifier = ">=2.0.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+    { name = "types-toml", marker = "extra == 'dev'", specifier = ">=0.10.0" },
 ]
 provides-extras = ["agno", "mcp", "dev"]
 

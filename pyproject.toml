@@ -57,6 +57,7 @@ dev = [
     "tomli>=2.0.0; python_version < '3.11'",
     "pyyaml>=6.0.0",
     "types-pyyaml>=6.0.0",
+    "types-toml>=0.10.0",
     "build>=1.0.0",
     "twine>=5.0.0",
 ]
@@ -112,6 +113,10 @@ python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["mcp.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
