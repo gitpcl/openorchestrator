@@ -23,12 +23,16 @@ from open_orchestrator.commands import (
 @click.option("--profile", is_flag=True, hidden=True, help="Show import timing breakdown.")
 @click.option("--log-format", type=click.Choice(["text", "json"]), default="text", hidden=True, help="Log output format.")
 @click.option("--verbose", is_flag=True, hidden=True, help="Enable DEBUG logging.")
+@click.option("--json", "json_output", is_flag=True, help="Machine-readable JSON output.")
 @click.pass_context
-def main(ctx: click.Context, profile: bool, log_format: str, verbose: bool) -> None:
+def main(ctx: click.Context, profile: bool, log_format: str, verbose: bool, json_output: bool) -> None:
     """Open Orchestrator — multi-agent worktree orchestration.
 
     Run 'owt' with no arguments to launch the Switchboard.
     """
+    ctx.ensure_object(dict)
+    ctx.obj["json"] = json_output
+
     if verbose or log_format == "json":
         from open_orchestrator.utils.logging import configure_logging
 

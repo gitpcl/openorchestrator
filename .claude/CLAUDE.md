@@ -112,6 +112,7 @@ src/open_orchestrator/
 │   ├── critic.py        # CriticAgent (pre-action safety: overlaps, uncommitted, empty branch)
 │   ├── compaction.py    # Context compaction (snip, microcompact, reactive_compact)
 │   ├── dream.py         # DreamDaemon (background agent, heartbeat, consolidation)
+│   ├── denial_tracker.py # DenialTracker (SQLite, consecutive/total thresholds)
 │   ├── hooks.py        # AI tool hook installation (Claude, Droid status reporting)
 │   ├── theme.py        # Color constants for switchboard + CLI
 │   ├── agent_detector.py  # Detect installed AI coding tools
@@ -133,6 +134,7 @@ src/open_orchestrator/
 └── utils/
     ├── io.py               # Safe file I/O utilities
     ├── logging.py          # Structured logging (correlation IDs, JSON output)
+    ├── output.py           # OutputFormatter (Rich + JSON structured output)
     └── lazy.py             # LazyModule proxy for deferred imports
 ```
 
