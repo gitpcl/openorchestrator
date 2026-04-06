@@ -84,6 +84,7 @@ src/open_orchestrator/
 │   ├── prompt_builder.py    # Context-aware prompt builder (task-type detection)
 │   ├── tool_protocol.py     # AIToolProtocol + CustomTool (plugin interface)
 │   ├── tool_registry.py     # Singleton tool registry (discover/register AI tools)
+│   ├── tool_search.py       # Deferred tool loading (ToolSearchProvider, DeferredToolLoader, token budget)
 │   ├── project_detector.py  # Project type detection
 │   ├── environment.py       # Dependency installation & .env setup
 │   ├── environment_claude_md.py # CLAUDE.md sync, injection, atomic writes

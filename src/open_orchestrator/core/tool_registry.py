@@ -79,6 +79,10 @@ class ToolRegistry:
         tool = self._tools.get(name)
         return tool.supports_hooks if tool else False
 
+    def list_all(self) -> list[AIToolProtocol]:
+        """Return all registered tools."""
+        return list(self._tools.values())
+
 
 def _register_builtins(registry: ToolRegistry) -> None:
     """Register built-in tools (claude, opencode, droid) as CustomTool instances."""
