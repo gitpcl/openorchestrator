@@ -276,6 +276,8 @@ class Config(BaseModel):
     tools: dict[str, dict[str, object]] = Field(default_factory=dict, description="Custom AI tool declarations")
     tool_token_budget: int = Field(default=8000, ge=100, description="Max tokens for deferred tool schemas")
     critic_enabled: bool = Field(default=True, description="Run critic review before ship/merge")
+    dream_idle_seconds: int = Field(default=3600, ge=60, description="Inactivity threshold before dream wakes")
+    dream_enabled: bool = Field(default=False, description="Enable dream daemon on startup")
 
     def get_template(self, name: str) -> WorktreeTemplate | None:
         """Get a template by name, checking custom then built-in."""

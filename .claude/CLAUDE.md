@@ -2,7 +2,7 @@
 
 Git Worktree + AI agent orchestration tool for parallel development workflows with Textual switchboard UI.
 
-## Commands (33 total)
+## Commands (38 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -40,6 +40,11 @@ Git Worktree + AI agent orchestration tool for parallel development workflows wi
 | `owt memory consolidate` | | Dedup, prune, and index untracked topics |
 | `owt memory list` | | List all memory entries |
 | `owt critic <action> <name>` | | Pre-action safety review (ship/merge/delete) |
+| `owt dream enable` | | Start background dream daemon |
+| `owt dream disable` | | Stop dream daemon |
+| `owt dream status` | | Show daemon state and heartbeat |
+| `owt dream consolidate` | | Run consolidation immediately |
+| `owt dream reports` | | List recent dream reports |
 | `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
 | `owt version` | `-v` | Show version |
 
@@ -75,7 +80,8 @@ src/open_orchestrator/
 │   ├── db_cmd.py       # db purge/vacuum/health
 │   ├── doctor.py       # doctor diagnostic command
 │   ├── memory_cmd.py   # memory add/search/consolidate/list
-│   └── critic_cmd.py   # critic pre-action safety review
+│   ├── critic_cmd.py   # critic pre-action safety review
+│   └── dream_cmd.py    # dream enable/disable/status/consolidate/reports
 ├── core/
 │   ├── worktree.py     # Git worktree operations
 │   ├── tmux_manager.py # tmux session management (SINGLE + MAIN_VERTICAL layouts)
@@ -105,6 +111,7 @@ src/open_orchestrator/
 │   ├── subagent.py      # SubagentManager (fork-join, context inheritance, timeout, cleanup)
 │   ├── critic.py        # CriticAgent (pre-action safety: overlaps, uncommitted, empty branch)
 │   ├── compaction.py    # Context compaction (snip, microcompact, reactive_compact)
+│   ├── dream.py         # DreamDaemon (background agent, heartbeat, consolidation)
 │   ├── hooks.py        # AI tool hook installation (Claude, Droid status reporting)
 │   ├── theme.py        # Color constants for switchboard + CLI
 │   ├── agent_detector.py  # Detect installed AI coding tools

@@ -10,6 +10,7 @@ from open_orchestrator.commands import (
     critic_cmd,
     db_cmd,
     doctor,
+    dream_cmd,
     maintenance,
     memory_cmd,
     merge_cmds,
@@ -71,3 +72,4 @@ db_cmd.register(main)
 doctor.register(main)
 memory_cmd.register(main)
 critic_cmd.register(main)
+dream_cmd.register(main)
