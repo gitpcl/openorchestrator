@@ -10,6 +10,7 @@ from open_orchestrator.commands import (
     db_cmd,
     doctor,
     maintenance,
+    memory_cmd,
     merge_cmds,
     orchestrate_cmds,
     worktree,
@@ -67,3 +68,4 @@ maintenance.register(main)
 config_cmd.register(main)
 db_cmd.register(main)
 doctor.register(main)
+memory_cmd.register(main)

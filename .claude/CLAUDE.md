@@ -2,7 +2,7 @@
 
 Git Worktree + AI agent orchestration tool for parallel development workflows with Textual switchboard UI.
 
-## Commands (28 total)
+## Commands (32 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -35,6 +35,10 @@ Git Worktree + AI agent orchestration tool for parallel development workflows wi
 | `owt db purge [--days N]` | | Delete messages older than N days (default 30) |
 | `owt db vacuum` | | Optimize and compact the database |
 | `owt db health [--check]` | | Database health diagnostics with CI thresholds |
+| `owt memory add "fact"` | | Store a fact with auto-classification |
+| `owt memory search "q"` | | Search index, topics, and transcripts |
+| `owt memory consolidate` | | Dedup, prune, and index untracked topics |
+| `owt memory list` | | List all memory entries |
 | `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
 | `owt version` | `-v` | Show version |
 
@@ -68,7 +72,8 @@ src/open_orchestrator/
 │   ├── maintenance.py  # sync, cleanup, version
 │   ├── config_cmd.py   # config validate/show
 │   ├── db_cmd.py       # db purge/vacuum/health
-│   └── doctor.py       # doctor diagnostic command
+│   ├── doctor.py       # doctor diagnostic command
+│   └── memory_cmd.py   # memory add/search/consolidate/list
 ├── core/
 │   ├── worktree.py     # Git worktree operations
 │   ├── tmux_manager.py # tmux session management (SINGLE + MAIN_VERTICAL layouts)
@@ -82,6 +87,7 @@ src/open_orchestrator/
 │   ├── project_detector.py  # Project type detection
 │   ├── environment.py       # Dependency installation & .env setup
 │   ├── environment_claude_md.py # CLAUDE.md sync, injection, atomic writes
+│   ├── memory.py        # MemoryManager (MEMORY.md index, topic files, search, consolidate)
 │   ├── cleanup.py      # Worktree cleanup service
 │   ├── sync.py         # Upstream sync service
 │   ├── status.py       # AI activity status tracking (SQLite + WAL)
@@ -102,6 +108,7 @@ src/open_orchestrator/
 │   ├── worktree_info.py    # Worktree models
 │   ├── project_config.py   # Project config models
 │   ├── maintenance.py      # Cleanup/sync models
+│   ├── memory.py           # Memory models (MemoryType, MemoryEntry, TopicFile, SearchResult)
 │   └── status.py           # AI status models
 ├── popup/
 │   └── picker.py           # Popup picker for pane creation (tmux display-popup)

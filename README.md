@@ -14,7 +14,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Features
 
-- **28 commands** — focused CLI surface, no bloat
+- **32 commands** — focused CLI surface, no bloat
 - **Switchboard UI** — Textual-based card grid with status lights, diff stats, file overlap warnings, and detail panels
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
@@ -27,6 +27,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
 - **Merge Queue** — `owt queue` shows optimal merge order; `owt queue --ship` ships all completed work intelligently
 - **Context Bridge** — `owt note "msg"` shares context across all agent sessions via CLAUDE.md injection
+- **Memory System** — `owt memory add/search/consolidate` stores persistent cross-worktree knowledge with auto-classification and grep-based transcript search
 - **Headless Mode** — `owt new "task" --headless` for CI/CD; `owt wait` polls until agent finishes
 - **One-command setup** — `owt new "task"` does everything: branch → worktree → deps → .env → tmux → AI tool
 - **Quality Gate** — `owt ship` optionally runs AI quality review before merging (with Agno); checks code quality, cross-worktree conflicts
@@ -133,6 +134,10 @@ owt ship auth-jwt
 | `owt db purge [--days N]` | | Delete messages older than N days (default 30) |
 | `owt db vacuum` | | Optimize and compact the database |
 | `owt db health [--check]` | | Database health diagnostics with CI thresholds |
+| `owt memory add "fact"` | | Store a fact with auto-classification |
+| `owt memory search "q"` | | Search index, topics, and transcripts |
+| `owt memory consolidate` | | Dedup, prune, and index untracked topics |
+| `owt memory list` | | List all memory entries |
 | `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
 | `owt version` | | Show version |
 
