@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from open_orchestrator.cli import main
 from open_orchestrator.core.critic import CriticAgent, CriticFinding, CriticVerdict, Severity
-
 
 # ── CriticFinding Tests ──────────────────────────────────────────────
 

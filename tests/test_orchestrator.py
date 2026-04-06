@@ -474,12 +474,12 @@ class TestOrchestrator:
         mock_wt.branch = "feat/x"
 
         with (
-            patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM,
+            patch("open_orchestrator.core.orchestrator.MergeManager") as mock_mm,
             patch("open_orchestrator.core.orchestrator.teardown_worktree"),
             patch.object(orch.tmux, "session_exists", return_value=False),
             patch.object(orch.tracker, "remove_status"),
         ):
-            mm = MockMM.return_value
+            mm = mock_mm.return_value
             mm.auto_commit_worktree.return_value = 0
             mm.wt_manager.get.return_value = mock_wt
             mm.count_commits_ahead.return_value = 0
@@ -509,11 +509,11 @@ class TestOrchestrator:
         mock_wt.branch = "feat/x"
 
         with (
-            patch("open_orchestrator.core.orchestrator.MergeManager") as MockMM,
+            patch("open_orchestrator.core.orchestrator.MergeManager") as mock_mm,
             patch.object(orch.tmux, "session_exists", return_value=False),
             patch.object(orch.tracker, "remove_status"),
         ):
-            mm = MockMM.return_value
+            mm = mock_mm.return_value
             mm.auto_commit_worktree.return_value = 0
             mm.wt_manager.get.return_value = mock_wt
             mm.count_commits_ahead.return_value = 3

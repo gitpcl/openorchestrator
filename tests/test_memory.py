@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from click.testing import CliRunner
 
 from open_orchestrator.cli import main
@@ -15,7 +14,6 @@ from open_orchestrator.models.memory import (
     SearchResult,
     TopicFile,
 )
-
 
 # ── Model Tests ─────────────────────────────────────────────────────
 
@@ -186,7 +184,7 @@ class TestIndexCRUD:
             )
             mgr.add_to_index(entry)
         content = mgr.read_index()
-        entry_lines = [l for l in content.splitlines() if l.strip().startswith("- [")]
+        entry_lines = [line for line in content.splitlines() if line.strip().startswith("- [")]
         assert len(entry_lines) <= MAX_INDEX_LINES
         assert "Truncated" in content
 

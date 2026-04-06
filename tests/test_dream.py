@@ -11,13 +11,11 @@ from click.testing import CliRunner
 
 from open_orchestrator.cli import main
 from open_orchestrator.core.dream import (
-    DEFAULT_IDLE_SECONDS,
     DreamDaemon,
     DreamFinding,
     DreamReport,
     DreamStatus,
 )
-
 
 # ── Model Tests ──────────────────────────────────────────────────────
 

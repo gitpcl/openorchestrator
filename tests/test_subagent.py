@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 from open_orchestrator.core.subagent import MAX_CONTEXT_CHARS, SubagentManager
 from open_orchestrator.models.subagent import (
@@ -13,7 +12,6 @@ from open_orchestrator.models.subagent import (
     SubagentState,
     SubagentStatus,
 )
-
 
 # ── Model Tests ─────────────────────────────────────────────────────
 
@@ -262,8 +260,8 @@ class TestCleanup:
         mgr = SubagentManager()
         s1 = mgr.fork("p1", SubagentRole.WORKER, "Task 1")
         mgr.mark_completed(s1.id, "Done")
-        s2 = mgr.fork("p1", SubagentRole.WORKER, "Task 2")
-        # s2 stays PENDING (not terminal)
+        mgr.fork("p1", SubagentRole.WORKER, "Task 2")
+        # second agent stays PENDING (not terminal)
         removed = mgr.cleanup("p1")
         assert removed == 1
         assert len(mgr.list_agents(parent="p1")) == 1

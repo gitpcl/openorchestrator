@@ -8,9 +8,7 @@ from open_orchestrator.core.tool_search import (
     DeferredToolLoader,
     ToolSchema,
     ToolSearchProvider,
-    ToolSearchResult,
 )
-
 
 # ── ToolSchema Tests ─────────────────────────────────────────────────
 

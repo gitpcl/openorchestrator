@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from open_orchestrator.core.compaction import (
-    DEFAULT_KEEP_RECENT,
     MICROCOMPACT_THRESHOLD_CHARS,
     microcompact,
     reactive_compact,
