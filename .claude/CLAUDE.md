@@ -2,7 +2,7 @@
 
 Git Worktree + AI agent orchestration tool for parallel development workflows with Textual switchboard UI.
 
-## Commands (32 total)
+## Commands (33 total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -39,6 +39,7 @@ Git Worktree + AI agent orchestration tool for parallel development workflows wi
 | `owt memory search "q"` | | Search index, topics, and transcripts |
 | `owt memory consolidate` | | Dedup, prune, and index untracked topics |
 | `owt memory list` | | List all memory entries |
+| `owt critic <action> <name>` | | Pre-action safety review (ship/merge/delete) |
 | `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
 | `owt version` | `-v` | Show version |
 
@@ -73,7 +74,8 @@ src/open_orchestrator/
 │   ├── config_cmd.py   # config validate/show
 │   ├── db_cmd.py       # db purge/vacuum/health
 │   ├── doctor.py       # doctor diagnostic command
-│   └── memory_cmd.py   # memory add/search/consolidate/list
+│   ├── memory_cmd.py   # memory add/search/consolidate/list
+│   └── critic_cmd.py   # critic pre-action safety review
 ├── core/
 │   ├── worktree.py     # Git worktree operations
 │   ├── tmux_manager.py # tmux session management (SINGLE + MAIN_VERTICAL layouts)
@@ -101,6 +103,7 @@ src/open_orchestrator/
 │   ├── pane_actions.py # Shared pane lifecycle (create/remove orchestration)
 │   ├── runtime.py      # Task completion evaluation (commits, tmux, grace periods)
 │   ├── subagent.py      # SubagentManager (fork-join, context inheritance, timeout, cleanup)
+│   ├── critic.py        # CriticAgent (pre-action safety: overlaps, uncommitted, empty branch)
 │   ├── hooks.py        # AI tool hook installation (Claude, Droid status reporting)
 │   ├── theme.py        # Color constants for switchboard + CLI
 │   ├── agent_detector.py  # Detect installed AI coding tools

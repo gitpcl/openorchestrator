@@ -7,6 +7,7 @@ import click
 from open_orchestrator.commands import (
     agent,
     config_cmd,
+    critic_cmd,
     db_cmd,
     doctor,
     maintenance,
@@ -69,3 +70,4 @@ config_cmd.register(main)
 db_cmd.register(main)
 doctor.register(main)
 memory_cmd.register(main)
+critic_cmd.register(main)
