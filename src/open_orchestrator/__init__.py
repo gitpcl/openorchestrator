@@ -5,7 +5,7 @@ This package provides functionality for managing parallel development
 workflows using Git worktrees and tmux sessions with Claude Code.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 
 from open_orchestrator.config import Config, load_config
 
