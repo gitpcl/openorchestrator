@@ -40,24 +40,73 @@ def detect_installed() -> list[tuple[str, str, str, bool]]:
     return result
 
 
+_ANSI_TO_CURSES: dict[str, int] = {
+    "black": curses.COLOR_BLACK,
+    "red": curses.COLOR_RED,
+    "green": curses.COLOR_GREEN,
+    "yellow": curses.COLOR_YELLOW,
+    "blue": curses.COLOR_BLUE,
+    "magenta": curses.COLOR_MAGENTA,
+    "cyan": curses.COLOR_CYAN,
+    "white": curses.COLOR_WHITE,
+    "dim": curses.COLOR_WHITE,
+    "default": -1,
+    "bright_black": curses.COLOR_WHITE,
+}
+
+
+def _ansi_name_to_curses(name: str, fallback: int = curses.COLOR_WHITE) -> int:
+    """Map an ANSI color name (or hex) to the nearest curses constant."""
+    if not name or name.startswith("#"):
+        return fallback
+    return _ANSI_TO_CURSES.get(name.lower(), fallback)
+
+
 def _get_theme_curses_color() -> int:
     """Get the curses color constant for the accent theme.
 
-    Maps theme accent (#00d7d7) to the nearest curses constant.
-    See open_orchestrator.core.theme.COLORS for canonical values.
+    Reads from the active ThemePalette so popup colors match the rest of
+    the UI. Falls back to CYAN when the theme module is unavailable.
     """
-    return curses.COLOR_CYAN
+    try:
+        from open_orchestrator.core.theme import get_active_palette
+
+        palette = get_active_palette()
+        return _ansi_name_to_curses(palette.input_border, curses.COLOR_CYAN)
+    except Exception:
+        return curses.COLOR_CYAN
 
 
 def _init_colors() -> None:
-    """Initialize shared color pairs used by all picker screens."""
+    """Initialize shared color pairs from the active ThemePalette.
+
+    Uses ``curses.use_default_colors()`` so the terminal background shows
+    through (-1 = default). Color pair foregrounds are mapped from the
+    active palette's status_* and text_* fields.
+    """
     curses.use_default_colors()
-    accent_color = _get_theme_curses_color()
-    curses.init_pair(1, accent_color, -1)  # Title / active row
-    curses.init_pair(2, curses.COLOR_GREEN, -1)  # Selected marker
-    curses.init_pair(3, curses.COLOR_WHITE, -1)  # Unselected marker
-    curses.init_pair(4, curses.COLOR_BLACK, -1)  # Dim text (footer)
-    curses.init_pair(5, curses.COLOR_RED, -1)  # Not installed
+
+    try:
+        from open_orchestrator.core.theme import get_active_palette
+
+        palette = get_active_palette()
+        title_color = _ansi_name_to_curses(palette.input_border, curses.COLOR_CYAN)
+        ok_color = _ansi_name_to_curses(palette.status_working, curses.COLOR_GREEN)
+        text_color = _ansi_name_to_curses(palette.text_primary, curses.COLOR_WHITE)
+        dim_color = _ansi_name_to_curses(palette.text_secondary, curses.COLOR_WHITE)
+        err_color = _ansi_name_to_curses(palette.status_error, curses.COLOR_RED)
+    except Exception:
+        title_color = curses.COLOR_CYAN
+        ok_color = curses.COLOR_GREEN
+        text_color = curses.COLOR_WHITE
+        dim_color = curses.COLOR_WHITE
+        err_color = curses.COLOR_RED
+
+    curses.init_pair(1, title_color, -1)  # Title / active row
+    curses.init_pair(2, ok_color, -1)  # Selected marker
+    curses.init_pair(3, text_color, -1)  # Unselected marker
+    curses.init_pair(4, dim_color, -1)  # Dim text (footer)
+    curses.init_pair(5, err_color, -1)  # Not installed
 
 
 def run_picker(stdscr: curses.window) -> dict[str, Any] | None:

@@ -279,6 +279,10 @@ class Config(BaseModel):
     dream_idle_seconds: int = Field(default=3600, ge=60, description="Inactivity threshold before dream wakes")
     dream_enabled: bool = Field(default=False, description="Enable dream daemon on startup")
     recall_enabled: bool = Field(default=True, description="Auto-inject L0+L1 recall payload into CLAUDE.md")
+    theme: str = Field(
+        default="auto",
+        description="UI theme: auto, dark, light, dark-ansi, light-ansi",
+    )
 
     def get_template(self, name: str) -> WorktreeTemplate | None:
         """Get a template by name, checking custom then built-in."""

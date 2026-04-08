@@ -25,14 +25,43 @@ from open_orchestrator.commands import (
 @click.option("--log-format", type=click.Choice(["text", "json"]), default="text", hidden=True, help="Log output format.")
 @click.option("--verbose", is_flag=True, hidden=True, help="Enable DEBUG logging.")
 @click.option("--json", "json_output", is_flag=True, help="Machine-readable JSON output.")
+@click.option(
+    "--theme",
+    type=click.Choice(["auto", "dark", "light", "dark-ansi", "light-ansi"]),
+    default=None,
+    help="UI theme (default: auto, detects terminal background).",
+)
 @click.pass_context
-def main(ctx: click.Context, profile: bool, log_format: str, verbose: bool, json_output: bool) -> None:
+def main(
+    ctx: click.Context,
+    profile: bool,
+    log_format: str,
+    verbose: bool,
+    json_output: bool,
+    theme: str | None,
+) -> None:
     """Open Orchestrator — multi-agent worktree orchestration.
 
     Run 'owt' with no arguments to launch the Switchboard.
     """
     ctx.ensure_object(dict)
     ctx.obj["json"] = json_output
+
+    # Resolve and apply the active theme palette before any UI is built
+    from open_orchestrator.core.theme import set_active_palette
+
+    if theme is None:
+        try:
+            from open_orchestrator.config import load_config
+
+            theme = load_config().theme
+        except Exception:
+            theme = "auto"
+    try:
+        set_active_palette(theme)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    ctx.obj["theme"] = theme
 
     if verbose or log_format == "json":
         from open_orchestrator.utils.logging import configure_logging

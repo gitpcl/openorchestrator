@@ -2,6 +2,10 @@
 
 Extracted from switchboard.py to keep file sizes manageable.
 Provides InputModal, ConfirmModal, DetailModal, and SearchableSelectModal.
+
+Sprint 020: CSS uses Textual ``$variable`` references so the active
+``self.theme`` (textual-dark / textual-light / textual-ansi) controls the
+color scheme without code changes.
 """
 
 from __future__ import annotations
@@ -14,8 +18,6 @@ from textual.containers import Container
 from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, Static
-
-from open_orchestrator.core.theme import COLORS
 
 
 def _darken(hex_color: str, factor: float = 0.7) -> str:
@@ -51,38 +53,38 @@ def _apply_modal_bg(modal: ModalScreen, dialog_id: str) -> None:  # type: ignore
 class InputModal(ModalScreen[str | None]):
     """Modal screen for text input (send, new, broadcast)."""
 
-    DEFAULT_CSS = f"""
-    InputModal {{
+    DEFAULT_CSS = """
+    InputModal {
         align: center middle;
-    }}
-    #input-dialog {{
+    }
+    #input-dialog {
         width: 70;
         max-width: 90%;
         height: auto;
         padding: 1 2;
         border: none;
-        background: {COLORS["surface"]};
-    }}
-    #input-dialog Input {{
+        background: $surface;
+    }
+    #input-dialog Input {
         border: none;
         background: transparent;
-        border-left: tall {COLORS["input_border"]};
+        border-left: tall $accent;
         padding: 0 0 0 1;
         margin: 1 0;
         height: 1;
-    }}
-    #input-dialog Input:focus {{
+    }
+    #input-dialog Input:focus {
         border: none;
-        border-left: tall {COLORS["input_border"]};
-    }}
-    #input-dialog Label {{
+        border-left: tall $accent;
+    }
+    #input-dialog Label {
         margin: 0;
-    }}
-    .modal-hint {{
+    }
+    .modal-hint {
         margin: 0;
         text-style: dim;
-        color: {COLORS["text_secondary"]};
-    }}
+        color: $text-muted;
+    }
     """
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
@@ -112,27 +114,27 @@ class InputModal(ModalScreen[str | None]):
 class ConfirmModal(ModalScreen[bool]):
     """Modal screen for y/N confirmation."""
 
-    DEFAULT_CSS = f"""
-    ConfirmModal {{
+    DEFAULT_CSS = """
+    ConfirmModal {
         align: center middle;
-    }}
-    #confirm-dialog {{
+    }
+    #confirm-dialog {
         width: auto;
         min-width: 40;
         max-width: 70;
         height: auto;
         padding: 1 2;
         border: none;
-        background: {COLORS["surface"]};
-    }}
-    #confirm-dialog Label {{
+        background: $surface;
+    }
+    #confirm-dialog Label {
         margin: 0;
-    }}
-    .modal-hint {{
+    }
+    .modal-hint {
         margin-top: 1;
         text-style: dim;
-        color: {COLORS["text_secondary"]};
-    }}
+        color: $text-muted;
+    }
     """
 
     BINDINGS = [
@@ -163,27 +165,27 @@ class ConfirmModal(ModalScreen[bool]):
 class DetailModal(ModalScreen[None]):
     """Modal screen for detail panels (info, overlap)."""
 
-    DEFAULT_CSS = f"""
-    DetailModal {{
+    DEFAULT_CSS = """
+    DetailModal {
         align: center middle;
-    }}
-    #detail-panel {{
+    }
+    #detail-panel {
         width: 70;
         max-width: 90%;
         max-height: 80%;
         padding: 2 3;
         border: none;
-        background: {COLORS["surface"]};
+        background: $surface;
         overflow-y: auto;
-    }}
-    #detail-panel .modal-title {{
+    }
+    #detail-panel .modal-title {
         text-style: bold;
         margin-bottom: 1;
-    }}
-    #detail-panel .modal-hint {{
+    }
+    #detail-panel .modal-hint {
         margin-top: 1;
         text-style: dim;
-    }}
+    }
     """
 
     BINDINGS = [Binding("escape", "close", "Close", show=False)]
@@ -235,68 +237,68 @@ class SearchableSelectModal(ModalScreen[str | None]):
         self.push_screen(SearchableSelectModal("Pick a worktree", options), on_selected)
     """
 
-    DEFAULT_CSS = f"""
-    SearchableSelectModal {{
+    DEFAULT_CSS = """
+    SearchableSelectModal {
         align: center middle;
-    }}
-    #select-dialog {{
+    }
+    #select-dialog {
         width: 70;
         max-width: 90%;
         height: auto;
         max-height: 60%;
         padding: 1 2;
         border: none;
-        background: {COLORS["surface"]};
-    }}
-    #select-title-row {{
+        background: $surface;
+    }
+    #select-title-row {
         layout: horizontal;
         height: 1;
         margin-bottom: 1;
-    }}
-    #select-title {{
+    }
+    #select-title {
         width: 1fr;
         text-style: bold;
-    }}
-    #select-esc-hint {{
+    }
+    #select-esc-hint {
         width: auto;
-        color: {COLORS["text_secondary"]};
-    }}
-    #select-search {{
+        color: $text-muted;
+    }
+    #select-search {
         margin-bottom: 1;
         border: none;
         background: transparent;
-        border-left: tall {COLORS["input_border"]};
+        border-left: tall $accent;
         padding: 0 0 0 1;
         height: 1;
-    }}
-    #select-search:focus {{
+    }
+    #select-search:focus {
         border: none;
-        border-left: tall {COLORS["input_border"]};
-    }}
-    #select-list {{
+        border-left: tall $accent;
+    }
+    #select-list {
         height: auto;
         max-height: 20;
         overflow-y: auto;
-    }}
-    .select-category {{
-        color: white;
+    }
+    .select-category {
+        color: $text;
         text-style: bold;
         margin-top: 1;
-    }}
-    .select-item {{
+    }
+    .select-item {
         padding: 0 1;
         height: 1;
-    }}
-    .select-item.highlighted {{
-        background: {COLORS["surface_4dp"]};
+    }
+    .select-item.highlighted {
+        background: $boost;
         text-style: bold;
-    }}
-    .select-hint {{
+    }
+    .select-hint {
         margin-top: 1;
         height: 1;
-        color: {COLORS["text_secondary"]};
+        color: $text-muted;
         text-style: dim;
-    }}
+    }
     """
 
     BINDINGS = [

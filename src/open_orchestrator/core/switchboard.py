@@ -175,53 +175,53 @@ class CardGrid(Static):
 class SwitchboardApp(App[None]):
     """Textual app replacing the curses switchboard."""
 
-    CSS = f"""
-    Screen {{
+    CSS = """
+    Screen {
         layout: vertical;
-        background: {COLORS["background"]};
-    }}
-    #header {{
+        background: $background;
+    }
+    #header {
         dock: top;
         width: 1fr;
         height: 1;
         layout: horizontal;
-        background: {COLORS["header_bg"]};
-        color: {COLORS["text_primary"]};
+        background: $panel;
+        color: $text;
         text-style: bold;
         padding: 0 1;
-    }}
-    #header-title {{
+    }
+    #header-title {
         width: auto;
         height: 1;
-    }}
-    #header-stats {{
+    }
+    #header-stats {
         width: 1fr;
         height: 1;
         text-align: right;
-    }}
-    #bottom-bar {{
+    }
+    #bottom-bar {
         dock: bottom;
         width: 1fr;
         height: auto;
-    }}
-    #toast {{
+    }
+    #toast {
         width: 1fr;
         height: 1;
-        background: {COLORS["toast_info"]};
-        color: {COLORS["text_primary"]};
+        background: $primary;
+        color: $text;
         text-style: bold;
         display: none;
-    }}
-    #toast.visible {{
+    }
+    #toast.visible {
         display: block;
-    }}
-    #footer {{
+    }
+    #footer {
         width: 1fr;
         height: 1;
-        background: {COLORS["header_bg"]};
-        color: {COLORS["text_secondary"]};
+        background: $panel;
+        color: $text-muted;
         padding: 0 1;
-    }}
+    }
     """
 
     BINDINGS = [
@@ -301,12 +301,24 @@ class SwitchboardApp(App[None]):
             yield Static(self._build_footer(), id="footer")
 
     def on_mount(self) -> None:
+        # Apply the active theme palette before the first frame renders
+        self._apply_theme()
         # Apply custom background color from env var or config
         self._apply_background_color()
         self.set_interval(TICK_MS / 1000.0, self._on_tick)
         self.set_interval(HEAVY_EVERY * TICK_MS / 1000.0, self._heavy_refresh)
         # Defer first refresh until size is known
         self.call_after_refresh(self._heavy_refresh)
+
+    def _apply_theme(self) -> None:
+        """Apply the Textual built-in theme matching the active palette."""
+        try:
+            from open_orchestrator.core.theme import get_active_palette
+
+            palette = get_active_palette()
+            self.theme = palette.textual_theme
+        except Exception:
+            logger.debug("Theme apply skipped", exc_info=True)
 
     def _apply_background_color(self) -> None:
         """Apply terminal background color (auto-detected, env var, or config)."""
