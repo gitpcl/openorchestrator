@@ -276,6 +276,44 @@ def inject_coordination_context(
     )
 
 
+def inject_recall_section(
+    worktree_path: str | Path,
+    payload: str | None = None,
+    *,
+    worktree_label: str = "global",
+) -> None:
+    """Inject the L0+L1 recall payload into a worktree's CLAUDE.md.
+
+    If ``payload`` is None, fetches the current payload from MemoryStore.
+    Uses atomic write through the shared injection helper so multiple
+    OWT sections stay consistent.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        payload: Pre-built payload string. If None, loaded from MemoryStore.
+        worktree_label: Worktree scope label passed to MemoryStore.
+    """
+    if payload is None:
+        try:
+            from open_orchestrator.core.memory_store import MemoryStore
+
+            store = MemoryStore()
+            try:
+                payload = store.get_l0_l1_payload(worktree=worktree_label)
+            finally:
+                store.close()
+        except Exception as exc:
+            logger.debug("Recall payload unavailable: %s", exc)
+            payload = ""
+
+    _inject_claude_md_section(
+        worktree_path,
+        "RECALL",
+        "Recall (auto-generated)",
+        payload or "",
+    )
+
+
 def build_claude_md_context(
     worktree_path: str | Path,
     *,

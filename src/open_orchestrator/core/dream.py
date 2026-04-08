@@ -285,6 +285,30 @@ class DreamDaemon:
         except Exception as exc:
             logger.debug("Stale detection skipped: %s", exc)
 
+        # 3. KG contradiction detection (Sprint 021)
+        try:
+            from open_orchestrator.core.memory_store import MemoryStore
+
+            store = MemoryStore()
+            try:
+                groups = store.detect_contradictions()
+                for group in groups:
+                    objects = sorted({t.object for t in group.conflicting_triples})
+                    findings.append(
+                        DreamFinding(
+                            category="contradiction",
+                            message=(
+                                f"{group.subject}.{group.predicate}: "
+                                f"{len(group.conflicting_triples)} conflicting values "
+                                f"({', '.join(objects)})"
+                            ),
+                        )
+                    )
+            finally:
+                store.close()
+        except Exception as exc:
+            logger.debug("Contradiction detection skipped: %s", exc)
+
         elapsed = time.monotonic() - start
 
         return DreamReport(

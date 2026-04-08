@@ -278,6 +278,7 @@ class Config(BaseModel):
     critic_enabled: bool = Field(default=True, description="Run critic review before ship/merge")
     dream_idle_seconds: int = Field(default=3600, ge=60, description="Inactivity threshold before dream wakes")
     dream_enabled: bool = Field(default=False, description="Enable dream daemon on startup")
+    recall_enabled: bool = Field(default=True, description="Auto-inject L0+L1 recall payload into CLAUDE.md")
 
     def get_template(self, name: str) -> WorktreeTemplate | None:
         """Get a template by name, checking custom then built-in."""

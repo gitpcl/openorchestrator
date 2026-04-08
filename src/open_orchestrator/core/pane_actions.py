@@ -176,6 +176,15 @@ def _setup_pane_environment(worktree_path: str, repo_path: str, config: object) 
         except Exception as e:
             logger.debug("Project context injection skipped: %s", e)
 
+    # Sprint 021: auto-inject L0+L1 recall payload into CLAUDE.md
+    if getattr(config, "recall_enabled", True):
+        try:
+            from open_orchestrator.core.environment_claude_md import inject_recall_section
+
+            inject_recall_section(worktree_path, worktree_label=Path(worktree_path).name)
+        except Exception as e:
+            logger.debug("Recall injection skipped: %s", e)
+
 
 def _init_pane_tracking(
     worktree: object,

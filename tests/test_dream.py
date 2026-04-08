@@ -155,6 +155,30 @@ class TestConsolidation:
         stale_findings = [f for f in report.findings if f.category == "stale"]
         assert len(stale_findings) == 1
 
+    def test_consolidate_detects_kg_contradictions(self, tmp_path: Path, monkeypatch) -> None:
+        """Dream daemon surfaces KG contradictions as findings (Sprint 021)."""
+        from open_orchestrator.core.memory_store import MemoryStore, MemoryStoreConfig
+
+        # Point the memory store at a temp DB so the daemon picks it up
+        db_path = tmp_path / "recall.db"
+        monkeypatch.setenv("OWT_RECALL_DB_PATH", str(db_path))
+
+        # Seed two conflicting triples
+        store = MemoryStore(MemoryStoreConfig(storage_path=db_path))
+        try:
+            store.kg_add("owt", "version", "0.1.0")
+            store.kg_add("owt", "version", "0.2.0")
+        finally:
+            store.close()
+
+        daemon = DreamDaemon(tmp_path)
+        report = daemon._consolidate()
+
+        contradiction_findings = [f for f in report.findings if f.category == "contradiction"]
+        assert len(contradiction_findings) == 1
+        assert "owt" in contradiction_findings[0].message
+        assert "version" in contradiction_findings[0].message
+
     def test_list_reports_empty(self, tmp_path: Path) -> None:
         daemon = DreamDaemon(tmp_path)
         assert daemon.list_reports() == []

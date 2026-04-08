@@ -1,6 +1,8 @@
-"""Memory commands: add, search, consolidate."""
+"""Memory commands: add, search, consolidate, mine."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import click
 
@@ -141,6 +143,84 @@ def list_memory() -> None:
         }.get(entry.memory_type, "white")
         console.print(f"  [{type_color}]{entry.memory_type.value:13s}[/{type_color}] {entry.name}")
         console.print(f"  [dim]{' ' * 13} {entry.description}[/dim]")
+
+
+@memory_group.command("mine")
+@click.option("--worktree", "-w", default="global", help="Worktree scope label for mined facts.")
+@click.option("--since", default=None, help="Only mine commits since this date (e.g. 2026-01-01).")
+@click.option("--limit", default=100, show_default=True, help="Max commits to scan.")
+@click.option("--no-comments", is_flag=True, help="Skip code-comment scanning (TODO/NOTE/etc).")
+@click.option("--store", is_flag=True, help="Persist mined facts into the recall store.")
+@click.option(
+    "--path",
+    "root_path",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Repository root to mine (defaults to cwd).",
+)
+def mine_memory(
+    worktree: str,
+    since: str | None,
+    limit: int,
+    no_comments: bool,
+    store: bool,
+    root_path: str | None,
+) -> None:
+    """Mine decisions from git history, progress files, and code comments.
+
+    Reads-only by default. Pass --store to persist mined facts into the
+    recall memory store.
+
+    Examples:
+
+        owt memory mine
+
+        owt memory mine --worktree feature/auth --since 2026-01-01
+
+        owt memory mine --store --no-comments
+    """
+    from open_orchestrator.core.memory_miner import FactMiner
+    from open_orchestrator.core.memory_store import MemoryStore
+
+    miner = FactMiner(Path(root_path) if root_path else None)
+    facts = miner.mine_all(
+        worktree=worktree,
+        since=since,
+        limit=limit,
+        include_comments=not no_comments,
+    )
+
+    if not facts:
+        console.print("[dim]No facts mined.[/dim]")
+        return
+
+    by_source: dict[str, int] = {}
+    for fact in facts:
+        prefix = fact.source.split(":", 1)[0]
+        by_source[prefix] = by_source.get(prefix, 0) + 1
+
+    console.print(f"[bold]Mined {len(facts)} fact(s):[/bold]")
+    for prefix, count in sorted(by_source.items()):
+        console.print(f"  [cyan]{prefix}[/cyan]: {count}")
+
+    if store:
+        memstore = MemoryStore()
+        try:
+            persisted = 0
+            for fact in facts:
+                memstore.add_fact(
+                    content=fact.content,
+                    kind=fact.kind,
+                    category=fact.category,
+                    worktree=fact.worktree,
+                    source=fact.source,
+                )
+                persisted += 1
+        finally:
+            memstore.close()
+        console.print(f"[green]Persisted {persisted} fact(s) into recall store.[/green]")
+    else:
+        console.print("[dim]Run with --store to persist facts.[/dim]")
 
 
 def register(main: click.Group) -> None:
