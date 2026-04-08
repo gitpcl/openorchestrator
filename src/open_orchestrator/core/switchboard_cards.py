@@ -102,6 +102,58 @@ class Card:
     overlap_count: int = 0  # number of files overlapping with other worktrees
     overlap_names: list[str] | None = None  # worktree names with overlap
     diff_stat: str = ""  # e.g. "+142 -37"
+    swarm_id: str | None = None  # swarm grouping id (Sprint 018)
+    swarm_role: str | None = None  # role within the swarm (coordinator/researcher/etc)
+
+
+@dataclass
+class SwarmGroup:
+    """A group of cards belonging to the same swarm."""
+
+    swarm_id: str
+    goal: str
+    worktree: str
+    coordinator: Card | None
+    workers: list[Card]
+
+    @property
+    def total_cards(self) -> int:
+        return (1 if self.coordinator else 0) + len(self.workers)
+
+
+def group_cards_by_swarm(
+    cards: list[Card],
+) -> tuple[list[SwarmGroup], list[Card]]:
+    """Split cards into swarm groups + ungrouped leftovers.
+
+    Returns (groups, standalone_cards). A card without swarm_id is returned
+    as standalone. Groups are sorted by swarm_id for stable display order.
+    """
+    from open_orchestrator.core.swarm import SwarmManager  # lazy import to break cycle
+
+    manager = SwarmManager()
+    groups_by_id: dict[str, SwarmGroup] = {}
+    standalone: list[Card] = []
+    for card in cards:
+        if card.swarm_id is None:
+            standalone.append(card)
+            continue
+        if card.swarm_id not in groups_by_id:
+            state = manager.get_swarm(card.swarm_id)
+            groups_by_id[card.swarm_id] = SwarmGroup(
+                swarm_id=card.swarm_id,
+                goal=state.goal if state else "",
+                worktree=state.worktree if state else card.name,
+                coordinator=None,
+                workers=[],
+            )
+        group = groups_by_id[card.swarm_id]
+        if card.swarm_role == "coordinator":
+            group.coordinator = card
+        else:
+            group.workers.append(card)
+    groups = sorted(groups_by_id.values(), key=lambda g: g.swarm_id)
+    return groups, standalone
 
 
 # ---------------------------------------------------------------------------

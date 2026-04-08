@@ -15,6 +15,7 @@ from open_orchestrator.commands import (
     memory_cmd,
     merge_cmds,
     orchestrate_cmds,
+    swarm_cmd,
     worktree,
 )
 
@@ -77,3 +78,4 @@ doctor.register(main)
 memory_cmd.register(main)
 critic_cmd.register(main)
 dream_cmd.register(main)
+swarm_cmd.register(main)
