@@ -73,3 +73,71 @@ class SearchResult(BaseModel):
     line_number: int = Field(default=0, description="Line number of the match")
     line: str = Field(description="Matched line content")
     context: str = Field(default="", description="Surrounding context")
+
+
+class MemoryLayer(str, Enum):
+    """4-layer token-budgeted memory stack.
+
+    L0: Project identity (50 tokens, always loaded)
+    L1: Critical facts AAAK-compressed (200 tokens, always loaded)
+    L2: Topic-scoped facts (on-demand, no fixed budget)
+    L3: Deep storage (search-only, unlimited)
+    """
+
+    L0_IDENTITY = "L0"
+    L1_CRITICAL = "L1"
+    L2_TOPIC = "L2"
+    L3_DEEP = "L3"
+
+
+# Token budgets per layer (4 chars per token heuristic)
+LAYER_BUDGETS: dict[MemoryLayer, int] = {
+    MemoryLayer.L0_IDENTITY: 50,
+    MemoryLayer.L1_CRITICAL: 200,
+    MemoryLayer.L2_TOPIC: 0,  # 0 = no fixed budget
+    MemoryLayer.L3_DEEP: 0,
+}
+
+
+class Fact(BaseModel):
+    """A single recall fact stored in the memory store."""
+
+    id: int | None = Field(default=None, description="Row ID after persistence")
+    worktree: str = Field(description="Worktree the fact is scoped to (or 'global')")
+    category: str = Field(description="Category tag (e.g. auth, db, ci)")
+    kind: MemoryType = Field(description="Classification of the fact")
+    layer: MemoryLayer = Field(description="Memory layer for token budgeting")
+    content: str = Field(description="Full natural-language fact body")
+    aaak: str | None = Field(default=None, description="AAAK-compressed form (L1 only)")
+    token_estimate: int = Field(default=0, description="Token estimate for budgeting")
+    source: str | None = Field(default=None, description="file:line, commit sha, or 'manual'")
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class FactSearchHit(BaseModel):
+    """A single FTS5 search hit with BM25 ranking."""
+
+    fact: Fact = Field(description="The matched fact")
+    rank: float = Field(description="BM25 rank (lower is better)")
+    snippet: str = Field(default="", description="Highlighted snippet from match")
+
+
+class Triple(BaseModel):
+    """A temporal knowledge graph triple."""
+
+    id: int | None = Field(default=None, description="Row ID after persistence")
+    subject: str = Field(description="Subject entity")
+    predicate: str = Field(description="Relationship predicate")
+    object: str = Field(description="Object entity or value")
+    valid_from: datetime = Field(default_factory=datetime.now)
+    valid_to: datetime | None = Field(default=None, description="None means currently valid")
+    source_fact_id: int | None = Field(default=None, description="Optional source fact reference")
+
+
+class ContradictionGroup(BaseModel):
+    """A group of conflicting triples sharing subject+predicate but different objects."""
+
+    subject: str
+    predicate: str
+    conflicting_triples: list[Triple]
