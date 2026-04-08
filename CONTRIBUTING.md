@@ -48,11 +48,15 @@ Please use the [issue templates](https://github.com/gitpcl/openorchestrator/issu
 
 See the [README](README.md#architecture) for the project structure. Key points:
 
-- `cli.py` — all 15 commands live here (click)
-- `core/switchboard.py` — Textual-based card grid UI
+- `cli.py` — minimal entry point; commands live in `commands/` submodules (worktree, agent, merge, orchestrate, memory, swarm, critic, dream, etc.)
+- `core/switchboard.py` — Textual card grid UI; CSS uses native `$variable` references for theme switching
 - `core/status.py` — SQLite + WAL for AI activity tracking
+- `core/memory_store.py` — SQLite + FTS5 recall store + temporal knowledge graph
+- `core/swarm.py` — coordinator + specialist worker orchestration
+- `core/theme.py` — multi-palette system with OSC 11 detection
 - `models/` — Pydantic data models
 - Tests mock tmux via `conftest.py` fixtures (`mock_libtmux_server`, `mock_libtmux_session`)
+- Test suite: 1277+ tests across `tests/`, run with `uv run pytest`
 
 ## License
 

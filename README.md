@@ -14,7 +14,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Features
 
-- **32 commands** — focused CLI surface, no bloat
+- **40+ commands** — focused CLI surface, no bloat
 - **Switchboard UI** — Textual-based card grid with status lights, diff stats, file overlap warnings, and detail panels
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
@@ -27,7 +27,12 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Agent Broadcast** — `owt send --all "Run tests"` fans out instructions to all active agents
 - **Merge Queue** — `owt queue` shows optimal merge order; `owt queue --ship` ships all completed work intelligently
 - **Context Bridge** — `owt note "msg"` shares context across all agent sessions via CLAUDE.md injection
-- **Memory System** — `owt memory add/search/consolidate` stores persistent cross-worktree knowledge with auto-classification and grep-based transcript search
+- **Memory System** — `owt memory add/search/consolidate/list/mine` stores persistent cross-worktree knowledge with auto-classification and grep-based transcript search
+- **Recall** — SQLite + FTS5 backed structured fact store with a 4-layer token-budgeted stack (L0 identity / L1 critical / L2 topics / L3 search), AAAK shorthand compression for L1, a temporal knowledge graph with point-in-time queries, contradiction detection, and `owt memory mine` for git/progress/comment fact extraction. L0+L1 payload auto-injects into CLAUDE.md on every `owt new`. Pure stdlib `sqlite3` — zero new dependencies.
+- **Swarm Mode** — `owt swarm start "goal" -w worktree` launches a coordinator + specialized workers (researcher, implementer, reviewer, tester) in tmux panes within one worktree. Role prompts enforce constraints (researcher/reviewer read-only, tester limited to `tests/`). `owt send --swarm <id> "msg"` broadcasts to every worker.
+- **Critic Pattern** — `owt critic ship|merge|delete <name>` runs a pre-action safety review (file overlaps, uncommitted changes, empty branches, unmerged commits) with denial tracking — falls back to user confirmation after 3 consecutive or 20 total denials per session
+- **Dream Mode** — `owt dream enable` starts a background daemon that periodically wakes to consolidate memory, surface stale worktrees, and detect knowledge-graph contradictions across worktrees; reports saved under `.owt/dream_reports/`
+- **Multi-palette Theming** — auto-detects terminal background via OSC 11 (with `$COLORFGBG` fallback), four palettes (`dark`, `light`, `dark-ansi`, `light-ansi`); switchboard CSS uses native Textual `$variable` references; `--theme` global flag overrides detection
 - **Headless Mode** — `owt new "task" --headless` for CI/CD; `owt wait` polls until agent finishes
 - **One-command setup** — `owt new "task"` does everything: branch → worktree → deps → .env → tmux → AI tool
 - **Quality Gate** — `owt ship` optionally runs AI quality review before merging (with Agno); checks code quality, cross-worktree conflicts
@@ -138,7 +143,20 @@ owt ship auth-jwt
 | `owt memory search "q"` | | Search index, topics, and transcripts |
 | `owt memory consolidate` | | Dedup, prune, and index untracked topics |
 | `owt memory list` | | List all memory entries |
+| `owt memory mine` | | Mine facts from git history, progress files, and code comments |
+| `owt swarm start "goal" -w wt` | | Launch coordinator + specialist workers in a worktree |
+| `owt swarm list` | | List all active swarms |
+| `owt swarm send <id> "msg"` | | Broadcast a message to all workers in a swarm |
+| `owt swarm stop <id>` | | Stop a swarm and kill its worker panes |
+| `owt critic ship|merge|delete <name>` | | Pre-action safety review (overlaps, uncommitted, empty branch) |
+| `owt dream enable` | | Start the background dream daemon |
+| `owt dream disable` | | Stop the dream daemon |
+| `owt dream status` | | Show daemon state and last heartbeat |
+| `owt dream consolidate` | | Run consolidation immediately |
+| `owt dream reports` | | List recent dream reports |
 | `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
+| `owt --theme <name>` | | Override UI theme (auto, dark, light, dark-ansi, light-ansi) |
+| `owt --json <cmd>` | | Machine-readable JSON output for `list`, `queue`, `doctor`, `db health` |
 | `owt version` | | Show version |
 
 ## The Switchboard
@@ -317,6 +335,7 @@ background_color = "#1a1b2e"  # match your terminal background (auto-detected if
 | `OWT_AUTOMATED` | OWT (in orchestrated panes) | Lets user hooks distinguish automated agents from interactive sessions. Check `[ -n "$OWT_AUTOMATED" ]` in hooks to skip restrictions for agents. |
 | `OWT_WORKTREE_NAME` | OWT (in all panes) | Current worktree name. Used by MCP peer servers and hooks for identification. |
 | `OWT_DB_PATH` | OWT hook/MCP wiring or user override | Points hooks, MCP peer servers, and in-process status tracking at the same SQLite DB. If `~/.open-orchestrator/status.db` is not writable, orchestrator/batch fall back to repo-local or temp-backed storage. |
+| `OWT_RECALL_DB_PATH` | User override | Override the recall memory store SQLite path (defaults to `~/.open-orchestrator/recall.db`). |
 | `OWT_BACKGROUND` | OWT (auto-detected) or user override | Terminal background hex color for the switchboard. Auto-detected via OSC 11 at launch; set manually if detection fails. |
 
 ## AI Tool Support
@@ -498,7 +517,7 @@ owt send api-refactor "Focus on the /users endpoint first"
 
 ```bash
 uv pip install -e .
-uv run pytest              # 743+ tests
+uv run pytest              # 1277+ tests
 uv run ruff check src/
 uv run mypy src/
 ```
@@ -516,29 +535,40 @@ Use these slash commands in Claude Code sessions:
 
 ```
 src/open_orchestrator/
-├── cli.py                     # CLI entry point + global options
+├── cli.py                     # CLI entry point + global options (--theme, --json)
 ├── config.py                  # Hierarchical config (TOML) + AgnoConfig + schema validation
 ├── commands/                  # Modular command registration
+│   ├── _shared.py             # Shared helpers (console, managers, formatters)
 │   ├── worktree.py            # new, list, switch, delete
-│   ├── agent.py               # send, wait, note, hook
+│   ├── agent.py               # send (--all/--working/--swarm), wait, note, hook
 │   ├── merge_cmds.py          # merge, ship, queue
 │   ├── orchestrate_cmds.py    # plan, batch, orchestrate
 │   ├── maintenance.py         # sync, cleanup, version
 │   ├── config_cmd.py          # config validate, config show
 │   ├── db_cmd.py              # db purge, db vacuum, db health
-│   └── doctor.py              # doctor diagnostic command
+│   ├── doctor.py              # doctor diagnostic command
+│   ├── memory_cmd.py          # memory add/search/consolidate/list/mine
+│   ├── critic_cmd.py          # critic ship/merge/delete (pre-action safety review)
+│   ├── dream_cmd.py           # dream enable/disable/status/consolidate/reports
+│   └── swarm_cmd.py           # swarm start/list/stop/send
 ├── core/
 │   ├── switchboard.py         # Textual card grid UI (async polling, modal screens, broadcast)
+│   ├── switchboard_cards.py   # Card data, status detection, swarm grouping (SwarmGroup)
+│   ├── switchboard_modals.py  # Input/Confirm/Detail/SearchableSelect modals (Textual $variable CSS)
+│   ├── switchboard_tmux.py    # Switchboard tmux session lifecycle + global keybindings
 │   ├── intelligence.py        # Agno intelligence layer (planner, quality gate, conflict resolver, coordinator)
 │   ├── orchestrator.py        # Orchestrator agent (plan → execute → merge → feature branch)
-│   ├── prompt_builder.py      # Context-aware prompt builder (task-type detection, budget-aware assembly)
+│   ├── prompt_builder.py      # Context-aware prompt builder (task-type + swarm role templates)
 │   ├── tool_protocol.py       # AIToolProtocol + CustomTool (plugin interface)
 │   ├── tool_registry.py       # Singleton tool registry (discover, register, look up AI tools)
+│   ├── tool_search.py         # Deferred tool loading (token budget, lazy MCP)
 │   ├── worktree.py            # Git worktree CRUD
 │   ├── tmux_manager.py        # tmux session management
 │   ├── merge.py               # Two-phase merge + merge queue + conflict guard + AI resolution
 │   ├── batch.py               # Autopilot loop + DAG scheduler + AI planner (Agno or subprocess)
-│   ├── environment.py         # Deps, .env, CLAUDE.md, shared notes injection
+│   ├── batch_models.py        # Pydantic batch task models
+│   ├── environment.py         # Deps, .env install
+│   ├── environment_claude_md.py # CLAUDE.md sync, atomic injection (recall, project, DAG, coordination)
 │   ├── status.py              # AI activity tracking (SQLite + WAL)
 │   ├── hooks.py               # AI tool hook installer (status push + MCP config)
 │   ├── mcp_peer.py            # MCP peer communication server (optional)
@@ -546,20 +576,36 @@ src/open_orchestrator/
 │   ├── sync.py                # Upstream sync
 │   ├── branch_namer.py        # Task → branch name
 │   ├── project_detector.py    # Auto-detect project type
-│   ├── pane_actions.py        # Create/remove orchestration
+│   ├── pane_actions.py        # Create/remove orchestration (PaneTransaction)
+│   ├── runtime.py             # Task completion evaluation (commits, tmux, grace periods)
 │   ├── agent_detector.py      # Detect installed AI tools
-│   └── theme.py               # Centralized color constants (Material Design 2)
+│   ├── memory.py              # MemoryManager (MEMORY.md index, topic files, grep search)
+│   ├── memory_store.py        # SQLite + FTS5 recall store + temporal knowledge graph
+│   ├── memory_miner.py        # FactMiner — git log, progress files, code-comment extraction
+│   ├── aaak.py                # AAAK shorthand encoder/decoder for L1 critical facts
+│   ├── critic.py              # CriticAgent (pre-action safety: overlaps, uncommitted, empty branch)
+│   ├── denial_tracker.py      # Denial tracking (SQLite, consecutive/total thresholds)
+│   ├── dream.py               # DreamDaemon (background consolidation, KG contradictions)
+│   ├── compaction.py          # Context compaction (snip, microcompact, reactive_compact)
+│   ├── subagent.py            # SubagentManager (fork-join, context inheritance, timeout)
+│   ├── swarm.py               # SwarmManager (coordinator + specialist workers)
+│   └── theme.py               # Multi-palette theme system (dark/light/dark-ansi/light-ansi)
 ├── models/
 │   ├── intelligence.py        # Agno structured output models (TaskPlan, QualityVerdict, etc.)
 │   ├── worktree_info.py       # Worktree models
 │   ├── project_config.py      # Project config models
 │   ├── maintenance.py         # Cleanup/sync models
-│   └── status.py              # AI status models
-├── popup/                     # tmux popup picker
+│   ├── status.py              # AI status models
+│   ├── memory.py              # MemoryType, MemoryLayer, Fact, Triple, ContradictionGroup
+│   ├── subagent.py            # SubagentRole, SubagentState, ForkJoinRequest
+│   ├── compaction.py          # Message, MessageRole, CompactionResult
+│   └── swarm.py               # SwarmRole, SwarmWorker, SwarmState, SwarmWorkerStatus
+├── popup/                     # tmux popup picker (theme-aware curses)
 ├── skills/                    # Claude Code skill definition
 └── utils/
     ├── io.py                  # Safe file I/O
     ├── logging.py             # Structured logging (correlation IDs, JSON output)
+    ├── output.py              # OutputFormatter (Rich + JSON envelope)
     └── lazy.py                # LazyModule proxy for deferred imports
 ```
 
