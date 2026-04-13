@@ -573,10 +573,12 @@ class SwitchboardApp(App[None]):
         """Run a shell command in the background without suspending the UI."""
         self._show_toast(toast_msg)
         try:
+            cwd = str(self._wt_manager.git_root) if self._wt_manager else None
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
             )
             _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=SHELL_TIMEOUT)
             if proc.returncode == 0:

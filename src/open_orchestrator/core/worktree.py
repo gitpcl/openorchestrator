@@ -253,8 +253,18 @@ class WorktreeManager:
                 if not base_branch and getattr(self.repo, "head", None) and self.repo.head.is_detached:
                     raise WorktreeError("Detached HEAD detected. Specify a base branch with --base to create the new branch.")
                 base = base_branch or self.repo.active_branch.name
-                # Use -- to separate options from arguments
-                self.repo.git.worktree("add", "-b", branch, str(worktree_path), base)
+                try:
+                    base_sha = self.repo.git.rev_parse("--verify", base)
+                except GitCommandError as e:
+                    # Probe HEAD to distinguish empty repo from bad branch name
+                    if not self._repo_has_commits():
+                        raise WorktreeError(
+                            "Repository has no commits yet. Create an initial commit before adding worktrees."
+                        ) from e
+                    raise WorktreeError(
+                        f"Base branch '{base}' cannot be resolved. Ensure the branch exists or specify a valid base with --base."
+                    ) from e
+                self.repo.git.worktree("add", "-b", branch, str(worktree_path), "--", base_sha)
 
         except GitCommandError as e:
             raise WorktreeError(f"Failed to create worktree: {e.stderr}") from e
@@ -308,6 +318,14 @@ class WorktreeManager:
             overrides["auto_commands"] = template.auto_commands
 
         return overrides
+
+    def _repo_has_commits(self) -> bool:
+        """Check whether the repository has at least one commit."""
+        try:
+            self.repo.git.rev_parse("HEAD")
+            return True
+        except GitCommandError:
+            return False
 
     def _branch_exists(self, branch: str) -> bool:
         """
