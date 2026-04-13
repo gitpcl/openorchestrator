@@ -9,6 +9,7 @@ import time
 import click
 
 from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
+from open_orchestrator.core import status_policy
 from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
@@ -118,7 +119,6 @@ def wait_for_worktree(worktree_name: str, timeout: int, poll: int, json_output: 
     tracker = get_status_tracker()
     elapsed = 0
     status: WorktreeAIStatus | None = None
-    terminal_states = {AIActivityStatus.WAITING, AIActivityStatus.COMPLETED, AIActivityStatus.ERROR}
 
     while elapsed < timeout:
         tracker.reload()
@@ -126,7 +126,7 @@ def wait_for_worktree(worktree_name: str, timeout: int, poll: int, json_output: 
         if not status:
             raise click.ClickException(f"No status found for '{worktree_name}'")
 
-        if status.activity_status in terminal_states:
+        if status_policy.is_terminal(status.activity_status):
             if json_output:
                 console.print(
                     json.dumps(

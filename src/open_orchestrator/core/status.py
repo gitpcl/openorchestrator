@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from open_orchestrator.config import AITool
+from open_orchestrator.core import status_policy
 from open_orchestrator.models.status import (
     AIActivityStatus,
     StatusSummary,
@@ -489,11 +490,12 @@ class StatusTracker:
         )
 
         for status in all_statuses:
-            if status.activity_status == AIActivityStatus.WORKING:
+            bucket = status_policy.summary_bucket(status.activity_status)
+            if bucket == "active":
                 summary.active_ai_sessions += 1
-            elif status.activity_status in (AIActivityStatus.IDLE, AIActivityStatus.WAITING, AIActivityStatus.COMPLETED):
+            elif bucket == "idle":
                 summary.idle_ai_sessions += 1
-            elif status.activity_status in (AIActivityStatus.BLOCKED, AIActivityStatus.ERROR):
+            elif bucket == "blocked":
                 summary.blocked_ai_sessions += 1
             else:
                 summary.unknown_status += 1

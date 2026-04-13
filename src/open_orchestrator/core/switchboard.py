@@ -29,6 +29,7 @@ from textual.containers import Container
 from textual.widgets import Static
 
 from open_orchestrator.config import AITool
+from open_orchestrator.core import status_policy
 from open_orchestrator.core.status import StatusTracker, runtime_status_config
 from open_orchestrator.core.switchboard_cards import (
     _ALLOW_PROMPT_RE,  # noqa: F401
@@ -415,8 +416,8 @@ class SwitchboardApp(App[None]):
     def _update_header(self) -> None:
         """Update the header stats (right side). Title is static."""
         cards = self._cards
-        active = sum(1 for c in cards if c.status == AIActivityStatus.WORKING)
-        waiting = sum(1 for c in cards if c.status in (AIActivityStatus.WAITING, AIActivityStatus.BLOCKED))
+        active = sum(1 for c in cards if status_policy.ui_bucket(c.status) == "active")
+        waiting = sum(1 for c in cards if status_policy.ui_bucket(c.status) == "waiting")
         total = len(cards)
         idle = total - active - waiting
         overlaps = sum(1 for c in cards if c.overlap_count > 0)

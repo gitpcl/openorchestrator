@@ -9,6 +9,7 @@ from enum import Enum
 
 from git import Repo
 
+from open_orchestrator.core import status_policy
 from open_orchestrator.core.merge import MergeManager
 from open_orchestrator.core.tmux_manager import TmuxManager
 from open_orchestrator.models.status import AIActivityStatus
@@ -104,7 +105,14 @@ class TaskRuntimeCoordinator:
         min_agent_runtime: float,
     ) -> RuntimeDecision:
         """Evaluate whether a running task should stay running, complete, or fail."""
-        if activity_status in (AIActivityStatus.WAITING, AIActivityStatus.COMPLETED):
+        if status_policy.is_terminal(activity_status):
+            if activity_status == AIActivityStatus.ERROR:
+                return RuntimeDecision(
+                    outcome=RuntimeOutcome.FAILED,
+                    classification="agent_error",
+                    elapsed_seconds=elapsed_seconds,
+                    reason=f"Agent reported error after {int(elapsed_seconds)}s",
+                )
             return RuntimeDecision(
                 outcome=RuntimeOutcome.COMPLETED,
                 classification="hook_completed",
@@ -112,15 +120,7 @@ class TaskRuntimeCoordinator:
                 reason=f"Agent reported completion after {int(elapsed_seconds)}s",
             )
 
-        if activity_status == AIActivityStatus.ERROR:
-            return RuntimeDecision(
-                outcome=RuntimeOutcome.FAILED,
-                classification="agent_error",
-                elapsed_seconds=elapsed_seconds,
-                reason=f"Agent reported error after {int(elapsed_seconds)}s",
-            )
-
-        if activity_status != AIActivityStatus.WORKING:
+        if not status_policy.is_working(activity_status):
             return RuntimeDecision(
                 outcome=RuntimeOutcome.RUNNING,
                 classification="non_working_status",

@@ -20,6 +20,7 @@ from pathlib import Path
 import toml
 
 from open_orchestrator.config import AITool
+from open_orchestrator.core import status_policy
 from open_orchestrator.core.batch_models import (
     BatchConfig,
     BatchFileModel,
@@ -556,11 +557,12 @@ class BatchRunner:
             status = self.tracker.get_status(result.worktree_name)
             if not status:
                 still_running.append(idx)
-            elif status.activity_status in (AIActivityStatus.WAITING, AIActivityStatus.COMPLETED):
-                self._complete_task(idx, result)
-            elif status.activity_status == AIActivityStatus.ERROR:
-                result.status = BatchStatus.FAILED
-                result.error = "Agent reported error"
+            elif status_policy.is_terminal(status.activity_status):
+                if status.activity_status == AIActivityStatus.ERROR:
+                    result.status = BatchStatus.FAILED
+                    result.error = "Agent reported error"
+                else:
+                    self._complete_task(idx, result)
             else:
                 self._evaluate_running_task(idx, result, status, still_running)
         return still_running
