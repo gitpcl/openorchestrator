@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from open_orchestrator.config import AITool
 from open_orchestrator.core import status_policy
 from open_orchestrator.models.status import (
     AIActivityStatus,
@@ -368,17 +367,15 @@ class StatusTracker:
         worktree_path: str,
         branch: str,
         tmux_session: str | None = None,
-        ai_tool: AITool | str = AITool.CLAUDE,
+        ai_tool: str = "claude",
     ) -> WorktreeAIStatus:
         """Initialize status tracking for a new worktree."""
-        ai_tool_str = ai_tool.value if isinstance(ai_tool, AITool) else ai_tool
-
         status = WorktreeAIStatus(
             worktree_name=worktree_name,
             worktree_path=worktree_path,
             branch=branch,
             tmux_session=tmux_session,
-            ai_tool=ai_tool_str,
+            ai_tool=ai_tool,
             activity_status=AIActivityStatus.IDLE,
             created_at=datetime.now(),
             updated_at=datetime.now(),

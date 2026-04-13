@@ -19,7 +19,6 @@ from pathlib import Path
 
 import toml
 
-from open_orchestrator.config import AITool
 from open_orchestrator.core import status_policy
 from open_orchestrator.core.batch_models import (
     BatchConfig,
@@ -35,6 +34,7 @@ from open_orchestrator.core.pane_actions import PaneActionError, build_agent_pro
 from open_orchestrator.core.runtime import RuntimeOutcome, TaskRuntimeCoordinator
 from open_orchestrator.core.status import StatusTracker, runtime_status_config
 from open_orchestrator.core.tmux_manager import TmuxManager
+from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.models.status import AIActivityStatus
 
 logger = logging.getLogger(__name__)
@@ -624,9 +624,7 @@ class BatchRunner:
                 branch = f"batch/task-{idx}"
 
         try:
-            try:
-                ai_tool_enum = AITool(task.ai_tool)
-            except ValueError:
+            if get_registry().get(task.ai_tool) is None:
                 result.status = BatchStatus.FAILED
                 result.error = f"Unknown ai_tool: {task.ai_tool!r}"
                 return
@@ -639,7 +637,7 @@ class BatchRunner:
                 session_name=f"batch-{idx}",
                 repo_path=self.repo_path,
                 branch=branch,
-                ai_tool=ai_tool_enum,
+                ai_tool=task.ai_tool,
                 plan_mode=task.plan_mode,
                 ai_instructions=build_agent_prompt(task.description, retry_context),
                 display_task=task.description,

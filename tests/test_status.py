@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from open_orchestrator.config import AITool
 from open_orchestrator.core.status import StatusConfig, StatusTracker, runtime_status_config
 from open_orchestrator.models.status import AIActivityStatus
 
@@ -137,7 +136,7 @@ class TestInitializeStatus:
             worktree_name="droid-worktree",
             worktree_path="/path/to/droid-worktree",
             branch="feature/droid",
-            ai_tool=AITool.DROID,
+            ai_tool="droid",
         )
         assert status.ai_tool == "droid"
 

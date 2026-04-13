@@ -18,7 +18,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from open_orchestrator.config import AITool
 from open_orchestrator.core.status import default_status_path
 
 logger = logging.getLogger(__name__)
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 def install_hooks(
     worktree_path: Path,
     worktree_name: str,
-    ai_tool: AITool,
+    ai_tool: str,
     db_path: str | Path | None = None,
 ) -> bool:
     """Install status-reporting hooks for the given AI tool.
@@ -35,17 +34,17 @@ def install_hooks(
     Args:
         worktree_path: Path to the worktree directory.
         worktree_name: Name of the worktree (used in hook commands).
-        ai_tool: Which AI tool to configure hooks for.
+        ai_tool: Registered tool name (e.g. "claude", "droid").
 
     Returns:
         True if hooks were installed, False if tool is unsupported.
     """
-    if ai_tool == AITool.CLAUDE:
-        return _install_claude_hooks(worktree_path, worktree_name, db_path=db_path)
-    if ai_tool == AITool.DROID:
-        return _install_droid_hooks(worktree_path, worktree_name, db_path=db_path)
-    # OpenCode: no hook system, falls back to pane scraping
-    return False
+    from open_orchestrator.core.tool_registry import get_registry
+
+    tool = get_registry().get(ai_tool)
+    if tool is None or not tool.supports_hooks:
+        return False
+    return tool.install_hooks(worktree_path, worktree_name, db_path=db_path)
 
 
 def _owt_path() -> str:
@@ -54,7 +53,7 @@ def _owt_path() -> str:
     return path or "owt"
 
 
-def _install_claude_hooks(
+def install_claude_hooks(
     worktree_path: Path,
     worktree_name: str,
     db_path: str | Path | None = None,
@@ -149,7 +148,7 @@ def _install_claude_hooks(
     return True
 
 
-def _install_droid_hooks(
+def install_droid_hooks(
     worktree_path: Path,
     worktree_name: str,
     db_path: str | Path | None = None,

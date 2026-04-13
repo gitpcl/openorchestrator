@@ -10,13 +10,11 @@ Loads configuration from .worktreerc files in the following priority:
 """
 
 import logging
-import shlex
-import shutil
 from enum import Enum
 from pathlib import Path
 
 import toml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -33,125 +31,6 @@ class DroidAutoLevel(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
-
-
-class AITool(str, Enum):
-    """Supported AI coding tools."""
-
-    CLAUDE = "claude"
-    OPENCODE = "opencode"
-    DROID = "droid"
-
-    @classmethod
-    def get_binary_name(cls, tool: "AITool") -> str:
-        """Get the binary/executable name for an AI tool."""
-        return tool.value
-
-    @classmethod
-    def supports_headless(cls, tool: "AITool") -> bool:
-        """Whether the tool can run non-interactively for CI/headless mode.
-
-        Requires both a non-interactive execution mode (e.g. Claude's ``-p``)
-        and a hook mechanism to report status back to ``owt``.
-        """
-        return tool == cls.CLAUDE
-
-    @classmethod
-    def get_known_paths(cls, tool: "AITool") -> list[Path]:
-        """Get known installation paths for an AI tool."""
-        home = Path.home()
-        paths: dict[AITool, list[Path]] = {
-            cls.CLAUDE: [
-                home / ".claude" / "local" / "claude",
-            ],
-            cls.OPENCODE: [
-                home / "go" / "bin" / "opencode",
-                home / ".local" / "bin" / "opencode",
-            ],
-            cls.DROID: [
-                home / ".local" / "bin" / "droid",
-                Path("/usr/local/bin/droid"),
-            ],
-        }
-        return paths.get(tool, [])
-
-    @classmethod
-    def get_command(
-        cls,
-        tool: "AITool",
-        executable_path: str | None = None,
-        droid_auto: DroidAutoLevel | None = None,
-        droid_skip_permissions: bool = False,
-        opencode_config: str | None = None,
-        plan_mode: bool = False,
-        prompt: str | None = None,
-    ) -> str:
-        """Get the shell command for an AI tool with options.
-
-        Args:
-            prompt: If provided, run in non-interactive (print) mode.
-                    The tool executes the prompt and exits automatically.
-        """
-        binary = shlex.quote(executable_path) if executable_path else tool.value
-
-        if tool == cls.CLAUDE:
-            cmd_parts = [binary]
-            if plan_mode:
-                cmd_parts.append("--permission-mode plan")
-            else:
-                cmd_parts.append("--dangerously-skip-permissions")
-            if prompt:
-                # -p (print mode) without inline prompt — caller pipes
-                # the prompt via stdin from a temp file to avoid tmux
-                # send-keys buffer truncation on long prompts.
-                cmd_parts.append("-p")
-            return " ".join(cmd_parts)
-
-        if tool == cls.DROID:
-            cmd_parts = [binary]
-            if droid_auto:
-                cmd_parts.append(f"--auto {shlex.quote(droid_auto.value)}")
-            cmd_parts.append("--skip-permissions-unsafe")
-            return " ".join(cmd_parts)
-
-        if tool == cls.OPENCODE and opencode_config:
-            quoted = shlex.quote(opencode_config)
-            return f"OPENCODE_CONFIG={quoted} {binary}"
-
-        return binary
-
-    @classmethod
-    def is_installed(cls, tool: "AITool") -> bool:
-        """Check if an AI tool is installed on the system."""
-        binary = cls.get_binary_name(tool)
-        if shutil.which(binary) is not None:
-            return True
-        for path in cls.get_known_paths(tool):
-            if path.exists() and path.is_file():
-                return True
-        return False
-
-    @classmethod
-    def get_executable_path(cls, tool: "AITool") -> str | None:
-        """Get the actual executable path for an AI tool."""
-        binary = cls.get_binary_name(tool)
-        path_binary = shutil.which(binary)
-        if path_binary:
-            return path_binary
-        for path in cls.get_known_paths(tool):
-            if path.exists() and path.is_file():
-                return str(path)
-        return None
-
-    @classmethod
-    def get_install_hint(cls, tool: "AITool") -> str:
-        """Get installation hint for an AI tool."""
-        hints = {
-            cls.CLAUDE: "Install Claude Code: npm install -g @anthropic-ai/claude-code",
-            cls.OPENCODE: "Install OpenCode: go install github.com/opencode-ai/opencode@latest",
-            cls.DROID: "Install Droid: See https://docs.factory.ai/cli",
-        }
-        return hints.get(tool, f"Please install {tool.value} manually")
 
 
 class AgnoConfig(BaseModel):
@@ -203,8 +82,19 @@ class WorktreeTemplate(BaseModel):
     name: str = Field(..., description="Template name")
     description: str = Field(..., description="Template description")
     base_branch: str | None = Field(default=None, description="Default base branch")
-    ai_tool: AITool | None = Field(default=None, description="AI tool to use")
+    ai_tool: str | None = Field(default=None, description="AI tool to use (registered name)")
     ai_instructions: str | None = Field(default=None, description="Instructions to send to AI")
+
+    @field_validator("ai_tool")
+    @classmethod
+    def _validate_ai_tool(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from open_orchestrator.core.tool_registry import get_registry
+
+        if get_registry().get(v) is None:
+            raise ValueError(f"Unknown AI tool '{v}'. Registered: {get_registry().list_names()}")
+        return v
     plan_mode: bool = Field(default=False, description="Start Claude in plan mode")
     install_deps: bool | None = Field(default=None, description="Override auto_install_deps")
     tmux_layout: str | None = Field(default=None, description="Default tmux layout")
@@ -229,7 +119,16 @@ class TmuxConfig(BaseModel):
 
     default_layout: str = Field(default="single", description="Default tmux pane layout")
     auto_start_ai: bool = Field(default=True, description="Automatically start AI tool in new sessions")
-    ai_tool: AITool = Field(default=AITool.CLAUDE, description="AI coding tool to start")
+    ai_tool: str = Field(default="claude", description="AI coding tool to start (registered name)")
+
+    @field_validator("ai_tool")
+    @classmethod
+    def _validate_ai_tool(cls, v: str) -> str:
+        from open_orchestrator.core.tool_registry import get_registry
+
+        if get_registry().get(v) is None:
+            raise ValueError(f"Unknown AI tool '{v}'. Registered: {get_registry().list_names()}")
+        return v
     session_prefix: str = Field(default="owt", description="Prefix for tmux session names")
     mouse_mode: bool = Field(default=True, description="Enable mouse support")
     prefix_key: str = Field(default="C-a", description="tmux prefix key for owt sessions")
@@ -307,7 +206,7 @@ def get_builtin_templates() -> dict[str, WorktreeTemplate]:
             name="feature",
             description="Full feature development - plan first, implement with tests",
             base_branch="develop",
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             ai_instructions=(
                 "Follow this workflow: 1) Plan the implementation, 2) Write tests first (TDD), "
                 "3) Implement feature, 4) Document as you go"
@@ -319,7 +218,7 @@ def get_builtin_templates() -> dict[str, WorktreeTemplate]:
             name="bugfix",
             description="Quick bugfix workflow - identify root cause, minimal changes",
             base_branch="main",
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             ai_instructions=(
                 "Focus on: 1) Identifying root cause, 2) Writing tests that reproduce the bug, 3) Minimal code changes to fix"
             ),
@@ -329,7 +228,7 @@ def get_builtin_templates() -> dict[str, WorktreeTemplate]:
             name="hotfix",
             description="Emergency production fix - fast, focused, minimal risk",
             base_branch="main",
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             ai_instructions="HOTFIX MODE: 1) Minimal changes only, 2) Must include test, 3) Focus on production stability",
             tags=["urgent", "production"],
         ),

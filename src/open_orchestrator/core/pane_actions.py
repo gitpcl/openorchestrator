@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from open_orchestrator.config import AITool, load_config
+from open_orchestrator.config import load_config
 from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
 from open_orchestrator.core.project_detector import ProjectDetector
 from open_orchestrator.core.status import (
@@ -32,7 +32,7 @@ class PaneResult:
     worktree_path: str
     branch: str
     pane_index: int
-    ai_tool: AITool
+    ai_tool: str
 
 
 class PaneActionError(Exception):
@@ -188,7 +188,7 @@ def _setup_pane_environment(worktree_path: str, repo_path: str, config: object) 
 
 def _init_pane_tracking(
     worktree: object,
-    ai_tool: AITool,
+    ai_tool: str,
     tmux_session_name: str,
     repo_path: str,
     ai_instructions: str | None,
@@ -240,7 +240,7 @@ def create_pane(
     repo_path: str,
     branch: str,
     base_branch: str | None = None,
-    ai_tool: AITool = AITool.CLAUDE,
+    ai_tool: str = "claude",
     template_name: str | None = None,
     plan_mode: bool = False,
     ai_instructions: str | None = None,
@@ -276,7 +276,7 @@ def create_pane(
         PaneActionError: If any step fails fatally.
     """
     config = load_config()
-    ai_tool_enum = ai_tool
+    ai_tool_name = ai_tool
     txn = PaneTransaction(repo_path=repo_path)
 
     # Check for duplicate
@@ -296,7 +296,7 @@ def create_pane(
             if not ai_instructions:
                 ai_instructions = tmpl.ai_instructions
             if tmpl.ai_tool:
-                ai_tool_enum = tmpl.ai_tool
+                ai_tool_name = tmpl.ai_tool
 
     try:
         # 1. Create the worktree
@@ -319,7 +319,7 @@ def create_pane(
             tmux_session = tmux_manager.create_worktree_session(
                 worktree_name=worktree.name,
                 worktree_path=str(worktree.path),
-                ai_tool=ai_tool_enum,
+                ai_tool=ai_tool_name,
                 plan_mode=plan_mode,
                 automated=bool(ai_instructions),
             )
@@ -331,7 +331,7 @@ def create_pane(
         # 4-5. Install hooks + initialize status
         _init_pane_tracking(
             worktree=worktree,
-            ai_tool=ai_tool_enum,
+            ai_tool=ai_tool_name,
             tmux_session_name=tmux_session.session_name,
             repo_path=repo_path,
             ai_instructions=ai_instructions,
@@ -367,7 +367,7 @@ def create_pane(
         worktree_path=str(worktree.path),
         branch=worktree.branch,
         pane_index=pane_index,
-        ai_tool=ai_tool_enum,
+        ai_tool=str(ai_tool_name),
     )
 
 

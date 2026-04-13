@@ -28,7 +28,6 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.widgets import Static
 
-from open_orchestrator.config import AITool
 from open_orchestrator.core import status_policy
 from open_orchestrator.core.status import StatusTracker, runtime_status_config
 from open_orchestrator.core.switchboard_cards import (
@@ -290,7 +289,7 @@ class SwitchboardApp(App[None]):
         # Transient state for new-worktree modal flow
         self._new_wt_task: str = ""
         self._new_wt_branch: str = ""
-        self._new_wt_tool: AITool = AITool.CLAUDE
+        self._new_wt_tool: str = "claude"
 
     def compose(self) -> ComposeResult:
         with Container(id="header"):
@@ -560,12 +559,12 @@ class SwitchboardApp(App[None]):
             self._new_wt_tool = installed[0]
             self._do_create_worktree()
         else:
-            options = [SelectOption(value=t.value, label=t.value, category="Detected") for t in installed]
+            options = [SelectOption(value=name, label=name, category="Detected") for name in installed]
 
             def _on_tool(tool_value: str | None) -> None:
                 if not tool_value:
                     return
-                self._new_wt_tool = AITool(tool_value)
+                self._new_wt_tool = tool_value
                 self._do_create_worktree()
 
             self.push_screen(SearchableSelectModal("Select AI tool", options), _on_tool)
@@ -600,7 +599,7 @@ class SwitchboardApp(App[None]):
         """Create worktree via owt new subprocess."""
         task = self._new_wt_task
         ai_tool = self._new_wt_tool
-        cmd = ["owt", "new", task, "--yes", "--ai-tool", ai_tool.value]
+        cmd = ["owt", "new", task, "--yes", "--ai-tool", ai_tool]
         self.run_worker(self._run_shell_bg(cmd, "Creating worktree..."))
 
     def _confirm_and_shell(self, prompt: str, cmd: list[str]) -> None:

@@ -795,14 +795,14 @@ class TestGetTemplateConfig:
 
     def test_get_template_config_includes_all_populated_fields(self, git_repo: Path) -> None:
         """get_template_config includes all non-None optional fields from the template."""
-        from open_orchestrator.config import AITool, WorktreeTemplate
+        from open_orchestrator.config import WorktreeTemplate
 
         manager = WorktreeManager(git_repo)
         full_template = WorktreeTemplate(
             name="full",
             description="Full template",
             base_branch="develop",
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             tmux_layout="main-vertical",
             plan_mode=True,
             install_deps=False,

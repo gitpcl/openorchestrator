@@ -98,6 +98,31 @@ class TestCustomTool:
         tool = CustomTool(name="test", binary="test", supports_hooks=True)
         assert tool.supports_hooks is True
 
+    def test_default_supports_headless_is_false(self) -> None:
+        tool = CustomTool(name="test", binary="test")
+        assert tool.supports_headless is False
+
+    def test_default_supports_plan_mode_is_false(self) -> None:
+        tool = CustomTool(name="test", binary="test")
+        assert tool.supports_plan_mode is False
+
+    def test_capability_flags_configurable(self) -> None:
+        tool = CustomTool(
+            name="test",
+            binary="test",
+            supports_hooks=True,
+            supports_headless=True,
+            supports_plan_mode=True,
+        )
+        assert tool.supports_hooks is True
+        assert tool.supports_headless is True
+        assert tool.supports_plan_mode is True
+
+    def test_custom_tool_install_hooks_returns_false(self, tmp_path: Path) -> None:
+        """Custom tools never install built-in hooks."""
+        tool = CustomTool(name="test", binary="test", supports_hooks=True)
+        assert tool.install_hooks(tmp_path, "name") is False
+
 
 # ---------------------------------------------------------------------------
 # ToolRegistry
@@ -188,6 +213,41 @@ class TestBuiltinRegistration:
         """Module-level singleton should have builtins pre-registered."""
         reg = get_registry()
         assert "claude" in reg.list_names()
+
+    def test_claude_supports_headless_and_plan_mode(self) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        tool = reg.require("claude")
+        assert tool.supports_headless is True
+        assert tool.supports_plan_mode is True
+
+    def test_droid_does_not_support_headless(self) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        tool = reg.require("droid")
+        assert tool.supports_headless is False
+
+    def test_extras_registered(self) -> None:
+        """Extra tools (codex, aider, etc.) should be registered."""
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        for extra in ("codex", "gemini-cli", "aider", "amp", "kilo-code"):
+            assert reg.get(extra) is not None, f"{extra} not registered"
+
+    def test_require_raises_on_missing(self) -> None:
+        reg = ToolRegistry()
+        import pytest as _pytest
+
+        with _pytest.raises(KeyError):
+            reg.require("nonexistent")
+
+    def test_claude_plan_mode_command(self) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        tool = reg.require("claude")
+        cmd = tool.get_command(plan_mode=True, prompt="plan this")
+        assert "--permission-mode plan" in cmd
+        assert "-p" in cmd
 
 
 # ---------------------------------------------------------------------------

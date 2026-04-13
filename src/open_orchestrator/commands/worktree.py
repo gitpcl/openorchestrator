@@ -13,7 +13,9 @@ import click
 from rich.table import Table
 
 from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
-from open_orchestrator.config import AITool, load_config
+from open_orchestrator.config import load_config
+from open_orchestrator.core.tool_protocol import AIToolProtocol
+from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.core.worktree import (
     WorktreeError,
     WorktreeNotFoundError,
@@ -33,15 +35,14 @@ def _resolve_ai_tool(ai_tool: str | None) -> str:
     installed = detect_installed_agents()
     if len(installed) == 0:
         raise click.ClickException("No AI coding tools found. Install claude, opencode, or droid.")
-    elif len(installed) == 1:
-        return installed[0].value
-    else:
-        console.print("\n[bold]Detected AI tools:[/bold]")
-        tool_names = [t.value for t in installed]
-        for i, tool in enumerate(installed, 1):
-            console.print(f"  {i}. {tool.value}")
-        choice: int = click.prompt("Select AI tool", type=click.IntRange(1, len(installed)), default=1)
-        return tool_names[choice - 1]
+    if len(installed) == 1:
+        return installed[0]
+
+    console.print("\n[bold]Detected AI tools:[/bold]")
+    for i, name in enumerate(installed, 1):
+        console.print(f"  {i}. {name}")
+    choice: int = click.prompt("Select AI tool", type=click.IntRange(1, len(installed)), default=1)
+    return installed[choice - 1]
 
 
 def _resolve_branch(
@@ -94,7 +95,7 @@ def _setup_environment_and_hooks(
     config: object,
     wt_manager: object,
     worktree: object,
-    ai_tool_enum: AITool,
+    ai_tool_name: str,
 ) -> Any:
     """Set up worktree environment, project detection, and hooks. Returns tracker."""
     from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
@@ -119,17 +120,17 @@ def _setup_environment_and_hooks(
     hooks_installed = install_hooks(
         worktree.path,  # type: ignore[attr-defined]
         worktree.name,  # type: ignore[attr-defined]
-        ai_tool_enum,
+        ai_tool_name,
         db_path=tracker.storage_path,
     )
     if hooks_installed:
-        console.print(f"[green]Hooks installed:[/green] {ai_tool_enum.value} \u2192 owt status")
+        console.print(f"[green]Hooks installed:[/green] {ai_tool_name} \u2192 owt status")
     return tracker
 
 
 def _create_tmux_session(
     worktree: object,
-    ai_tool_enum: AITool,
+    ai_tool_name: str,
     plan_mode: bool,
     headless: bool,
 ) -> tuple[Any, str | None]:
@@ -145,7 +146,7 @@ def _create_tmux_session(
             session_info = tmux_manager.create_worktree_session(
                 worktree_name=worktree.name,  # type: ignore[attr-defined]
                 worktree_path=str(worktree.path),  # type: ignore[attr-defined]
-                ai_tool=ai_tool_enum,
+                ai_tool=ai_tool_name,
                 plan_mode=plan_mode,
             )
             console.print(f"[green]tmux session:[/green] {session_info.session_name}")
@@ -184,7 +185,7 @@ def _send_initial_prompt(
 
 def _launch_headless_agent(
     worktree_path: str,
-    ai_tool_enum: AITool,
+    tool: AIToolProtocol,
     task_description: str,
     tracker: object,
     worktree_name: str,
@@ -199,12 +200,19 @@ def _launch_headless_agent(
     if not task_description:
         return
 
-    executable = AITool.get_executable_path(ai_tool_enum)
-    command = AITool.get_command(
-        ai_tool_enum,
+    executable: str | None = None
+    import shutil as _shutil
+
+    executable = _shutil.which(tool.binary)
+    if executable is None:
+        for candidate in tool.get_known_paths():
+            if candidate.exists() and candidate.is_file():
+                executable = str(candidate)
+                break
+    command = tool.get_command(
         executable_path=executable,
-        prompt=task_description,
         plan_mode=plan_mode,
+        prompt=task_description,
     )
 
     try:
@@ -291,19 +299,23 @@ def new_worktree(
         if tmpl:
             tmpl_instructions = tmpl.ai_instructions
             if tmpl.ai_tool:
-                ai_tool = tmpl.ai_tool.value
+                ai_tool = tmpl.ai_tool
             if tmpl.plan_mode:
                 plan_mode = True
             if base_branch is None and tmpl.base_branch:
                 base_branch = tmpl.base_branch
 
     ai_tool_name = _resolve_ai_tool(ai_tool)
-    ai_tool_enum = AITool(ai_tool_name)
-
-    if headless and not AITool.supports_headless(ai_tool_enum):
+    tool = get_registry().get(ai_tool_name)
+    if tool is None:
         raise click.ClickException(
-            f"Headless mode requires Claude (got {ai_tool_enum.value}). "
-            "Droid and OpenCode lack non-interactive mode and hook integration."
+            f"Unknown AI tool '{ai_tool_name}'. Registered: {get_registry().list_names()}"
+        )
+
+    if headless and not tool.supports_headless:
+        raise click.ClickException(
+            f"Headless mode is not supported by '{ai_tool_name}'. "
+            "The tool needs a non-interactive execution mode plus OWT hooks."
         )
 
     # 1. Create worktree
@@ -316,10 +328,10 @@ def new_worktree(
     console.print(f"[green]Worktree created:[/green] {worktree.path}")
 
     # 2-3. Set up environment + hooks
-    tracker = _setup_environment_and_hooks(config, wt_manager, worktree, ai_tool_enum)
+    tracker = _setup_environment_and_hooks(config, wt_manager, worktree, ai_tool_name)
 
     # 4. Create tmux session + start AI tool (skip in headless mode)
-    tmux_manager, session_name = _create_tmux_session(worktree, ai_tool_enum, plan_mode, headless)
+    tmux_manager, session_name = _create_tmux_session(worktree, ai_tool_name, plan_mode, headless)
 
     # 5. Initialize status tracking
     try:
@@ -328,7 +340,7 @@ def new_worktree(
             worktree_path=str(worktree.path),
             branch=worktree.branch,
             tmux_session=session_name,
-            ai_tool=ai_tool_enum,
+            ai_tool=ai_tool_name,
         )
     except Exception as e:
         console.print(f"[yellow]Status tracking init failed: {e}[/yellow]")
@@ -340,7 +352,7 @@ def new_worktree(
             prompt = f"{tmpl_instructions}\n\n{prompt}" if prompt else tmpl_instructions
         _launch_headless_agent(
             str(worktree.path),
-            ai_tool_enum,
+            tool,
             prompt,
             tracker,
             worktree.name,

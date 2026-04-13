@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import libtmux.exc
 import pytest
 
-from open_orchestrator.config import AITool
 from open_orchestrator.core.tmux_manager import (
     TmuxError,
     TmuxLayout,
@@ -18,6 +17,7 @@ from open_orchestrator.core.tmux_manager import (
     TmuxSessionNotFoundError,
     detect_activity_from_pane_output,
 )
+from open_orchestrator.core.tool_registry import ClaudeTool, DroidTool, OpenCodeTool
 from open_orchestrator.models.status import AIActivityStatus
 
 
@@ -458,57 +458,33 @@ class TestTmuxLayoutSetup:
 
 
 class TestAIToolSupport:
-    """Tests for multi-AI tool support."""
-
-    def test_ai_tool_enum_values(self):
-        """Test that all expected AI tools are defined."""
-        assert AITool.CLAUDE.value == "claude"
-        assert AITool.OPENCODE.value == "opencode"
-        assert AITool.DROID.value == "droid"
-
-    def test_ai_tool_get_command(self):
-        """Test command retrieval for each tool."""
-        assert AITool.get_command(AITool.CLAUDE) == "claude --dangerously-skip-permissions"
-        assert AITool.get_command(AITool.OPENCODE) == "opencode"
-        assert AITool.get_command(AITool.DROID) == "droid --skip-permissions-unsafe"
-
-    def test_ai_tool_get_command_with_prompt(self):
-        """Test that prompt adds -p flag without inline prompt text."""
-        cmd = AITool.get_command(AITool.CLAUDE, prompt="Do something")
-        assert cmd == "claude --dangerously-skip-permissions -p"
-        # Prompt text must NOT appear in command (piped via stdin instead)
-        assert "Do something" not in cmd
-
-    def test_ai_tool_get_command_plan_mode_with_prompt(self):
-        """Test plan mode flag ordering with prompt."""
-        cmd = AITool.get_command(AITool.CLAUDE, plan_mode=True, prompt="Plan this")
-        assert cmd == "claude --permission-mode plan -p"
+    """Tests for multi-AI tool support via the tool registry."""
 
     def test_session_config_default_ai_tool(self, temp_dir: Path):
-        """Test default AI tool is Claude."""
+        """Test default AI tool is claude."""
         config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir))
-        assert config.ai_tool == AITool.CLAUDE
+        assert config.ai_tool == "claude"
 
     def test_session_config_custom_ai_tool(self, temp_dir: Path):
-        """Test setting custom AI tool."""
-        config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE)
-        assert config.ai_tool == AITool.OPENCODE
+        """Test setting custom AI tool by name."""
+        config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir), ai_tool="opencode")
+        assert config.ai_tool == "opencode"
 
     def test_session_config_droid_tool(self, temp_dir: Path):
         """Test setting Droid as AI tool."""
-        config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir), ai_tool=AITool.DROID)
-        assert config.ai_tool == AITool.DROID
+        config = TmuxSessionConfig(session_name="test", working_directory=str(temp_dir), ai_tool="droid")
+        assert config.ai_tool == "droid"
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "get_executable_path", return_value="opencode")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(OpenCodeTool, "is_installed", return_value=True)
+    @patch("shutil.which", return_value="opencode")
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_start_ai_tool_opencode(
         self,
         mock_server_prop,
+        mock_which,
         mock_is_installed,
-        mock_get_path,
         mock_wait,
         mock_send_cmd,
         temp_dir: Path,
@@ -522,25 +498,24 @@ class TestAIToolSupport:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE, auto_start_ai=True
+            session_name="test-session", working_directory=str(temp_dir), ai_tool="opencode", auto_start_ai=True
         )
 
         manager.create_session(config)
 
-        # Verify opencode command was sent via reliable delivery
         mock_send_cmd.assert_called_once()
         assert mock_send_cmd.call_args[0][1] == "opencode"
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "get_executable_path", return_value="droid")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(DroidTool, "is_installed", return_value=True)
+    @patch("shutil.which", return_value="droid")
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_start_ai_tool_droid(
         self,
         mock_server_prop,
+        mock_which,
         mock_is_installed,
-        mock_get_path,
         mock_wait,
         mock_send_cmd,
         temp_dir: Path,
@@ -554,12 +529,11 @@ class TestAIToolSupport:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session", working_directory=str(temp_dir), ai_tool=AITool.DROID, auto_start_ai=True
+            session_name="test-session", working_directory=str(temp_dir), ai_tool="droid", auto_start_ai=True
         )
 
         manager.create_session(config)
 
-        # Verify droid command was sent via reliable delivery
         mock_send_cmd.assert_called_once()
         assert mock_send_cmd.call_args[0][1] == "droid --skip-permissions-unsafe"
 
@@ -582,24 +556,23 @@ class TestAIToolSupport:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE, auto_start_ai=False
+            session_name="test-session", working_directory=str(temp_dir), ai_tool="opencode", auto_start_ai=False
         )
 
         manager.create_session(config)
 
-        # Verify no command was sent to the pane
         mock_send_cmd.assert_not_called()
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "get_executable_path", return_value="opencode")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(OpenCodeTool, "is_installed", return_value=True)
+    @patch("shutil.which", return_value="opencode")
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_worktree_session_with_ai_tool(
         self,
         mock_server_prop,
+        mock_which,
         mock_is_installed,
-        mock_get_path,
         mock_wait,
         mock_send_cmd,
         temp_dir: Path,
@@ -613,188 +586,12 @@ class TestAIToolSupport:
 
         manager = TmuxManager()
         result = manager.create_worktree_session(
-            worktree_name="feature-test", worktree_path=str(temp_dir), ai_tool=AITool.OPENCODE, auto_start_ai=True
+            worktree_name="feature-test", worktree_path=str(temp_dir), ai_tool="opencode", auto_start_ai=True
         )
 
         assert isinstance(result, TmuxSessionInfo)
         mock_send_cmd.assert_called_once()
         assert mock_send_cmd.call_args[0][1] == "opencode"
-
-    @patch.object(AITool, "get_known_paths", return_value=[])
-    @patch("shutil.which", return_value=None)
-    def test_ai_tool_not_installed(self, mock_which, mock_known_paths):
-        """Test is_installed returns False when tool is not found."""
-        assert AITool.is_installed(AITool.OPENCODE) is False
-        mock_which.assert_called_with("opencode")
-
-    @patch("shutil.which", return_value="/usr/local/bin/claude")
-    def test_ai_tool_installed(self, mock_which):
-        """Test is_installed returns True when tool is found in PATH."""
-        assert AITool.is_installed(AITool.CLAUDE) is True
-        mock_which.assert_called_with("claude")
-
-    def test_ai_tool_get_install_hint(self):
-        """Test install hints are provided for each tool."""
-        claude_hint = AITool.get_install_hint(AITool.CLAUDE)
-        assert "npm install" in claude_hint or "Install" in claude_hint
-
-        opencode_hint = AITool.get_install_hint(AITool.OPENCODE)
-        assert "go install" in opencode_hint or "Install" in opencode_hint
-
-        droid_hint = AITool.get_install_hint(AITool.DROID)
-        assert "factory.ai" in droid_hint or "Install" in droid_hint
-
-
-class TestDroidAutoLevel:
-    """Tests for Droid auto level support."""
-
-    def test_droid_auto_level_values(self):
-        """Test DroidAutoLevel enum values."""
-        from open_orchestrator.config import DroidAutoLevel
-
-        assert DroidAutoLevel.LOW.value == "low"
-        assert DroidAutoLevel.MEDIUM.value == "medium"
-        assert DroidAutoLevel.HIGH.value == "high"
-
-    def test_droid_command_with_auto_level(self):
-        """Test Droid command includes auto level flag."""
-        from open_orchestrator.config import DroidAutoLevel
-
-        cmd_low = AITool.get_command(AITool.DROID, droid_auto=DroidAutoLevel.LOW)
-        assert "--auto low" in cmd_low
-
-        cmd_medium = AITool.get_command(AITool.DROID, droid_auto=DroidAutoLevel.MEDIUM)
-        assert "--auto medium" in cmd_medium
-
-        cmd_high = AITool.get_command(AITool.DROID, droid_auto=DroidAutoLevel.HIGH)
-        assert "--auto high" in cmd_high
-
-    def test_droid_command_with_skip_permissions(self):
-        """Test Droid command includes skip-permissions flag."""
-        cmd = AITool.get_command(AITool.DROID, droid_skip_permissions=True)
-        assert "--skip-permissions-unsafe" in cmd
-
-    def test_droid_command_with_all_options(self):
-        """Test Droid command with all options combined."""
-        from open_orchestrator.config import DroidAutoLevel
-
-        cmd = AITool.get_command(AITool.DROID, droid_auto=DroidAutoLevel.HIGH, droid_skip_permissions=True)
-        assert "droid" in cmd
-        assert "--auto high" in cmd
-        assert "--skip-permissions-unsafe" in cmd
-
-    def test_session_config_droid_options(self, temp_dir: Path):
-        """Test session config with Droid-specific options."""
-        from open_orchestrator.config import DroidAutoLevel
-
-        config = TmuxSessionConfig(
-            session_name="test",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.DROID,
-            droid_auto=DroidAutoLevel.MEDIUM,
-            droid_skip_permissions=True,
-        )
-
-        assert config.ai_tool == AITool.DROID
-        assert config.droid_auto == DroidAutoLevel.MEDIUM
-        assert config.droid_skip_permissions is True
-
-    @patch.object(TmuxManager, "_send_command_to_pane")
-    @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "is_installed", return_value=True)
-    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
-    def test_create_session_with_droid_auto(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        mock_wait,
-        mock_send_cmd,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock,
-    ):
-        """Test creating session with Droid auto level."""
-        from open_orchestrator.config import DroidAutoLevel
-
-        mock_server = MagicMock()
-        mock_server.has_session.return_value = False
-        mock_server.new_session.return_value = mock_libtmux_session
-        mock_server_prop.return_value = mock_server
-
-        manager = TmuxManager()
-        config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.DROID,
-            droid_auto=DroidAutoLevel.HIGH,
-            auto_start_ai=True,
-        )
-
-        manager.create_session(config)
-
-        # Verify droid command with auto level was sent
-        sent_command = mock_send_cmd.call_args[0][1]
-        assert "droid" in sent_command
-        assert "--auto high" in sent_command
-
-
-class TestOpenCodeConfig:
-    """Tests for OpenCode configuration support."""
-
-    def test_opencode_command_with_config(self):
-        """Test OpenCode command includes config path."""
-        cmd = AITool.get_command(AITool.OPENCODE, opencode_config="/path/to/config.json")
-        assert "OPENCODE_CONFIG=/path/to/config.json" in cmd
-        assert "opencode" in cmd
-
-    def test_opencode_command_without_config(self):
-        """Test OpenCode command without config path."""
-        cmd = AITool.get_command(AITool.OPENCODE)
-        assert cmd == "opencode"
-        assert "OPENCODE_CONFIG" not in cmd
-
-    def test_session_config_opencode_options(self, temp_dir: Path):
-        """Test session config with OpenCode-specific options."""
-        config = TmuxSessionConfig(
-            session_name="test", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE, opencode_config="/custom/config.json"
-        )
-
-        assert config.ai_tool == AITool.OPENCODE
-        assert config.opencode_config == "/custom/config.json"
-
-    @patch.object(TmuxManager, "_send_command_to_pane")
-    @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "is_installed", return_value=True)
-    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
-    def test_create_session_with_opencode_config(
-        self,
-        mock_server_prop,
-        mock_is_installed,
-        mock_wait,
-        mock_send_cmd,
-        temp_dir: Path,
-        mock_libtmux_session: MagicMock,
-    ):
-        """Test creating session with OpenCode config path."""
-        mock_server = MagicMock()
-        mock_server.has_session.return_value = False
-        mock_server.new_session.return_value = mock_libtmux_session
-        mock_server_prop.return_value = mock_server
-
-        manager = TmuxManager()
-        config = TmuxSessionConfig(
-            session_name="test-session",
-            working_directory=str(temp_dir),
-            ai_tool=AITool.OPENCODE,
-            opencode_config="/my/config.json",
-            auto_start_ai=True,
-        )
-
-        manager.create_session(config)
-
-        # Verify opencode command with config was sent
-        sent_command = mock_send_cmd.call_args[0][1]
-        assert "OPENCODE_CONFIG=/my/config.json" in sent_command
-        assert "opencode" in sent_command
 
 
 class TestAutoExit:
@@ -821,8 +618,8 @@ class TestAutoExit:
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "get_executable_path", return_value="claude")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch("shutil.which", return_value="claude")
+    @patch.object(ClaudeTool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_auto_exit_appends_exit_to_command(
         self,
@@ -844,7 +641,7 @@ class TestAutoExit:
         config = TmuxSessionConfig(
             session_name="test-session",
             working_directory=str(temp_dir),
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             auto_start_ai=True,
             auto_exit=True,
         )
@@ -857,8 +654,8 @@ class TestAutoExit:
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "get_executable_path", return_value="claude")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch("shutil.which", return_value="claude")
+    @patch.object(ClaudeTool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_no_auto_exit_no_suffix(
         self,
@@ -880,7 +677,7 @@ class TestAutoExit:
         config = TmuxSessionConfig(
             session_name="test-session",
             working_directory=str(temp_dir),
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             auto_start_ai=True,
             auto_exit=False,
         )
@@ -892,8 +689,8 @@ class TestAutoExit:
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "get_executable_path", return_value="claude")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch("shutil.which", return_value="claude")
+    @patch.object(ClaudeTool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_prompt_with_auto_exit_uses_stdin_redirect(
         self,
@@ -915,7 +712,7 @@ class TestAutoExit:
         config = TmuxSessionConfig(
             session_name="test-session",
             working_directory=str(temp_dir),
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             auto_start_ai=True,
             auto_exit=True,
             prompt="Implement a feature",
@@ -937,8 +734,8 @@ class TestAutoExit:
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "get_executable_path", return_value="claude")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch("shutil.which", return_value="claude")
+    @patch.object(ClaudeTool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_prompt_without_auto_exit_still_uses_stdin_redirect(
         self,
@@ -960,7 +757,7 @@ class TestAutoExit:
         config = TmuxSessionConfig(
             session_name="test-session",
             working_directory=str(temp_dir),
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             auto_start_ai=True,
             auto_exit=False,
             prompt="Implement a feature",
@@ -977,8 +774,8 @@ class TestAutoExit:
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "get_executable_path", return_value="claude")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch("shutil.which", return_value="claude")
+    @patch.object(ClaudeTool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_automated_without_auto_exit_sets_env_var(
         self,
@@ -1000,7 +797,7 @@ class TestAutoExit:
         config = TmuxSessionConfig(
             session_name="test-session",
             working_directory=str(temp_dir),
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             auto_start_ai=True,
             automated=True,
         )
@@ -1092,7 +889,7 @@ class TestDetectActivityFromPaneOutput:
 class TestToolInstallationCheck:
     """Tests for AI tool installation checking."""
 
-    @patch.object(AITool, "is_installed", return_value=False)
+    @patch.object(OpenCodeTool, "is_installed", return_value=False)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_fails_when_tool_not_installed(
         self, mock_server_prop, mock_is_installed, temp_dir: Path, mock_libtmux_session: MagicMock
@@ -1105,7 +902,7 @@ class TestToolInstallationCheck:
 
         manager = TmuxManager()
         config = TmuxSessionConfig(
-            session_name="test-session", working_directory=str(temp_dir), ai_tool=AITool.OPENCODE, auto_start_ai=True
+            session_name="test-session", working_directory=str(temp_dir), ai_tool="opencode", auto_start_ai=True
         )
 
         with pytest.raises(TmuxError) as exc_info:
@@ -1113,7 +910,7 @@ class TestToolInstallationCheck:
 
         assert "not installed" in str(exc_info.value)
 
-    @patch.object(AITool, "is_installed", return_value=False)
+    @patch.object(OpenCodeTool, "is_installed", return_value=False)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_skips_check_when_disabled(
         self, mock_server_prop, mock_is_installed, temp_dir: Path, mock_libtmux_session: MagicMock
@@ -1128,7 +925,7 @@ class TestToolInstallationCheck:
         config = TmuxSessionConfig(
             session_name="test-session",
             working_directory=str(temp_dir),
-            ai_tool=AITool.OPENCODE,
+            ai_tool="opencode",
             auto_start_ai=False,  # Tool not started, so no check needed
         )
 
@@ -1446,7 +1243,7 @@ class TestCreateSessionBranchPaths:
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")
-    @patch.object(AITool, "is_installed", return_value=True)
+    @patch.object(ClaudeTool, "is_installed", return_value=True)
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_create_session_raises_when_active_pane_is_none(
         self,

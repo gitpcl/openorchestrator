@@ -30,6 +30,20 @@ class AIToolProtocol(Protocol):
         ...
 
     @property
+    def supports_headless(self) -> bool:
+        """Whether the tool can run non-interactively.
+
+        Requires both a non-interactive execution mode (e.g. Claude's ``-p``)
+        and a hook mechanism to report status back to ``owt``.
+        """
+        ...
+
+    @property
+    def supports_plan_mode(self) -> bool:
+        """Whether the tool supports a plan-first (read-only) mode."""
+        ...
+
+    @property
     def install_hint(self) -> str:
         """Installation instructions for the user."""
         ...
@@ -50,4 +64,17 @@ class AIToolProtocol(Protocol):
 
     def get_known_paths(self) -> list[Path]:
         """Known installation paths to check beyond PATH."""
+        ...
+
+    def install_hooks(
+        self,
+        worktree_path: Path,
+        worktree_name: str,
+        db_path: str | Path | None = None,
+    ) -> bool:
+        """Install status-reporting hooks into the worktree.
+
+        Tools where ``supports_hooks`` is False must return False without
+        writing anything.
+        """
         ...

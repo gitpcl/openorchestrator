@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from open_orchestrator.config import AITool
 from open_orchestrator.core.pane_actions import (
     PaneActionError,
     PaneTransaction,
@@ -161,12 +160,12 @@ class TestCreatePane:
             session_name="orch-auth",
             repo_path="/tmp/repo",
             branch="feat/auth-jwt",
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             status_tracker=tracker,
         )
 
         assert result.worktree_name == "auth-jwt"
-        assert result.ai_tool == AITool.CLAUDE
+        assert result.ai_tool == "claude"
         # No prompt delivery for interactive mode
         tmux_manager.wait_for_ai_ready.assert_not_called()
         tmux_manager.paste_to_pane.assert_not_called()
@@ -187,7 +186,7 @@ class TestCreatePane:
             session_name="orch-auth",
             repo_path="/tmp/repo",
             branch="feat/auth-jwt",
-            ai_tool=AITool.CLAUDE,
+            ai_tool="claude",
             ai_instructions="Implement JWT auth",
             display_task="JWT auth",
             status_tracker=tracker,

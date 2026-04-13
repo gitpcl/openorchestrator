@@ -12,14 +12,14 @@ import shlex
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 import libtmux
 from libtmux.constants import PaneDirection
 
-from open_orchestrator.config import AITool, DroidAutoLevel
 from open_orchestrator.core.theme import COLORS
+from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.models.status import AIActivityStatus
 
 logger = logging.getLogger(__name__)
@@ -114,10 +114,7 @@ class TmuxSessionConfig:
     layout: TmuxLayout = TmuxLayout.SINGLE
     pane_count: int = 1
     auto_start_ai: bool = True
-    ai_tool: AITool = field(default=AITool.CLAUDE)
-    droid_auto: DroidAutoLevel | None = None
-    droid_skip_permissions: bool = False
-    opencode_config: str | None = None
+    ai_tool: str = "claude"
     plan_mode: bool = False
     auto_exit: bool = False
     automated: bool = False
@@ -238,9 +235,6 @@ class TmuxManager:
                 self._start_ai_tool_in_pane(
                     pane,
                     config.ai_tool,
-                    droid_auto=config.droid_auto,
-                    droid_skip_permissions=config.droid_skip_permissions,
-                    opencode_config=config.opencode_config,
                     plan_mode=config.plan_mode,
                     auto_exit=config.auto_exit,
                     automated=config.automated,
@@ -280,10 +274,7 @@ class TmuxManager:
     def _start_ai_tool_in_pane(
         self,
         pane: libtmux.Pane,
-        ai_tool: AITool = AITool.CLAUDE,
-        droid_auto: DroidAutoLevel | None = None,
-        droid_skip_permissions: bool = False,
-        opencode_config: str | None = None,
+        ai_tool: str = "claude",
         plan_mode: bool = False,
         auto_exit: bool = False,
         automated: bool = False,
@@ -298,17 +289,15 @@ class TmuxManager:
             prompt: If provided, run the AI tool in non-interactive mode with
                     this prompt. The tool will exit automatically when done.
         """
-        if not AITool.is_installed(ai_tool):
-            hint = AITool.get_install_hint(ai_tool)
-            raise TmuxError(f"AI tool '{ai_tool.value}' is not installed. {hint}")
+        tool = get_registry().get(ai_tool)
+        if tool is None:
+            raise TmuxError(f"Unknown AI tool '{ai_tool}'")
+        if not tool.is_installed():
+            raise TmuxError(f"AI tool '{ai_tool}' is not installed. {tool.install_hint}")
 
-        executable = AITool.get_executable_path(ai_tool)
-        command = AITool.get_command(
-            ai_tool,
+        executable = self._resolve_executable(tool)
+        command = tool.get_command(
             executable_path=executable,
-            droid_auto=droid_auto,
-            droid_skip_permissions=droid_skip_permissions,
-            opencode_config=opencode_config,
             plan_mode=plan_mode,
             prompt=prompt,
         )
@@ -317,7 +306,7 @@ class TmuxManager:
         # Using `cat file | claude -p` rather than `claude -p < file` because
         # pipe-based stdin is the confirmed working pattern (file redirects
         # fail silently inside tmux panes on some configurations).
-        if prompt and ai_tool == AITool.CLAUDE:
+        if prompt and ai_tool == "claude":
             prompt_path = self._write_prompt_file(prompt)
             quoted_path = shlex.quote(prompt_path)
             prefix = "export OWT_AUTOMATED=1; " if automated or auto_exit else ""
@@ -340,6 +329,22 @@ class TmuxManager:
     def _pane_target(pane: libtmux.Pane) -> str:
         """Build a ``session:window.pane`` target string for tmux commands."""
         return f"{pane.session.name}:{pane.window.index}.{pane.pane_index}"
+
+    @staticmethod
+    def _resolve_executable(tool: object) -> str | None:
+        """Return an explicit executable path if one of the tool's known paths exists."""
+        import shutil as _shutil
+
+        binary = getattr(tool, "binary", None)
+        if not binary:
+            return None
+        path = _shutil.which(binary)
+        if path:
+            return path
+        for candidate in getattr(tool, "get_known_paths", lambda: [])():
+            if candidate.exists() and candidate.is_file():
+                return str(candidate)
+        return None
 
     def _wait_for_shell_ready(
         self,
@@ -531,10 +536,7 @@ class TmuxManager:
         worktree_path: str,
         layout: TmuxLayout = TmuxLayout.SINGLE,
         auto_start_ai: bool = True,
-        ai_tool: AITool = AITool.CLAUDE,
-        droid_auto: DroidAutoLevel | None = None,
-        droid_skip_permissions: bool = False,
-        opencode_config: str | None = None,
+        ai_tool: str = "claude",
         plan_mode: bool = False,
         auto_exit: bool = False,
         automated: bool = False,
@@ -550,9 +552,6 @@ class TmuxManager:
             layout=layout,
             auto_start_ai=auto_start_ai,
             ai_tool=ai_tool,
-            droid_auto=droid_auto,
-            droid_skip_permissions=droid_skip_permissions,
-            opencode_config=opencode_config,
             plan_mode=plan_mode,
             auto_exit=auto_exit,
             automated=automated,

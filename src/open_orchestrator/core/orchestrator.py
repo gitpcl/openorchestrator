@@ -21,7 +21,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from open_orchestrator.config import AgnoConfig, AITool, load_config
+from open_orchestrator.config import AgnoConfig, load_config
 from open_orchestrator.core.batch import (
     _build_task_index,
     _parse_tasks,
@@ -330,7 +330,7 @@ class Orchestrator:
                 repo_path=self.state.repo_path,
                 branch=branch,
                 base_branch=self.state.feature_branch,
-                ai_tool=AITool.CLAUDE,
+                ai_tool="claude",
                 ai_instructions=build_agent_prompt(task.description, retry_context),
                 display_task=task.description,
                 status_tracker=self.tracker,
