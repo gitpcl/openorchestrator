@@ -54,6 +54,18 @@ class TestWaitCommand:
         assert "completed" in result.output.lower()
 
     @patch("open_orchestrator.commands._shared.StatusTracker")
+    def test_wait_waiting(self, mock_status: MagicMock, cli_runner: CliRunner) -> None:
+        mock_tracker = mock_status.return_value
+        mock_wt_status = MagicMock()
+        mock_wt_status.activity_status = AIActivityStatus.WAITING
+        mock_wt_status.current_task = "done"
+        mock_tracker.get_status.return_value = mock_wt_status
+
+        result = cli_runner.invoke(main, ["wait", "my-feature", "--poll", "1", "--timeout", "5"])
+        assert result.exit_code == 0
+        assert "waiting" in result.output.lower()
+
+    @patch("open_orchestrator.commands._shared.StatusTracker")
     def test_wait_no_status(self, mock_status: MagicMock, cli_runner: CliRunner) -> None:
         mock_tracker = mock_status.return_value
         mock_tracker.get_status.return_value = None

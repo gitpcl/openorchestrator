@@ -118,7 +118,7 @@ def wait_for_worktree(worktree_name: str, timeout: int, poll: int, json_output: 
     tracker = get_status_tracker()
     elapsed = 0
     status: WorktreeAIStatus | None = None
-    terminal_states = {AIActivityStatus.COMPLETED, AIActivityStatus.ERROR}
+    terminal_states = {AIActivityStatus.WAITING, AIActivityStatus.COMPLETED, AIActivityStatus.ERROR}
 
     while elapsed < timeout:
         tracker.reload()

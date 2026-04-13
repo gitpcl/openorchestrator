@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import shlex
+import subprocess
 import time
 from typing import Any
 
@@ -179,6 +182,45 @@ def _send_initial_prompt(
         console.print(f"[yellow]Could not send prompt: {e}[/yellow]")
 
 
+def _launch_headless_agent(
+    worktree_path: str,
+    ai_tool_enum: AITool,
+    task_description: str,
+    tracker: object,
+    worktree_name: str,
+) -> None:
+    """Launch AI agent as a detached subprocess for headless/CI mode.
+
+    The agent runs in the worktree directory with the task piped via stdin.
+    Status updates flow through the hooks installed in .claude/settings.local.json
+    (UserPromptSubmit → WORKING, Stop → WAITING), so ``owt wait`` can track progress.
+    """
+    if not task_description:
+        return
+
+    executable = AITool.get_executable_path(ai_tool_enum)
+    command = AITool.get_command(ai_tool_enum, executable_path=executable, prompt=task_description)
+
+    try:
+        proc = subprocess.Popen(
+            shlex.split(command),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=worktree_path,
+            env={**os.environ, "OWT_AUTOMATED": "1"},
+            start_new_session=True,
+        )
+        proc.stdin.write(task_description.encode())  # type: ignore[union-attr]
+        proc.stdin.close()  # type: ignore[union-attr]
+    except OSError as e:
+        console.print(f"[yellow]Could not launch headless agent: {e}[/yellow]")
+        return
+
+    tracker.update_task(worktree_name, task_description[:100])  # type: ignore[attr-defined]
+    console.print(f"[cyan]Headless agent launched:[/cyan] PID {proc.pid}")
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -279,8 +321,11 @@ def new_worktree(
     except Exception as e:
         console.print(f"[yellow]Status tracking init failed: {e}[/yellow]")
 
-    # 6. Send task description as initial prompt
-    _send_initial_prompt(tmux_manager, session_name, task_description, tracker, worktree.name)
+    # 6. Send task description / launch headless agent
+    if headless:
+        _launch_headless_agent(str(worktree.path), ai_tool_enum, task_description, tracker, worktree.name)
+    else:
+        _send_initial_prompt(tmux_manager, session_name, task_description, tracker, worktree.name)
 
     # 7. Send template instructions
     if tmpl_instructions and session_name:
