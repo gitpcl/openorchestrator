@@ -116,7 +116,7 @@ class TestBuildAgentPrompt:
 @patch("open_orchestrator.core.pane_actions.TmuxManager")
 @patch("open_orchestrator.core.pane_actions.ProjectDetector")
 @patch("open_orchestrator.core.pane_actions.WorktreeManager")
-@patch("open_orchestrator.core.pane_actions.load_config")
+@patch("open_orchestrator.core.agent_launcher.load_config", create=True)
 class TestCreatePane:
     """Test create_pane orchestration."""
 
@@ -217,7 +217,7 @@ class TestCreatePane:
                 status_tracker=MagicMock(),
             )
 
-    @patch("open_orchestrator.core.pane_actions.PaneTransaction")
+    @patch("open_orchestrator.core.agent_launcher.PaneTransaction")
     def test_create_pane_rollback_on_tmux_failure(
         self,
         mock_txn_cls: MagicMock,
@@ -239,7 +239,7 @@ class TestCreatePane:
 
         mock_txn = mock_txn_cls.return_value
 
-        with pytest.raises(PaneActionError, match="Failed to create session"):
+        with pytest.raises(PaneActionError, match="Failed to create tmux session"):
             create_pane(
                 session_name="orch",
                 repo_path="/tmp/repo",

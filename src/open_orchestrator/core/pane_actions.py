@@ -10,7 +10,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from open_orchestrator.config import load_config
 from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
 from open_orchestrator.core.project_detector import ProjectDetector
 from open_orchestrator.core.status import (
@@ -19,7 +18,7 @@ from open_orchestrator.core.status import (
     runtime_status_config,
 )
 from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
-from open_orchestrator.core.worktree import WorktreeAlreadyExistsError, WorktreeError, WorktreeManager
+from open_orchestrator.core.worktree import WorktreeError, WorktreeManager
 
 logger = logging.getLogger(__name__)
 
@@ -250,124 +249,55 @@ def create_pane(
 ) -> PaneResult:
     """Create a worktree and add it as a pane to the tmux session.
 
-    Orchestrates the full lifecycle:
-    1. Create git worktree
-    2. Set up environment (deps, .env, CLAUDE.md)
-    3. Create tmux session for the worktree
-    4. Initialize status tracking
-
-    Args:
-        session_name: tmux session name (used for status tracking).
-        repo_path: Path to the main repository.
-        branch: Branch name for the worktree.
-        base_branch: Optional base branch for creating a new worktree branch.
-        ai_tool: AI tool to start.
-        template_name: Optional worktree template name.
-        plan_mode: Start Claude in plan mode.
-        ai_instructions: Optional AI instructions to send after creation.
-        display_task: Optional short task label for status cards.
-        status_tracker: Optional shared status tracker for the caller.
-        status_config: Optional status storage configuration.
-
-    Returns:
-        PaneResult with details of the created pane.
-
-    Raises:
-        PaneActionError: If any step fails fatally.
+    Thin wrapper around :class:`~open_orchestrator.core.agent_launcher.AgentLauncher`
+    that resolves the optional template and dispatches INTERACTIVE (no
+    ``ai_instructions``) or AUTOMATED (with ``ai_instructions``). Preserved as
+    a stable import for batch/orchestrator callers.
     """
-    config = load_config()
+    from open_orchestrator.core.agent_launcher import AgentLauncher, LaunchMode, LaunchRequest
+
     ai_tool_name = ai_tool
-    txn = PaneTransaction(repo_path=repo_path)
 
-    # Check for duplicate
-    wt_manager = WorktreeManager(repo_path=Path(repo_path))
-    existing_names = {wt.name for wt in wt_manager.list_all()}
-    candidate_name = branch.split("/")[-1] if "/" in branch else branch
-    if candidate_name in existing_names:
-        raise PaneActionError(f"A worktree named '{candidate_name}' already exists. Use a different branch name.")
-
-    # Resolve template
+    # Resolve template (custom templates registered at load_config time flow
+    # through config.get_builtin_templates / get_template; keep parity with
+    # the previous behavior which only consulted built-ins).
     if template_name:
         from open_orchestrator.config import get_builtin_templates
 
-        templates = get_builtin_templates()
-        tmpl = templates.get(template_name)
+        tmpl = get_builtin_templates().get(template_name)
         if tmpl:
             if not ai_instructions:
                 ai_instructions = tmpl.ai_instructions
             if tmpl.ai_tool:
                 ai_tool_name = tmpl.ai_tool
 
-    try:
-        # 1. Create the worktree
-        try:
-            worktree = wt_manager.create(branch=branch, base_branch=base_branch)
-            txn.worktree_created = True
-        except WorktreeAlreadyExistsError:
-            worktree = wt_manager.get(branch)
-        except WorktreeError as e:
-            raise PaneActionError(f"Failed to create worktree: {e}") from e
+    mode = LaunchMode.AUTOMATED if ai_instructions else LaunchMode.INTERACTIVE
 
-        txn.worktree_name = worktree.name
-
-        # 2-2b. Set up environment + project context
-        _setup_pane_environment(str(worktree.path), repo_path, config)
-
-        # 3. Create tmux session
-        tmux_manager = TmuxManager()
-        try:
-            tmux_session = tmux_manager.create_worktree_session(
-                worktree_name=worktree.name,
-                worktree_path=str(worktree.path),
-                ai_tool=ai_tool_name,
-                plan_mode=plan_mode,
-                automated=bool(ai_instructions),
-            )
-            txn.tmux_session_created = True
-            pane_index = 0
-        except TmuxError as e:
-            raise PaneActionError(f"Failed to create session: {e}") from e
-
-        # 4-5. Install hooks + initialize status
-        _init_pane_tracking(
-            worktree=worktree,
-            ai_tool=ai_tool_name,
-            tmux_session_name=tmux_session.session_name,
-            repo_path=repo_path,
-            ai_instructions=ai_instructions,
-            display_task=display_task,
-            status_tracker=status_tracker,
-            status_config=status_config,
-            txn=txn,
-        )
-
-        # 6. Deliver prompt after waiting for AI readiness.
-        # Use tmux load-buffer + paste-buffer to handle long prompts
-        # (2K+ chars) that exceed send-keys -l buffer limits.
-        # Claude stays in interactive mode (no -p flag).
-        if ai_instructions:
-            tmux_manager.wait_for_ai_ready(
-                session_name=tmux_session.session_name,
-                timeout=15,
-            )
-            tmux_manager.paste_to_pane(
-                session_name=tmux_session.session_name,
-                text=ai_instructions,
-            )
-
-    except PaneActionError:
-        txn.rollback()
-        raise
-    except Exception as e:
-        txn.rollback()
-        raise PaneActionError(f"Unexpected error during pane creation: {e}") from e
-
+    wt_manager = WorktreeManager(repo_path=Path(repo_path))
+    tmux_manager = TmuxManager()
+    launcher = AgentLauncher(
+        repo_path=repo_path,
+        wt_manager=wt_manager,
+        tmux=tmux_manager,
+        status_tracker=status_tracker,
+        status_config=status_config,
+    )
+    request = LaunchRequest(
+        branch=branch,
+        base_branch=base_branch,
+        ai_tool=ai_tool_name,
+        mode=mode,
+        prompt=ai_instructions,
+        display_task=display_task,
+        plan_mode=plan_mode,
+    )
+    result = launcher.launch(request)
     return PaneResult(
-        worktree_name=worktree.name,
-        worktree_path=str(worktree.path),
-        branch=worktree.branch,
-        pane_index=pane_index,
-        ai_tool=str(ai_tool_name),
+        worktree_name=result.worktree_name,
+        worktree_path=result.worktree_path,
+        branch=result.branch,
+        pane_index=0,
+        ai_tool=result.ai_tool,
     )
 
 

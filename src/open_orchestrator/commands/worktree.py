@@ -3,23 +3,15 @@
 from __future__ import annotations
 
 import logging
-import os
-import shlex
-import subprocess
-import time
-from typing import Any
 
 import click
 from rich.table import Table
 
 from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
-from open_orchestrator.config import load_config
-from open_orchestrator.core.tool_protocol import AIToolProtocol
+from open_orchestrator.core.agent_launcher import AgentLauncher, LaunchMode, LaunchRequest
+from open_orchestrator.core.pane_actions import PaneActionError
 from open_orchestrator.core.tool_registry import get_registry
-from open_orchestrator.core.worktree import (
-    WorktreeError,
-    WorktreeNotFoundError,
-)
+from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus
 
 logger = logging.getLogger(__name__)
@@ -91,150 +83,6 @@ def _check_git_ref_conflicts(branch: str) -> str:
     return branch
 
 
-def _setup_environment_and_hooks(
-    config: object,
-    wt_manager: object,
-    worktree: object,
-    ai_tool_name: str,
-) -> Any:
-    """Set up worktree environment, project detection, and hooks. Returns tracker."""
-    from open_orchestrator.core.environment import EnvironmentSetup, EnvironmentSetupError
-    from open_orchestrator.core.hooks import install_hooks
-    from open_orchestrator.core.project_detector import ProjectDetector
-
-    try:
-        project_config = ProjectDetector().detect(str(worktree.path))  # type: ignore[attr-defined]
-        if project_config:
-            with console.status("[bold blue]Setting up environment..."):
-                EnvironmentSetup(project_config).setup_worktree(
-                    worktree_path=str(worktree.path),  # type: ignore[attr-defined]
-                    source_path=str(wt_manager.git_root),  # type: ignore[attr-defined]
-                    install_deps=config.environment.auto_install_deps,  # type: ignore[attr-defined]
-                    copy_env=config.environment.copy_env_file,  # type: ignore[attr-defined]
-                )
-            console.print("[green]Environment ready[/green]")
-    except EnvironmentSetupError as e:
-        console.print(f"[yellow]Environment setup warning: {e}[/yellow]")
-
-    tracker = get_status_tracker(wt_manager.git_root)  # type: ignore[attr-defined]
-    hooks_installed = install_hooks(
-        worktree.path,  # type: ignore[attr-defined]
-        worktree.name,  # type: ignore[attr-defined]
-        ai_tool_name,
-        db_path=tracker.storage_path,
-    )
-    if hooks_installed:
-        console.print(f"[green]Hooks installed:[/green] {ai_tool_name} \u2192 owt status")
-    return tracker
-
-
-def _create_tmux_session(
-    worktree: object,
-    ai_tool_name: str,
-    plan_mode: bool,
-    headless: bool,
-) -> tuple[Any, str | None]:
-    """Create tmux session for worktree. Returns (tmux_manager, session_name)."""
-    from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager, TmuxSessionExistsError
-
-    tmux_manager = TmuxManager()
-    session_info = None
-    session_name: str | None = None
-
-    if not headless:
-        try:
-            session_info = tmux_manager.create_worktree_session(
-                worktree_name=worktree.name,  # type: ignore[attr-defined]
-                worktree_path=str(worktree.path),  # type: ignore[attr-defined]
-                ai_tool=ai_tool_name,
-                plan_mode=plan_mode,
-            )
-            console.print(f"[green]tmux session:[/green] {session_info.session_name}")
-        except TmuxSessionExistsError:
-            session_name = tmux_manager.generate_session_name(worktree.name)  # type: ignore[attr-defined]
-            console.print(f"[yellow]tmux session already exists:[/yellow] {session_name}")
-            session_info = tmux_manager.get_session_for_worktree(worktree.name)  # type: ignore[attr-defined]
-        except TmuxError as e:
-            console.print(f"[yellow]tmux warning: {e}[/yellow]")
-
-        session_name = session_info.session_name if session_info else session_name
-    else:
-        console.print("[dim]Headless mode \u2014 no tmux session created[/dim]")
-
-    return tmux_manager, session_name
-
-
-def _send_initial_prompt(
-    tmux_manager: object,
-    session_name: str | None,
-    task_description: str,
-    tracker: object,
-    worktree_name: str,
-) -> None:
-    """Send task description as initial prompt to the AI agent."""
-    if not (task_description and session_name):
-        return
-    time.sleep(2)
-    try:
-        tmux_manager.send_keys_to_pane(session_name=session_name, keys=task_description)  # type: ignore[attr-defined]
-        console.print(f"[cyan]Sent task:[/cyan] {task_description[:80]}{'...' if len(task_description) > 80 else ''}")
-        tracker.update_task(worktree_name, task_description[:100])  # type: ignore[attr-defined]
-    except Exception as e:
-        console.print(f"[yellow]Could not send prompt: {e}[/yellow]")
-
-
-def _launch_headless_agent(
-    worktree_path: str,
-    tool: AIToolProtocol,
-    task_description: str,
-    tracker: object,
-    worktree_name: str,
-    plan_mode: bool = False,
-) -> None:
-    """Launch AI agent as a detached subprocess for headless/CI mode.
-
-    The agent runs in the worktree directory with the task piped via stdin.
-    Status updates flow through the hooks installed in .claude/settings.local.json
-    (UserPromptSubmit → WORKING, Stop → WAITING), so ``owt wait`` can track progress.
-    """
-    if not task_description:
-        return
-
-    executable: str | None = None
-    import shutil as _shutil
-
-    executable = _shutil.which(tool.binary)
-    if executable is None:
-        for candidate in tool.get_known_paths():
-            if candidate.exists() and candidate.is_file():
-                executable = str(candidate)
-                break
-    command = tool.get_command(
-        executable_path=executable,
-        plan_mode=plan_mode,
-        prompt=task_description,
-    )
-
-    try:
-        proc = subprocess.Popen(
-            shlex.split(command),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            cwd=worktree_path,
-            env={**os.environ, "OWT_AUTOMATED": "1"},
-            start_new_session=True,
-        )
-        proc.stdin.write(task_description.encode())  # type: ignore[union-attr]
-        proc.stdin.close()  # type: ignore[union-attr]
-    except OSError as e:
-        console.print(f"[yellow]Could not launch headless agent: {e}[/yellow]")
-        return
-
-    tracker.update_task(worktree_name, task_description[:100])  # type: ignore[attr-defined]
-    console.print(f"[cyan]Headless agent launched:[/cyan] PID {proc.pid}")
-
-
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -279,7 +127,6 @@ def new_worktree(
         owt new "Refactor database queries" --plan-mode
         owt new --branch feat/my-branch
     """
-    config = load_config()
     task_description, branch = _resolve_branch(description, explicit_branch, prefix)
     branch = _check_git_ref_conflicts(branch)
 
@@ -318,62 +165,53 @@ def new_worktree(
             "The tool needs a non-interactive execution mode plus OWT hooks."
         )
 
-    # 1. Create worktree
+    prompt = task_description or None
+    if tmpl_instructions:
+        prompt = f"{tmpl_instructions}\n\n{task_description}" if task_description else tmpl_instructions
+
+    mode = LaunchMode.HEADLESS if headless else LaunchMode.INTERACTIVE
     wt_manager = get_worktree_manager()
+    tracker = get_status_tracker(wt_manager.git_root)
+    launcher = AgentLauncher(
+        repo_path=str(wt_manager.git_root),
+        wt_manager=wt_manager,
+        status_tracker=tracker,
+    )
+    request = LaunchRequest(
+        branch=branch,
+        base_branch=base_branch,
+        ai_tool=ai_tool_name,
+        mode=mode,
+        prompt=prompt,
+        display_task=task_description or None,
+        plan_mode=plan_mode,
+    )
+
     try:
-        worktree = wt_manager.create(branch=branch, base_branch=base_branch)
-    except WorktreeError as e:
+        result = launcher.launch(request)
+    except PaneActionError as e:
         raise click.ClickException(str(e)) from e
 
-    console.print(f"[green]Worktree created:[/green] {worktree.path}")
+    console.print(f"[green]Worktree created:[/green] {result.worktree_path}")
+    if result.tmux_session:
+        console.print(f"[green]tmux session:[/green] {result.tmux_session}")
+    if result.subprocess_pid is not None:
+        console.print(f"[cyan]Headless agent launched:[/cyan] PID {result.subprocess_pid}")
+    if prompt and result.tmux_session:
+        preview = task_description[:80] + ("..." if len(task_description) > 80 else "")
+        console.print(f"[cyan]Sent task:[/cyan] {preview}")
+    for warn in result.warnings:
+        console.print(f"[yellow]{warn}[/yellow]")
 
-    # 2-3. Set up environment + hooks
-    tracker = _setup_environment_and_hooks(config, wt_manager, worktree, ai_tool_name)
+    # Attach to tmux if requested
+    if attach and result.tmux_session:
+        from open_orchestrator.core.tmux_manager import TmuxManager
 
-    # 4. Create tmux session + start AI tool (skip in headless mode)
-    tmux_manager, session_name = _create_tmux_session(worktree, ai_tool_name, plan_mode, headless)
-
-    # 5. Initialize status tracking
-    try:
-        tracker.initialize_status(
-            worktree_name=worktree.name,
-            worktree_path=str(worktree.path),
-            branch=worktree.branch,
-            tmux_session=session_name,
-            ai_tool=ai_tool_name,
-        )
-    except Exception as e:
-        console.print(f"[yellow]Status tracking init failed: {e}[/yellow]")
-
-    # 6. Send task description / launch headless agent
-    if headless:
-        prompt = task_description
-        if tmpl_instructions:
-            prompt = f"{tmpl_instructions}\n\n{prompt}" if prompt else tmpl_instructions
-        _launch_headless_agent(
-            str(worktree.path),
-            tool,
-            prompt,
-            tracker,
-            worktree.name,
-            plan_mode=plan_mode,
-        )
-    else:
-        _send_initial_prompt(tmux_manager, session_name, task_description, tracker, worktree.name)
-
-    # 7. Send template instructions
-    if tmpl_instructions and session_name:
-        try:
-            tmux_manager.send_keys_to_pane(session_name=session_name, keys=tmpl_instructions)
-        except Exception:
-            logger.debug("Failed to send template instructions", exc_info=True)
-
-    # 8. Attach if requested
-    if attach and session_name:
+        tmux_manager = TmuxManager()
         if tmux_manager.is_inside_tmux():
-            tmux_manager.switch_client(session_name)
+            tmux_manager.switch_client(result.tmux_session)
         else:
-            tmux_manager.attach(session_name)
+            tmux_manager.attach(result.tmux_session)
 
 
 @click.command("list")
