@@ -499,6 +499,7 @@ owt new "Run security audit" --headless
 owt wait security-audit --timeout 1200
 # -> Polls until agent finishes, exits 0 on success
 ```
+Headless mode requires Claude (Droid and OpenCode lack non-interactive mode and hook integration).
 
 ### Bug Investigation + Fix
 ```bash

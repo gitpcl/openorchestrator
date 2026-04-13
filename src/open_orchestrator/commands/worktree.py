@@ -188,6 +188,7 @@ def _launch_headless_agent(
     task_description: str,
     tracker: object,
     worktree_name: str,
+    plan_mode: bool = False,
 ) -> None:
     """Launch AI agent as a detached subprocess for headless/CI mode.
 
@@ -199,7 +200,12 @@ def _launch_headless_agent(
         return
 
     executable = AITool.get_executable_path(ai_tool_enum)
-    command = AITool.get_command(ai_tool_enum, executable_path=executable, prompt=task_description)
+    command = AITool.get_command(
+        ai_tool_enum,
+        executable_path=executable,
+        prompt=task_description,
+        plan_mode=plan_mode,
+    )
 
     try:
         proc = subprocess.Popen(
@@ -294,6 +300,12 @@ def new_worktree(
     ai_tool_name = _resolve_ai_tool(ai_tool)
     ai_tool_enum = AITool(ai_tool_name)
 
+    if headless and not AITool.supports_headless(ai_tool_enum):
+        raise click.ClickException(
+            f"Headless mode requires Claude (got {ai_tool_enum.value}). "
+            "Droid and OpenCode lack non-interactive mode and hook integration."
+        )
+
     # 1. Create worktree
     wt_manager = get_worktree_manager()
     try:
@@ -323,7 +335,17 @@ def new_worktree(
 
     # 6. Send task description / launch headless agent
     if headless:
-        _launch_headless_agent(str(worktree.path), ai_tool_enum, task_description, tracker, worktree.name)
+        prompt = task_description
+        if tmpl_instructions:
+            prompt = f"{tmpl_instructions}\n\n{prompt}" if prompt else tmpl_instructions
+        _launch_headless_agent(
+            str(worktree.path),
+            ai_tool_enum,
+            prompt,
+            tracker,
+            worktree.name,
+            plan_mode=plan_mode,
+        )
     else:
         _send_initial_prompt(tmux_manager, session_name, task_description, tracker, worktree.name)
 

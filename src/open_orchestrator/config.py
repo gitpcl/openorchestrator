@@ -48,6 +48,15 @@ class AITool(str, Enum):
         return tool.value
 
     @classmethod
+    def supports_headless(cls, tool: "AITool") -> bool:
+        """Whether the tool can run non-interactively for CI/headless mode.
+
+        Requires both a non-interactive execution mode (e.g. Claude's ``-p``)
+        and a hook mechanism to report status back to ``owt``.
+        """
+        return tool == cls.CLAUDE
+
+    @classmethod
     def get_known_paths(cls, tool: "AITool") -> list[Path]:
         """Get known installation paths for an AI tool."""
         home = Path.home()
