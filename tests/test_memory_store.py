@@ -14,7 +14,6 @@ from open_orchestrator.core.memory_store import (
 )
 from open_orchestrator.models.memory import (
     LAYER_BUDGETS,
-    ContradictionGroup,
     MemoryLayer,
     MemoryType,
 )
@@ -227,7 +226,6 @@ class TestKnowledgeGraph:
     def test_point_in_time_query(self, store: MemoryStore) -> None:
         t1 = datetime(2026, 1, 1, 12, 0, 0)
         t2 = datetime(2026, 2, 1, 12, 0, 0)
-        t3 = datetime(2026, 3, 1, 12, 0, 0)
         store.kg_add("owt", "version", "0.1.0", valid_from=t1)
         store.kg_invalidate("owt", "version", at=t2)
         store.kg_add("owt", "version", "0.2.0", valid_from=t2)
@@ -270,7 +268,7 @@ class TestKnowledgeGraph:
 
     def test_no_contradictions_when_invalidated(self, store: MemoryStore) -> None:
         """Once one is invalidated, the remaining valid triple is not a contradiction."""
-        t1 = store.kg_add("owt", "version", "0.1.0")
+        store.kg_add("owt", "version", "0.1.0")
         store.kg_add("owt", "version", "0.2.0")
         store.kg_invalidate("owt", "version", at=datetime.now() + timedelta(seconds=1))
         store.kg_add("owt", "version", "0.3.0")

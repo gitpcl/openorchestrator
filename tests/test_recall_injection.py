@@ -107,7 +107,6 @@ class TestInjectRecallSection:
         assert "- fact" in content
 
     def test_preserves_existing_content(self, worktree: Path, store: MemoryStore) -> None:
-        original = (worktree / ".claude" / "CLAUDE.md").read_text()
         store.add_fact(
             "project is owt",
             MemoryType.REFERENCE,

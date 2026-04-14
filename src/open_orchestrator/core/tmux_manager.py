@@ -338,7 +338,7 @@ class TmuxManager:
         binary = getattr(tool, "binary", None)
         if not binary:
             return None
-        path = _shutil.which(binary)
+        path: str | None = _shutil.which(binary)
         if path:
             return path
         for candidate in getattr(tool, "get_known_paths", lambda: [])():
