@@ -44,9 +44,8 @@ def _print_orchestrator_status(state: object) -> None:
 @click.option("--max-concurrent", type=int, default=3, help="Max parallel tasks.")
 @click.option(
     "--ai-tool",
-    type=click.Choice(["claude", "opencode", "droid"]),
     default=None,
-    help="AI tool to generate the plan (auto-detected if not specified).",
+    help="AI tool by registered name (auto-detected if not specified).",
 )
 def plan_goal(
     goal: tuple[str, ...],
@@ -85,7 +84,7 @@ def plan_goal(
         installed = detect_installed_agents()
         if not installed:
             raise click.ClickException("No AI coding tools found. Install claude, opencode, or droid.")
-        ai_tool = installed[0].value
+        ai_tool = installed[0]
 
     # 1. Generate plan
     console.print(f"[bold blue]Planning tasks with {ai_tool}...[/bold blue]")

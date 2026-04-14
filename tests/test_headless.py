@@ -206,6 +206,19 @@ class TestHeadlessProviderValidation:
         assert result.exit_code != 0
         assert "headless mode is not supported" in result.output.lower()
 
+    def test_cli_accepts_extra_tool_name(self, cli_runner: CliRunner) -> None:
+        """--ai-tool must accept extras registered in the tool registry (codex,
+        aider, ...), not just the hardcoded built-in trio."""
+        # Arg-parsing must not reject "codex" upfront. We don't need the launch
+        # to succeed — we just need Click's own validation to pass so the
+        # registry gets consulted. The command will fail later on "not
+        # installed", which proves the name reached the registry path.
+        result = cli_runner.invoke(main, ["new", "x", "--ai-tool", "codex", "--headless", "-y"])
+        # Pre-fix, Click's Choice would have exited with code 2 and
+        # "Invalid value for '--ai-tool'". Now the registry is consulted.
+        assert "invalid value for '--ai-tool'" not in result.output.lower()
+        assert "choose from" not in result.output.lower()
+
 
 class TestTemplatePrepend:
     @patch("open_orchestrator.core.agent_launcher.AgentLauncher.launch")

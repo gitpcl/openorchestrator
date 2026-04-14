@@ -94,9 +94,8 @@ def _check_git_ref_conflicts(branch: str) -> str:
 @click.option("--branch", "explicit_branch", help="Use this branch name instead of auto-generating.")
 @click.option(
     "--ai-tool",
-    type=click.Choice(["claude", "opencode", "droid"]),
     default=None,
-    help="AI tool to start (auto-detected if not specified).",
+    help="AI tool to start by registered name (auto-detected if not specified).",
 )
 @click.option("--plan-mode", is_flag=True, help="Start Claude in plan mode.")
 @click.option("-t", "--template", "template_name", help="Apply a worktree template.")

@@ -210,7 +210,7 @@ class TestInteractiveLaunch:
 
 
 class TestAutomatedLaunch:
-    def test_automated_sets_auto_exit(self, tmp_path: Path) -> None:
+    def test_automated_sets_automated_flag(self, tmp_path: Path) -> None:
         launcher, _, tmux, _ = _make_launcher(tmp_path)
         with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
             "open_orchestrator.core.agent_launcher._setup_pane_environment"
@@ -227,6 +227,54 @@ class TestAutomatedLaunch:
             )
         call_kwargs = tmux.create_worktree_session.call_args.kwargs
         assert call_kwargs["automated"] is True
+
+    def test_automated_rejects_stale_session_reuse(self, tmp_path: Path) -> None:
+        """AUTOMATED must fail fast if the tmux session already exists.
+
+        Silent reuse would bind batch/orchestrator to whatever the previous
+        run left behind, violating the fresh-prompt contract.
+        """
+        from open_orchestrator.core.tmux_manager import TmuxSessionExistsError
+
+        launcher, _, tmux, _ = _make_launcher(tmp_path)
+        tmux.create_worktree_session.side_effect = TmuxSessionExistsError("already exists")
+
+        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
+            "open_orchestrator.core.agent_launcher._setup_pane_environment"
+        ):
+            reg.return_value.get.return_value = _FakeTool()
+            with pytest.raises(PaneActionError, match="refusing to reuse"):
+                launcher.launch(
+                    LaunchRequest(
+                        branch="feat/wt",
+                        base_branch="main",
+                        ai_tool="claude",
+                        mode=LaunchMode.AUTOMATED,
+                        prompt="auto task",
+                    )
+                )
+
+    def test_interactive_reuses_stale_session(self, tmp_path: Path) -> None:
+        """INTERACTIVE may reuse an existing session so attach keeps working."""
+        from open_orchestrator.core.tmux_manager import TmuxSessionExistsError
+
+        launcher, _, tmux, _ = _make_launcher(tmp_path)
+        tmux.create_worktree_session.side_effect = TmuxSessionExistsError("already exists")
+        tmux.generate_session_name.return_value = "owt-wt"
+
+        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
+            "open_orchestrator.core.agent_launcher._setup_pane_environment"
+        ), patch("open_orchestrator.core.agent_launcher._init_pane_tracking"):
+            reg.return_value.get.return_value = _FakeTool()
+            result = launcher.launch(
+                LaunchRequest(
+                    branch="feat/wt",
+                    base_branch="main",
+                    ai_tool="claude",
+                    mode=LaunchMode.INTERACTIVE,
+                )
+            )
+        assert result.tmux_session == "owt-wt"
 
 
 class TestHeadlessLaunch:

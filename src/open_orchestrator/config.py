@@ -282,12 +282,15 @@ def load_config(config_path: str | None = None) -> Config:
         if path and path.exists():
             try:
                 data = toml.load(path)
-                config = Config(**data)
-                if config.tools:
+                # Register custom tools BEFORE Pydantic validation so that the
+                # field validators on WorktreeTemplate.ai_tool / TmuxConfig.ai_tool
+                # can see custom names declared in the same file.
+                raw_tools = data.get("tools")
+                if isinstance(raw_tools, dict) and raw_tools:
                     from open_orchestrator.core.tool_registry import get_registry, register_custom_tools
 
-                    register_custom_tools(get_registry(), config.tools)
-                return config
+                    register_custom_tools(get_registry(), raw_tools)
+                return Config(**data)
             except ValidationError as e:
                 raise ConfigError(_format_validation_error(e, path)) from e
             except toml.TomlDecodeError as e:

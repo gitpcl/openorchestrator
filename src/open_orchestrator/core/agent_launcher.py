@@ -13,7 +13,10 @@ launch mode goes through the same pipeline:
 5. Initialize the status tracker entry.
 6. Start the agent session:
    * ``INTERACTIVE`` — tmux session, user attaches; prompt is optional.
-   * ``AUTOMATED`` — tmux session with ``auto_exit``; prompt required.
+   * ``AUTOMATED`` — tmux session with ``OWT_AUTOMATED=1``; prompt
+     required. Completion is detected via the agent's Stop hook
+     reporting ``WAITING`` status — the pane stays running (interactive
+     claude) rather than auto-exiting.
    * ``HEADLESS`` — detached subprocess; prompt required.
 7. Deliver the prompt via ``wait_for_ai_ready + paste_to_pane`` for tmux
    modes (killing the old ``time.sleep(2) + send_keys`` path) or
@@ -55,7 +58,7 @@ class LaunchMode(str, Enum):
     """How the agent should run."""
 
     INTERACTIVE = "interactive"  # tmux, user attaches, prompt optional
-    AUTOMATED = "automated"  # tmux with auto_exit, prompt required
+    AUTOMATED = "automated"  # tmux with OWT_AUTOMATED=1; completion via Stop hook
     HEADLESS = "headless"  # subprocess, no tmux, prompt required
 
 
@@ -222,7 +225,15 @@ class AgentLauncher:
             txn.tmux_session_created = True
             return info.session_name
         except TmuxSessionExistsError:
-            # Interactive re-use: fall back to existing session.
+            # Session reuse is only safe for INTERACTIVE attach-on-existing.
+            # For AUTOMATED, silently binding to a stale session would
+            # miss the fresh-prompt contract that batch/orchestrator rely
+            # on (they'd pick up whatever the previous run left behind).
+            if request.mode != LaunchMode.INTERACTIVE:
+                raise PaneActionError(
+                    f"tmux session for '{worktree.name}' already exists; "
+                    f"refusing to reuse it in {request.mode.value} mode"
+                )
             return self._tmux.generate_session_name(worktree.name)
         except TmuxError as e:
             raise PaneActionError(f"Failed to create tmux session: {e}") from e
