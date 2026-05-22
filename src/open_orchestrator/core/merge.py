@@ -277,19 +277,21 @@ class MergeManager:
         leave_conflicts: bool = False,
         strategy: str | None = None,
         rebase: bool = False,
+        branch_mode: bool = False,
     ) -> MergeResult:
-        """Execute a two-phase merge for a worktree branch.
+        """Execute a two-phase merge for a worktree or branch session.
 
-        Phase 1: Merge base into worktree branch (catch conflicts early in the feature branch).
-        Phase 2: Merge worktree branch into base (should be fast-forward after phase 1).
+        Phase 1: Merge base into feature branch (catch conflicts early).
+        Phase 2: Merge feature branch into base (should be fast-forward after phase 1).
 
         Args:
-            worktree_name: The worktree identifier.
+            worktree_name: The worktree identifier or branch name.
             base_branch: Target branch to merge into. Auto-detected if None.
             delete_worktree: Whether to delete the worktree after successful merge.
             leave_conflicts: If True, leave merge in-progress for manual resolution.
             strategy: Merge strategy option (e.g. "ours", "theirs") passed as -X.
             rebase: If True, rebase feature onto base instead of merging (Phase 1).
+            branch_mode: If True, session is a branch in the current checkout (not a worktree).
 
         Returns:
             MergeResult with the outcome.
@@ -298,27 +300,42 @@ class MergeManager:
             MergeError: If the merge cannot proceed.
             MergeConflictError: If conflicts are detected during phase 1.
         """
-        # Resolve worktree
-        try:
-            worktree = self.wt_manager.get(worktree_name)
-        except WorktreeNotFoundError as e:
-            raise MergeError(f"Worktree not found: {worktree_name}") from e
+        # Resolve source: worktree or branch
+        if branch_mode:
+            source_branch = worktree_name
+            worktree_path = Path(self.wt_manager.git_root)
+            # Check for uncommitted changes in repo root
+            repo = Repo(self.wt_manager.git_root)
+            if repo.is_dirty(untracked_files=True):
+                dirty = [item.a_path for item in repo.index.diff(None)] + repo.untracked_files
+                if dirty:
+                    raise MergeError(
+                        f"Branch '{worktree_name}' has uncommitted changes:\n"
+                        + "\n".join(f"  {f}" for f in dirty[:10])
+                        + (f"\n  ... and {len(dirty) - 10} more" if len(dirty) > 10 else "")
+                    )
+        else:
+            try:
+                worktree = self.wt_manager.get(worktree_name)
+            except WorktreeNotFoundError as e:
+                raise MergeError(f"Worktree not found: {worktree_name}") from e
 
-        source_branch = worktree.branch
-        if not source_branch or source_branch == "(detached)":
-            raise MergeError(f"Worktree '{worktree_name}' is in detached HEAD state, cannot merge")
+            source_branch = worktree.branch
+            if not source_branch or source_branch == "(detached)":
+                raise MergeError(f"Worktree '{worktree_name}' is in detached HEAD state, cannot merge")
+            worktree_path = worktree.path
 
-        # Resolve base branch
+            # Check for uncommitted changes
+            dirty_files = self.check_uncommitted_changes(worktree_name)
+            if dirty_files:
+                raise MergeError(
+                    f"Worktree '{worktree_name}' has uncommitted changes:\n"
+                    + "\n".join(f"  {f}" for f in dirty_files[:10])
+                    + (f"\n  ... and {len(dirty_files) - 10} more" if len(dirty_files) > 10 else "")
+                )
+
+        # Resolve base branch (needed by both modes)
         target_branch = base_branch or self.get_base_branch(source_branch)
-
-        # Check for uncommitted changes
-        dirty_files = self.check_uncommitted_changes(worktree_name)
-        if dirty_files:
-            raise MergeError(
-                f"Worktree '{worktree_name}' has uncommitted changes:\n"
-                + "\n".join(f"  {f}" for f in dirty_files[:10])
-                + (f"\n  ... and {len(dirty_files) - 10} more" if len(dirty_files) > 10 else "")
-            )
 
         # Count commits to merge
         commits_ahead = self.count_commits_ahead(source_branch, target_branch)
@@ -331,10 +348,10 @@ class MergeManager:
             )
 
         # Phase 1: Merge base into feature branch (in the worktree)
-        wt_repo = Repo(worktree.path)
+        wt_repo = Repo(worktree_path)
         self._phase1_merge_into_feature(
             wt_repo=wt_repo,
-            worktree_path=worktree.path,
+            worktree_path=worktree_path,
             source_branch=source_branch,
             target_branch=target_branch,
             rebase=rebase,

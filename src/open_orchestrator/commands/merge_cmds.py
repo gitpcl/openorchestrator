@@ -9,8 +9,27 @@ from rich.table import Table
 
 from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
 from open_orchestrator.config import load_config
+from open_orchestrator.core.pane_actions import teardown_worktree
 from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus
+
+
+def _detect_session_type(name: str) -> bool:
+    """Detect if a session is branch mode (True) or worktree mode (False).
+
+    Checks if the name appears in ``git worktree list``. If it does, it's
+    a worktree session. If not, it's a branch session.
+    """
+    from open_orchestrator.core.worktree import WorktreeManager
+
+    try:
+        wt_manager = WorktreeManager()
+        wt_manager.get(name)
+        return False  # Found as a worktree
+    except WorktreeNotFoundError:
+        return True  # Not a worktree — must be a branch session
+    except Exception:
+        return False
 
 
 def _print_merge_conflicts(e: Exception, *, worktree_path: object, rebase: bool, leave_conflicts: bool) -> None:
@@ -87,6 +106,96 @@ def _run_quality_gate(worktree_name: str, worktree_path: str | Path, branch: str
         return True
 
 
+def _ship_branch(
+    branch_name: str,
+    base_branch: str | None,
+    commit_message: str | None,
+    yes: bool,
+    leave_conflicts: bool,
+    strategy: str | None,
+    rebase: bool,
+) -> None:
+    """Ship a branch-mode session: commit, merge, and clean up."""
+    from git import Repo
+
+    from open_orchestrator.core.merge import MergeConflictError, MergeError, MergeManager, MergeStatus
+
+    try:
+        merge_manager = MergeManager()
+    except Exception as e:
+        raise click.ClickException(str(e)) from e
+
+    target = base_branch or merge_manager.get_base_branch(branch_name)
+    repo = Repo(merge_manager.wt_manager.git_root)
+
+    dirty = repo.is_dirty(untracked_files=True)
+
+    if not yes:
+        console.print("\n[bold]Ship plan (branch mode):[/bold]")
+        if dirty:
+            console.print("  1. Commit uncommitted changes")
+        else:
+            console.print("  1. [dim]No uncommitted changes[/dim]")
+        commits_ahead = merge_manager.count_commits_ahead(branch_name, target)
+        console.print(f"  2. Merge {branch_name} \u2192 {target} ({commits_ahead + (1 if dirty else 0)} commit(s))")
+        console.print("  3. Delete branch + tmux session")
+        if not click.confirm("\nProceed?"):
+            console.print("[yellow]Aborted.[/yellow]")
+            return
+
+    if dirty:
+        repo.git.add("-A")
+        msg = commit_message or f"feat: {branch_name.split('/')[-1].replace('-', ' ')}"
+        repo.git.commit("-m", msg)
+        console.print(f"[green]Committed:[/green] {msg}")
+
+    tmux_errs = teardown_worktree(
+        branch_name,
+        kill_tmux=True,
+        delete_git_worktree=False,
+        clean_status=False,
+    )
+    if not tmux_errs:
+        console.print(f"[green]Killed tmux session:[/green] owt-{branch_name}")
+    else:
+        for err in tmux_errs:
+            console.print(f"[yellow]tmux warning: {err}[/yellow]")
+
+    try:
+        with console.status("[bold blue]Merging..."):
+            result = merge_manager.merge(
+                worktree_name=branch_name,
+                base_branch=target,
+                delete_worktree=False,
+                leave_conflicts=leave_conflicts,
+                strategy=strategy,
+                rebase=rebase,
+                branch_mode=True,
+            )
+    except MergeConflictError as e:
+        _print_merge_conflicts(e, worktree_path="repo root", rebase=rebase, leave_conflicts=leave_conflicts)
+        raise SystemExit(1)
+    except MergeError as e:
+        raise click.ClickException(str(e)) from e
+
+    if result.status == MergeStatus.SUCCESS:
+        console.print(
+            f"\n[bold green]Shipped![/bold green] {result.source_branch} \u2192 {result.target_branch}"
+            f" ({result.commits_merged} commits)"
+        )
+
+    teardown_worktree(
+        branch_name,
+        repo_path=str(merge_manager.wt_manager.git_root),
+        kill_tmux=False,
+        delete_git_worktree=False,
+        clean_status=True,
+        delete_branch=True,
+        pop_stash=True,
+    )
+    console.print("  [green]Cleaned up branch + session + status[/green]")
+
+
 # ---------------------------------------------------------------------------
 # Commands (top-level to reduce C901 nesting complexity)
 # ---------------------------------------------------------------------------
@@ -113,14 +222,76 @@ def merge_worktree(
 
     Two-phase merge with conflict detection. After success,
     deletes the worktree + tmux session unless --keep is set.
+    Auto-detects branch-mode sessions (no git worktree).
     """
     from open_orchestrator.core.merge import MergeConflictError, MergeError, MergeManager, MergeStatus
+
+    branch_mode = _detect_session_type(worktree_name)
 
     try:
         merge_manager = MergeManager()
     except Exception as e:
         raise click.ClickException(str(e)) from e
 
+    if branch_mode:
+        source_branch = worktree_name
+        target = base_branch
+        if not target:
+            try:
+                target = merge_manager.get_base_branch(source_branch)
+            except MergeError as e:
+                raise click.ClickException(str(e)) from e
+        commits_ahead = merge_manager.count_commits_ahead(source_branch, target)
+
+        if not yes:
+            console.print("\n[bold]Merge plan (branch mode):[/bold]")
+            console.print(f"  Source: {source_branch} ({commits_ahead} commit(s) ahead)")
+            console.print(f"  Target: {target}")
+            console.print(f"  Cleanup: {'keep branch' if keep else 'delete branch + session'}")
+            if not click.confirm("\nProceed?"):
+                console.print("[yellow]Aborted.[/yellow]")
+                return
+
+        try:
+            with console.status("[bold blue]Merging..."):
+                result = merge_manager.merge(
+                    worktree_name=source_branch,
+                    base_branch=target,
+                    delete_worktree=not keep,
+                    leave_conflicts=leave_conflicts,
+                    strategy=strategy,
+                    rebase=rebase,
+                    branch_mode=True,
+                )
+        except MergeConflictError as e:
+            _print_merge_conflicts(e, worktree_path="repo root", rebase=rebase, leave_conflicts=leave_conflicts)
+            raise SystemExit(1)
+        except MergeError as e:
+            raise click.ClickException(str(e)) from e
+
+        if result.status == MergeStatus.ALREADY_MERGED:
+            console.print(f"\n[yellow]{result.message}[/yellow]")
+        elif result.status == MergeStatus.SUCCESS:
+            console.print(
+                f"\n[bold green]Merged![/bold green] {result.source_branch} \u2192 {result.target_branch}"
+                f" ({result.commits_merged} commits)"
+            )
+            if not keep:
+                teardown_worktree(
+                    source_branch,
+                    repo_path=str(merge_manager.wt_manager.git_root),
+                    kill_tmux=True,
+                    delete_git_worktree=False,
+                    clean_status=True,
+                    delete_branch=True,
+                    pop_stash=True,
+                )
+                console.print("  [green]Cleaned up branch + session[/green]")
+        else:
+            console.print(f"\n[red]{result.message}[/red]")
+        return
+
+    # Worktree mode (original logic)
     wt_manager = get_worktree_manager()
     try:
         worktree = wt_manager.get(worktree_name)
@@ -179,7 +350,6 @@ def merge_worktree(
         )
 
         if result.worktree_cleaned and not keep:
-            from open_orchestrator.core.pane_actions import teardown_worktree
 
             # Worktree already deleted by merge_manager; only kill tmux + clean status
             teardown_worktree(
@@ -214,7 +384,7 @@ def ship_worktree(
 
     Auto-commits any uncommitted changes, merges the branch into
     its base (main/master), then tears down the worktree + tmux
-    session + status tracking.
+    session + status tracking. Auto-detects branch-mode sessions.
 
     Examples:
         owt ship auth-jwt
@@ -222,6 +392,15 @@ def ship_worktree(
         owt ship my-feature -m "feat: add auth flow"
     """
     from open_orchestrator.core.merge import MergeConflictError, MergeError, MergeManager, MergeStatus
+
+    branch_mode = _detect_session_type(worktree_name)
+
+    if branch_mode:
+        _ship_branch(
+            worktree_name, base_branch, commit_message, yes,
+            leave_conflicts, strategy, rebase,
+        )
+        return
 
     wt_manager = get_worktree_manager()
     try:
@@ -270,7 +449,6 @@ def ship_worktree(
         return
 
     # Step 2: Kill tmux session BEFORE merge (avoids issues with agent holding locks)
-    from open_orchestrator.core.pane_actions import teardown_worktree
 
     tmux_errs = teardown_worktree(
         worktree.name,
@@ -367,8 +545,6 @@ def merge_queue(base_branch: str | None, auto_ship: bool, yes: bool) -> None:
             return
 
         from open_orchestrator.core.merge import MergeConflictError, MergeStatus
-        from open_orchestrator.core.pane_actions import teardown_worktree
-
         for name, _, _ in order:
             console.print(f"\n[bold]Shipping {name}...[/bold]")
             try:
