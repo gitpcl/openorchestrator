@@ -13,6 +13,7 @@ from open_orchestrator.core.pane_actions import PaneActionError
 from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus
+from open_orchestrator.models.worktree_info import SessionType
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,12 @@ def _check_git_ref_conflicts(branch: str) -> str:
 @click.option("--prefix", help="Override auto-detected branch prefix (e.g., feat, fix).")
 @click.option("-y", "--yes", is_flag=True, help="Skip branch name confirmation.")
 @click.option("--headless", is_flag=True, help="Create worktree without tmux session (CI/script use).")
+@click.option(
+    "--in-place",
+    "branch_mode",
+    is_flag=True,
+    help="Create branch in current checkout instead of a git worktree.",
+)
 def new_worktree(
     description: tuple[str, ...],
     base_branch: str | None,
@@ -114,18 +121,27 @@ def new_worktree(
     prefix: str | None,
     yes: bool,
     headless: bool,
+    branch_mode: bool,
 ) -> None:
     """Create a worktree + tmux session + deps + AI agent. One command.
 
     Automatically generates a branch name from your task description,
     creates the worktree, installs deps, copies .env, starts the AI tool.
 
+    Use --in-place to create a branch in the current checkout instead of
+    a separate git worktree (faster, no extra disk space).
+
     Examples:
         owt new Add user authentication with JWT
         owt new Fix login redirect bug
         owt new "Refactor database queries" --plan-mode
         owt new --branch feat/my-branch
+        owt new "Fix bug" --in-place
+        owt branch "Fix bug"  # alias for owt new ... --in-place
     """
+    if headless and branch_mode:
+        raise click.ClickException("--headless and --in-place cannot be used together.")
+
     task_description, branch = _resolve_branch(description, explicit_branch, prefix)
     branch = _check_git_ref_conflicts(branch)
 
@@ -181,6 +197,7 @@ def new_worktree(
         prompt=prompt,
         display_task=task_description or None,
         plan_mode=plan_mode,
+        session_type=SessionType.BRANCH if branch_mode else SessionType.WORKTREE,
     )
 
     try:
@@ -188,7 +205,10 @@ def new_worktree(
     except PaneActionError as e:
         raise click.ClickException(str(e)) from e
 
-    console.print(f"[green]Worktree created:[/green] {result.worktree_path}")
+    if branch_mode:
+        console.print(f"[green]Branch session created:[/green] {result.worktree_name}")
+    else:
+        console.print(f"[green]Worktree created:[/green] {result.worktree_path}")
     if result.tmux_session:
         console.print(f"[green]tmux session:[/green] {result.tmux_session}")
     if result.subprocess_pid is not None:
@@ -347,9 +367,55 @@ def delete_worktree(identifier: str, force: bool, yes: bool) -> None:
     console.print(f"[green]Deleted worktree:[/green] {worktree.path}")
 
 
+@click.command("branch")
+@click.argument("description", nargs=-1)
+@click.option("-b", "--base", "base_branch", help="Base branch for the new branch.")
+@click.option("--ai-tool", default=None, help="AI tool to start by registered name.")
+@click.option("--plan-mode", is_flag=True, help="Start Claude in plan mode.")
+@click.option("-a", "--attach", is_flag=True, help="Attach to tmux session after creation.")
+@click.option("--prefix", help="Override auto-detected branch prefix (e.g., feat, fix).")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
+@click.pass_context
+def branch_cmd(
+    ctx: click.Context,
+    description: tuple[str, ...],
+    base_branch: str | None,
+    ai_tool: str | None,
+    plan_mode: bool,
+    attach: bool,
+    prefix: str | None,
+    yes: bool,
+) -> None:
+    """Create a branch + tmux session + AI agent in the current checkout.
+
+    Like ``owt new`` but creates a branch in the current repository instead
+    of a separate git worktree. Faster and uses no extra disk space, but
+    only one branch session can run at a time.
+
+    Examples:
+        owt branch Add user authentication
+        owt branch "Fix login bug" --plan-mode
+    """
+    ctx.invoke(
+        new_worktree,
+        description=description,
+        base_branch=base_branch,
+        explicit_branch=None,
+        ai_tool=ai_tool,
+        plan_mode=plan_mode,
+        template_name=None,
+        attach=attach,
+        prefix=prefix,
+        yes=yes,
+        headless=False,
+        branch_mode=True,
+    )
+
+
 def register(main: click.Group) -> None:
     """Register worktree commands on the main CLI group."""
     main.add_command(new_worktree)
     main.add_command(list_worktrees)
     main.add_command(switch_worktree)
     main.add_command(delete_worktree)
+    main.add_command(branch_cmd)
