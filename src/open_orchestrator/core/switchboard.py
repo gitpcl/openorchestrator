@@ -290,6 +290,7 @@ class SwitchboardApp(App[None]):
         self._new_wt_task: str = ""
         self._new_wt_branch: str = ""
         self._new_wt_tool: str = "claude"
+        self._new_wt_session_type: str = "worktree"
 
     def compose(self) -> ComposeResult:
         with Container(id="header"):
@@ -539,12 +540,27 @@ class SwitchboardApp(App[None]):
             except ValueError:
                 branch = task.lower().replace(" ", "-")[:40]
             self._new_wt_branch = branch
+
+            # Ask whether to create a worktree or branch session
+            type_options = [
+                SelectOption(value="worktree", label="worktree", description="Full git worktree (isolated clone)", category=""),
+                SelectOption(value="branch", label="branch", description="Branch in current checkout (faster)", category=""),
+            ]
             self.push_screen(
-                ConfirmModal(f"Task: {task}\nBranch: {branch}\n\nProceed?"),
-                self._on_new_confirm,
+                SearchableSelectModal("Session type:", type_options),
+                self._on_session_type_chosen,
             )
 
         self.push_screen(InputModal("Task description:"), _on_input)
+
+    def _on_session_type_chosen(self, session_type: str | None) -> None:
+        if not session_type:
+            return
+        self._new_wt_session_type = session_type
+        self.push_screen(
+            ConfirmModal(f"Task: {self._new_wt_task}\nBranch: {self._new_wt_branch}\nType: {session_type}\n\nProceed?"),
+            self._on_new_confirm,
+        )
 
     def _on_new_confirm(self, yes: bool | None) -> None:
         if not yes:
@@ -600,7 +616,12 @@ class SwitchboardApp(App[None]):
         task = self._new_wt_task
         ai_tool = self._new_wt_tool
         cmd = ["owt", "new", task, "--yes", "--ai-tool", ai_tool]
-        self.run_worker(self._run_shell_bg(cmd, "Creating worktree..."))
+        if self._new_wt_session_type == "branch":
+            cmd.append("--in-place")
+            toast = "Creating branch session..."
+        else:
+            toast = "Creating worktree..."
+        self.run_worker(self._run_shell_bg(cmd, toast))
 
     def _confirm_and_shell(self, prompt: str, cmd: list[str]) -> None:
         """Confirm, shell out in background, then clamp selection."""
