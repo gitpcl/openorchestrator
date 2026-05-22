@@ -104,6 +104,7 @@ class Card:
     diff_stat: str = ""  # e.g. "+142 -37"
     swarm_id: str | None = None  # swarm grouping id (Sprint 018)
     swarm_role: str | None = None  # role within the swarm (coordinator/researcher/etc)
+    is_branch: bool = False  # True for branch-mode sessions (no git worktree)
 
 
 @dataclass
@@ -337,8 +338,12 @@ def _compute_overlaps(
 def _gather_statuses(
     tracker: StatusTracker,
     wt_manager: WorktreeManager | None = None,
-) -> list[WorktreeAIStatus]:
-    """Gather worktree statuses, merging git worktrees with status DB."""
+) -> tuple[list[WorktreeAIStatus], set[str]]:
+    """Gather worktree and branch statuses, merging git worktrees with status DB.
+
+    Returns:
+        Tuple of (statuses, valid_worktree_names).
+    """
     try:
         if wt_manager is None:
             wt_manager = WorktreeManager()
@@ -349,11 +354,8 @@ def _gather_statuses(
 
     status_map = {s.worktree_name: s for s in tracker.get_all_statuses()}
 
-    if not worktrees:
-        return list(status_map.values())
-
-    valid_names = {wt.name for wt in worktrees}
-    statuses: list[WorktreeAIStatus] = []
+    valid_names: set[str] = {wt.name for wt in worktrees}
+    results: list[WorktreeAIStatus] = []
     for wt in worktrees:
         s = status_map.get(wt.name)
         if s is None:
@@ -363,17 +365,15 @@ def _gather_statuses(
                 branch=wt.branch,
                 activity_status=AIActivityStatus.IDLE,
             )
-        statuses.append(s)
+        results.append(s)
 
-    orphan_names = set(status_map.keys()) - valid_names
-    if orphan_names:
-        try:
-            tracker.cleanup_orphans(list(valid_names))
-            logger.debug("Pruned %d orphaned status entries: %s", len(orphan_names), orphan_names)
-        except Exception as e:
-            logger.debug("Orphan cleanup failed: %s", e)
+    # Include branch-mode sessions (status entries not tied to a git worktree)
+    branch_names = set(status_map.keys()) - valid_names
+    for name in sorted(branch_names):
+        s = status_map[name]
+        results.append(s)
 
-    return statuses
+    return results, valid_names
 
 
 def _schedule_io_tasks(
@@ -409,10 +409,14 @@ def _apply_results_and_build_cards(
     diff_results: dict[int, tuple[list[str], str]],
     tracker: StatusTracker,
     now: datetime,
+    valid_worktree_names: set[str] | None = None,
 ) -> tuple[list[Card], dict[str, list[str]]]:
     """Apply pane detection and diff results, then build Card objects."""
     cards = []
     file_map: dict[str, list[str]] = {}
+
+    if valid_worktree_names is None:
+        valid_worktree_names = set()
 
     for i, s in enumerate(statuses):
         detection = pane_results.get(i)
@@ -452,6 +456,7 @@ def _apply_results_and_build_cards(
                 elapsed=_format_elapsed(s),
                 tmux_session=s.tmux_session,
                 diff_stat=diff_stat,
+                is_branch=s.worktree_name not in valid_worktree_names,
             )
         )
 
@@ -471,7 +476,7 @@ async def _build_cards_async(
 
     Returns (cards, file_map) where file_map maps worktree names to modified files.
     """
-    statuses = _gather_statuses(tracker, wt_manager)
+    statuses, valid_worktree_names = _gather_statuses(tracker, wt_manager)
     now = datetime.now()
 
     # Run parallel I/O
@@ -503,7 +508,7 @@ async def _build_cards_async(
         tracker.set_status(s)
         pane_results.pop(idx, None)
 
-    return _apply_results_and_build_cards(statuses, pane_results, diff_results, tracker, now)
+    return _apply_results_and_build_cards(statuses, pane_results, diff_results, tracker, now, valid_worktree_names)
 
 
 def _build_cards(tracker: StatusTracker) -> tuple[list[Card], dict[str, list[str]]]:
@@ -539,7 +544,7 @@ def _render_card(card: Card, tick: int) -> str:
     pad1 = w - visible_left - len(elapsed_str)
     line1 = line1_left + " " * max(1, pad1) + f"[dim]{elapsed_str}[/dim]"
 
-    # Line 2: branch | tool | diff stats (dim)
+    # Line 2: branch | tool | diff stats | (branch) (dim)
     branch_short = card.branch.split("/")[-1] if "/" in card.branch else card.branch
     meta_parts: list[str] = [branch_short[:12]]
     if card.ai_tool:
@@ -547,6 +552,8 @@ def _render_card(card: Card, tick: int) -> str:
     if card.diff_stat:
         diff_display = card.diff_stat.replace("+", "\u2191").replace("-", "\u2193")
         meta_parts.append(diff_display)
+    if card.is_branch:
+        meta_parts.append("[cyan]branch[/cyan]")
     meta_str = " | ".join(meta_parts)
     line2 = f"[dim]{meta_str[:w]}[/dim]"
 

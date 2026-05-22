@@ -233,29 +233,42 @@ def new_worktree(
 @click.command("list")
 @click.option("-a", "--all", "show_all", is_flag=True, help="Show all worktrees including main.")
 def list_worktrees(show_all: bool) -> None:
-    """List all worktrees with status.
+    """List all worktrees and branch sessions with status.
 
     Quick text list (non-interactive, for scripts/pipes).
+    Shows branch-mode sessions alongside git worktrees.
     """
     wt_manager = get_worktree_manager()
     worktrees = wt_manager.list_all()
 
+    tracker = get_status_tracker(wt_manager.git_root)
+    all_statuses = {s.worktree_name: s for s in tracker.get_all_statuses()}
+
+    # Collect branch-mode sessions from status DB (not in git worktree list)
+    worktree_names = {wt.name for wt in worktrees}
+    branch_sessions: list[dict[str, str]] = []
+    for s in tracker.get_all_statuses():
+        if s.worktree_name not in worktree_names and s.branch:
+            branch_sessions.append({
+                "name": s.worktree_name,
+                "branch": s.branch,
+            })
+
     if not show_all:
         worktrees = [wt for wt in worktrees if not wt.is_main]
 
-    if not worktrees:
-        console.print("[dim]No worktrees found.[/dim]")
+    if not worktrees and not branch_sessions:
+        console.print("[dim]No worktrees or branch sessions found.[/dim]")
         return
 
     from open_orchestrator.core.tmux_manager import TmuxManager
 
-    tracker = get_status_tracker(wt_manager.git_root)
-    all_statuses = {s.worktree_name: s for s in tracker.get_all_statuses()}
     tmux = TmuxManager()
 
     table = Table(show_header=True, header_style="bold")
     table.add_column("Name")
     table.add_column("Branch")
+    table.add_column("Type")
     table.add_column("Status")
     table.add_column("Task")
     table.add_column("tmux")
@@ -286,7 +299,36 @@ def list_worktrees(show_all: bool) -> None:
                 tmux_str = session.session_name
 
         name = "[bold]" + wt.name + "[/bold]" if wt.is_main else wt.name
-        table.add_row(name, wt.branch, status_str, task_str, tmux_str)
+        type_str = "[bold]main[/bold]" if wt.is_main else "[dim]worktree[/dim]"
+        table.add_row(name, wt.branch, type_str, status_str, task_str, tmux_str)
+
+    for bs in branch_sessions:
+        status = all_statuses.get(bs["name"])
+        status_str = ""
+        task_str = ""
+        tmux_str = ""
+        if status:
+            act = status.activity_status
+            if act == AIActivityStatus.WORKING:
+                status_str = "[green]\u25cf working[/green]"
+            elif act == AIActivityStatus.IDLE:
+                status_str = "[dim]\u25cb idle[/dim]"
+            elif act == AIActivityStatus.BLOCKED:
+                status_str = "[yellow]\u26a0 blocked[/yellow]"
+            elif act == AIActivityStatus.COMPLETED:
+                status_str = "[cyan]\u2713 done[/cyan]"
+            else:
+                status_str = f"[dim]{act.value}[/dim]"
+            task_str = (status.current_task or "")[:40]
+            tmux_str = status.tmux_session or ""
+        table.add_row(
+            bs["name"],
+            bs["branch"],
+            "[cyan]branch[/cyan]",
+            status_str,
+            task_str,
+            tmux_str,
+        )
 
     console.print(table)
 
