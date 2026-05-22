@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/gitpcl/openorchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/gitpcl/openorchestrator/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/gitpcl/openorchestrator)](LICENSE)
 
-A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a Textual-based **switchboard UI**. Supports Claude Code, OpenCode, and Droid. Optional **Agno intelligence layer** adds AI-powered planning, quality gating, and merge conflict resolution. Optional **MCP peer communication** enables agent-to-agent messaging and coordination.
+A lean Git Worktree + AI agent orchestration tool for parallel development workflows. Coordinate multiple AI coding sessions across isolated branches with a Textual-based **switchboard UI**. Supports Claude Code, Pi, OpenCode, and Droid. Optional **Agno intelligence layer** adds AI-powered planning, quality gating, and merge conflict resolution. Optional **MCP peer communication** enables agent-to-agent messaging and coordination.
 
 ## Overview
 
@@ -41,12 +41,12 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - **Two-phase merge** — `owt merge` catches conflicts early with file overlap warnings, then auto-cleans. Supports `--rebase` for linear history, `--strategy ours|theirs` for auto-resolution, and `--leave-conflicts` for manual resolution
 - **Full teardown** — `owt delete` kills tmux session + removes worktree + cleans status
 - **Live status detection** — switchboard detects when agents are waiting for input or blocked
-- **Plugin Architecture** — register custom AI tools via config without code changes; built-in support for Claude, OpenCode, and Droid
+- **Plugin Architecture** — register custom AI tools via config without code changes; built-in support for Claude, Pi, OpenCode, and Droid
 - **Structured Logging** — correlation IDs, per-worktree context, and JSON output (`--log-format json`) for log aggregation
 - **Task-Aware Prompts** — context-aware prompt builder with task-type detection (feature, bugfix, refactor, test, docs) and structured 5–6 step protocols per type
 - **Diagnostics** — `owt doctor` finds orphaned worktrees/sessions/status entries; `owt config validate` checks config; `owt db health` reports database stats
 - **Lazy Imports** — deferred heavy imports and `LazyModule` proxy for fast CLI startup
-- **AI tool auto-detection** — detects Claude, OpenCode, Droid with picker when multiple found
+- **AI tool auto-detection** — detects Claude, Pi, OpenCode, Droid with picker when multiple found
 - **Project detection** — auto-detects Python, Node.js, Rust, Go, PHP and installs deps
 - **7 dependencies** — click, pydantic, rich, textual, toml, gitpython, libtmux (+ optional agno for intelligence, mcp for peer communication)
 
@@ -57,7 +57,7 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 - Python 3.10+
 - Git
 - tmux
-- An AI coding tool (Claude Code, OpenCode, or Droid)
+- An AI coding tool (Claude Code, Pi, OpenCode, or Droid)
 
 ### Install from PyPI
 
@@ -317,7 +317,7 @@ auto_cleanup_days = 14
 
 [tmux]
 auto_start_ai = true
-ai_tool = "claude"        # claude, opencode, droid
+ai_tool = "claude"        # claude, pi, opencode, droid
 mouse_mode = true
 
 [environment]
@@ -345,11 +345,15 @@ Open Orchestrator auto-detects installed AI tools and offers a picker when multi
 | Tool | Binary | Notes |
 |------|--------|-------|
 | Claude Code | `claude` | Default, `--dangerously-skip-permissions`; orchestrated agents use `-p` with cat-piped prompts |
+| Pi | `pi` | `npm install -g @earendil-works/pi-coding-agent`; orchestrated agents use `-p` with cat-piped prompts; live status via pane scraping |
 | OpenCode | `opencode` | Go-based |
 | Droid | `droid` | `--skip-permissions-unsafe` by default |
 
+Auto-pick priority when multiple are installed: `claude > pi > droid > opencode`.
+
 ```bash
 owt new "task" --ai-tool claude --plan-mode
+owt new "task" --ai-tool pi
 owt new "task" --ai-tool opencode
 owt new "task" --ai-tool droid
 ```

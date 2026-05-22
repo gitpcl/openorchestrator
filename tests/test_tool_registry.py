@@ -191,11 +191,12 @@ class TestToolRegistry:
 class TestBuiltinRegistration:
     """Test that built-in tools are properly registered."""
 
-    def test_register_builtins_adds_three_tools(self) -> None:
+    def test_register_builtins_adds_four_tools(self) -> None:
         reg = ToolRegistry()
         _register_builtins(reg)
         names = reg.list_names()
         assert "claude" in names
+        assert "pi" in names
         assert "opencode" in names
         assert "droid" in names
 
@@ -249,6 +250,43 @@ class TestBuiltinRegistration:
         assert "--permission-mode plan" in cmd
         assert "-p" in cmd
 
+    def test_pi_supports_headless_no_hooks_no_plan(self) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        tool = reg.require("pi")
+        assert tool.supports_headless is True
+        assert tool.supports_hooks is False
+        assert tool.supports_plan_mode is False
+
+    def test_pi_command_interactive(self) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        tool = reg.require("pi")
+        assert tool.get_command() == "pi"
+
+    def test_pi_command_headless_prompt(self) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        tool = reg.require("pi")
+        cmd = tool.get_command(prompt="ship it")
+        assert "-p" in cmd
+        # Prompt itself is not embedded — it's piped via stdin (parallels Claude).
+        assert "ship it" not in cmd
+
+    def test_pi_install_hooks_returns_false(self, tmp_path: Path) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        tool = reg.require("pi")
+        assert tool.install_hooks(tmp_path, "wt") is False
+
+    def test_pi_known_paths_include_common_npm_locations(self) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        tool = reg.require("pi")
+        paths = {str(p) for p in tool.get_known_paths()}
+        assert any(p.endswith("/usr/local/bin/pi") for p in paths)
+        assert any(p.endswith("/opt/homebrew/bin/pi") for p in paths)
+
 
 # ---------------------------------------------------------------------------
 # Custom tool registration from config
@@ -281,6 +319,16 @@ class TestRegisterCustomTools:
         }
         register_custom_tools(reg, config)
         assert reg.get("claude") is original
+
+    def test_cannot_override_pi_builtin(self) -> None:
+        reg = ToolRegistry()
+        _register_builtins(reg)
+        original = reg.get("pi")
+        config: dict[str, dict[str, object]] = {
+            "pi": {"binary": "evil-pi"},
+        }
+        register_custom_tools(reg, config)
+        assert reg.get("pi") is original
 
     def test_custom_tool_with_prompt_flag(self) -> None:
         reg = ToolRegistry()

@@ -91,7 +91,7 @@ src/open_orchestrator/
 │   ├── switchboard_tmux.py  # Switchboard tmux session lifecycle + keybindings
 │   ├── prompt_builder.py    # Context-aware prompt builder (task-type detection)
 │   ├── tool_protocol.py     # AIToolProtocol + CustomTool (plugin interface)
-│   ├── tool_registry.py     # Singleton tool registry (discover/register AI tools)
+│   ├── tool_registry.py     # Singleton tool registry (discover/register AI tools; built-in: claude, pi, droid, opencode)
 │   ├── tool_search.py       # Deferred tool loading (ToolSearchProvider, DeferredToolLoader, token budget)
 │   ├── project_detector.py  # Project type detection
 │   ├── environment.py       # Dependency installation & .env setup
@@ -115,7 +115,7 @@ src/open_orchestrator/
 │   ├── denial_tracker.py # DenialTracker (SQLite, consecutive/total thresholds)
 │   ├── hooks.py        # AI tool hook installation (Claude, Droid status reporting)
 │   ├── theme.py        # Color constants for switchboard + CLI
-│   ├── agent_detector.py  # Detect installed AI coding tools
+│   ├── agent_detector.py  # Detect installed AI coding tools (auto-pick order: claude > pi > droid > opencode)
 │   └── mcp_peer.py    # MCP peer communication server (optional, FastMCP)
 ├── models/
 │   ├── intelligence.py     # Agno structured output models (TaskPlan, QualityVerdict, etc.)

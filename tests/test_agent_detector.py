@@ -41,6 +41,37 @@ class TestDetectInstalledAgents:
             result = detect_installed_agents()
             assert result == []
 
+    def test_detects_pi_when_installed(self):
+        def is_installed(self) -> bool:
+            return self.name == "pi"
+
+        with _patch_all_builtins(is_installed), patch.object(CustomTool, "is_installed", lambda self: False):
+            result = detect_installed_agents()
+            assert result == ["pi"]
+
+    def test_priority_order_claude_pi_droid_opencode(self):
+        builtins = {"claude", "pi", "droid", "opencode"}
+
+        def is_installed(self) -> bool:
+            return self.name in builtins
+
+        with _patch_all_builtins(is_installed), patch.object(CustomTool, "is_installed", lambda self: False):
+            result = detect_installed_agents()
+            assert result == ["claude", "pi", "droid", "opencode"]
+
+    def test_unknown_tools_sort_after_known_priority(self):
+        installed = {"pi", "aider"}
+
+        def builtin_is_installed(self) -> bool:
+            return self.name in installed
+
+        def custom_is_installed(self) -> bool:
+            return self.name in installed
+
+        with _patch_all_builtins(builtin_is_installed), patch.object(CustomTool, "is_installed", custom_is_installed):
+            result = detect_installed_agents()
+            assert result.index("pi") < result.index("aider")
+
 
 class TestDetectAllAgents:
     def test_includes_claude_when_installed(self):

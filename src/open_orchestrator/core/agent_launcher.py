@@ -115,9 +115,7 @@ class AgentLauncher:
 
         tool = get_registry().get(request.ai_tool)
         if tool is None:
-            raise PaneActionError(
-                f"Unknown AI tool '{request.ai_tool}'. Registered: {get_registry().list_names()}"
-            )
+            raise PaneActionError(f"Unknown AI tool '{request.ai_tool}'. Registered: {get_registry().list_names()}")
         if request.mode == LaunchMode.HEADLESS and not tool.supports_headless:
             raise PaneActionError(
                 f"Headless mode is not supported by '{request.ai_tool}'. "
@@ -182,9 +180,7 @@ class AgentLauncher:
         candidate_name = request.branch.split("/")[-1] if "/" in request.branch else request.branch
         existing_names = {wt.name for wt in self._wt_manager.list_all()}
         if candidate_name in existing_names:
-            raise PaneActionError(
-                f"A worktree named '{candidate_name}' already exists. Use a different branch name."
-            )
+            raise PaneActionError(f"A worktree named '{candidate_name}' already exists. Use a different branch name.")
         try:
             worktree = self._wt_manager.create(branch=request.branch, base_branch=request.base_branch)
             txn.worktree_created = True
@@ -231,8 +227,7 @@ class AgentLauncher:
             # on (they'd pick up whatever the previous run left behind).
             if request.mode != LaunchMode.INTERACTIVE:
                 raise PaneActionError(
-                    f"tmux session for '{worktree.name}' already exists; "
-                    f"refusing to reuse it in {request.mode.value} mode"
+                    f"tmux session for '{worktree.name}' already exists; refusing to reuse it in {request.mode.value} mode"
                 )
             return self._tmux.generate_session_name(worktree.name)
         except TmuxError as e:

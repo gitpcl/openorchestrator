@@ -26,7 +26,7 @@ def _resolve_ai_tool(ai_tool: str | None) -> str:
 
     installed = detect_installed_agents()
     if len(installed) == 0:
-        raise click.ClickException("No AI coding tools found. Install claude, opencode, or droid.")
+        raise click.ClickException("No AI coding tools found. Install claude, pi, opencode, or droid.")
     if len(installed) == 1:
         return installed[0]
 
@@ -154,14 +154,11 @@ def new_worktree(
     ai_tool_name = _resolve_ai_tool(ai_tool)
     tool = get_registry().get(ai_tool_name)
     if tool is None:
-        raise click.ClickException(
-            f"Unknown AI tool '{ai_tool_name}'. Registered: {get_registry().list_names()}"
-        )
+        raise click.ClickException(f"Unknown AI tool '{ai_tool_name}'. Registered: {get_registry().list_names()}")
 
     if headless and not tool.supports_headless:
         raise click.ClickException(
-            f"Headless mode is not supported by '{ai_tool_name}'. "
-            "The tool needs a non-interactive execution mode plus OWT hooks."
+            f"Headless mode is not supported by '{ai_tool_name}'. The tool needs a non-interactive execution mode plus OWT hooks."
         )
 
     prompt = task_description or None

@@ -1,7 +1,7 @@
 """Registry-based AI tool discovery.
 
 Provides a singleton registry that replaces hardcoded tool lookups.
-Built-in tools (claude, opencode, droid) and detectable extras (codex,
+Built-in tools (claude, opencode, droid, pi) and detectable extras (codex,
 gemini-cli, aider, amp, kilo-code) are registered at import time. Custom
 tools from config are registered via ``register_custom_tools()``.
 """
@@ -34,7 +34,7 @@ def _resolve_binary(binary: str, known_paths: list[Path]) -> str | None:
 class CustomTool:
     """A user-declared AI tool from ``[tools.<name>]`` config.
 
-    Built-in tools (claude, droid, opencode) have their own classes below
+    Built-in tools (claude, droid, opencode, pi) have their own classes below
     because they need tool-specific command-building logic (plan mode, hooks,
     prompt delivery).
     """
@@ -161,6 +161,56 @@ class DroidTool:
         return install_droid_hooks(worktree_path, worktree_name, db_path=db_path)
 
 
+class PiTool:
+    """Built-in Pi coding agent.
+
+    Pi has a JSON event stream (``--mode json``) but no settings-file hook
+    system, so live status comes from pane-scraping in v1. The print-mode
+    flag ``-p`` provides headless execution with stdin-piped prompts.
+    """
+
+    name = "pi"
+    binary = "pi"
+    supports_hooks = False
+    supports_headless = True
+    supports_plan_mode = False
+    install_hint = "Install Pi: npm install -g @earendil-works/pi-coding-agent"
+
+    def get_command(
+        self,
+        *,
+        executable_path: str | None = None,
+        plan_mode: bool = False,
+        prompt: str | None = None,
+    ) -> str:
+        binary = shlex.quote(executable_path) if executable_path else self.binary
+        parts = [binary]
+        if prompt:
+            # -p (print mode) — caller pipes the prompt via stdin from a
+            # temp file to match the pattern used for Claude.
+            parts.append("-p")
+        return " ".join(parts)
+
+    def is_installed(self) -> bool:
+        return _resolve_binary(self.binary, self.get_known_paths()) is not None
+
+    def get_known_paths(self) -> list[Path]:
+        return [
+            Path.home() / ".npm-global" / "bin" / "pi",
+            Path.home() / ".volta" / "bin" / "pi",
+            Path("/usr/local/bin/pi"),
+            Path("/opt/homebrew/bin/pi"),
+        ]
+
+    def install_hooks(
+        self,
+        worktree_path: Path,
+        worktree_name: str,
+        db_path: str | Path | None = None,
+    ) -> bool:
+        return False
+
+
 class OpenCodeTool:
     """Built-in OpenCode tool (no hook integration)."""
 
@@ -252,6 +302,7 @@ class ToolRegistry:
 def _register_builtins(registry: ToolRegistry) -> None:
     """Register built-in tools and detectable extras."""
     registry.register(ClaudeTool())
+    registry.register(PiTool())
     registry.register(DroidTool())
     registry.register(OpenCodeTool())
     for name, binary in _EXTRA_BINARIES.items():
@@ -266,7 +317,7 @@ def _register_builtins(registry: ToolRegistry) -> None:
 
 def register_custom_tools(registry: ToolRegistry, tools_config: dict[str, dict[str, object]]) -> None:
     """Register custom tools from ``[tools.<name>]`` config sections."""
-    reserved = {"claude", "opencode", "droid"}
+    reserved = {"claude", "opencode", "droid", "pi"}
     for name, cfg in tools_config.items():
         if name in reserved:
             logger.warning("Cannot override built-in tool '%s' via config", name)

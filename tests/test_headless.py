@@ -88,9 +88,11 @@ class TestHeadlessLaunch:
         tool = _FakeTool(name="claude")
         launcher = _make_launcher(tmp_path, tool)
 
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as mock_registry, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
-        ), patch("open_orchestrator.core.agent_launcher.install_hooks", return_value=True, create=True):
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as mock_registry,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
+            patch("open_orchestrator.core.agent_launcher.install_hooks", return_value=True, create=True),
+        ):
             mock_registry.return_value.get.return_value = tool
             result = launcher.launch(
                 LaunchRequest(
@@ -166,8 +168,9 @@ class TestHeadlessLaunch:
         tool = _FakeTool(name="claude", command="claude --permission-mode plan -p")
         launcher = _make_launcher(tmp_path, tool)
 
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as mock_registry, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as mock_registry,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
         ):
             mock_registry.return_value.get.return_value = tool
             launcher.launch(

@@ -95,6 +95,7 @@ class WorktreeTemplate(BaseModel):
         if get_registry().get(v) is None:
             raise ValueError(f"Unknown AI tool '{v}'. Registered: {get_registry().list_names()}")
         return v
+
     plan_mode: bool = Field(default=False, description="Start Claude in plan mode")
     install_deps: bool | None = Field(default=None, description="Override auto_install_deps")
     tmux_layout: str | None = Field(default=None, description="Default tmux layout")
@@ -129,6 +130,7 @@ class TmuxConfig(BaseModel):
         if get_registry().get(v) is None:
             raise ValueError(f"Unknown AI tool '{v}'. Registered: {get_registry().list_names()}")
         return v
+
     session_prefix: str = Field(default="owt", description="Prefix for tmux session names")
     mouse_mode: bool = Field(default=True, description="Enable mouse support")
     prefix_key: str = Field(default="C-a", description="tmux prefix key for owt sessions")

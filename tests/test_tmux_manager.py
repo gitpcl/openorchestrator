@@ -17,7 +17,7 @@ from open_orchestrator.core.tmux_manager import (
     TmuxSessionNotFoundError,
     detect_activity_from_pane_output,
 )
-from open_orchestrator.core.tool_registry import ClaudeTool, DroidTool, OpenCodeTool
+from open_orchestrator.core.tool_registry import ClaudeTool, DroidTool, OpenCodeTool, PiTool
 from open_orchestrator.models.status import AIActivityStatus
 
 
@@ -807,6 +807,50 @@ class TestAutoExit:
         sent_command = mock_send_cmd.call_args[0][1]
         assert sent_command.startswith("export OWT_AUTOMATED=1; ")
         assert not sent_command.endswith("; exit")
+
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
+    @patch("shutil.which", return_value="pi")
+    @patch.object(PiTool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_pi_prompt_uses_stdin_redirect(
+        self,
+        mock_server_prop,
+        mock_is_installed,
+        mock_get_path,
+        mock_wait,
+        mock_send_cmd,
+        temp_dir: Path,
+        mock_libtmux_session: MagicMock,
+    ):
+        """Pi with a prompt uses the cat | pi -p pattern, mirroring Claude."""
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-pi-session",
+            working_directory=str(temp_dir),
+            ai_tool="pi",
+            auto_start_ai=True,
+            auto_exit=True,
+            prompt="Implement a feature",
+        )
+
+        manager.create_session(config)
+
+        sent_command = mock_send_cmd.call_args[0][1]
+        assert "cat " in sent_command
+        assert "| " in sent_command
+        assert "owt-prompt-" in sent_command
+        assert "-p" in sent_command
+        assert "pi" in sent_command
+        assert "OWT_AUTOMATED=1" in sent_command
+        assert sent_command.endswith("; exit")
+        assert "rm -f" in sent_command
+        assert "Implement a feature" not in sent_command
 
     def test_write_prompt_file_creates_temp_file(self):
         """Test that _write_prompt_file writes prompt to a readable temp file."""

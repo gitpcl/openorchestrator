@@ -134,8 +134,9 @@ class TestLaunchModeValidation:
     def test_duplicate_worktree_raises(self, tmp_path: Path) -> None:
         launcher, wt_manager, _, _ = _make_launcher(tmp_path)
         wt_manager.list_all.return_value = [SimpleNamespace(name="wt")]
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
         ):
             reg.return_value.get.return_value = _FakeTool()
             with pytest.raises(PaneActionError, match="already exists"):
@@ -152,9 +153,11 @@ class TestLaunchModeValidation:
 class TestInteractiveLaunch:
     def test_interactive_without_prompt_no_paste(self, tmp_path: Path) -> None:
         launcher, _, tmux, _ = _make_launcher(tmp_path)
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
-        ), patch("open_orchestrator.core.agent_launcher._init_pane_tracking"):
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
+            patch("open_orchestrator.core.agent_launcher._init_pane_tracking"),
+        ):
             reg.return_value.get.return_value = _FakeTool()
             result = launcher.launch(
                 LaunchRequest(
@@ -171,9 +174,11 @@ class TestInteractiveLaunch:
 
     def test_interactive_with_prompt_delivers_via_paste(self, tmp_path: Path) -> None:
         launcher, _, tmux, _ = _make_launcher(tmp_path)
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
-        ), patch("open_orchestrator.core.agent_launcher._init_pane_tracking"):
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
+            patch("open_orchestrator.core.agent_launcher._init_pane_tracking"),
+        ):
             reg.return_value.get.return_value = _FakeTool()
             launcher.launch(
                 LaunchRequest(
@@ -191,9 +196,11 @@ class TestInteractiveLaunch:
         """Regression guard: prompts >2K chars must reach paste_to_pane intact."""
         launcher, _, tmux, _ = _make_launcher(tmp_path)
         long_prompt = "x" * 3000
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
-        ), patch("open_orchestrator.core.agent_launcher._init_pane_tracking"):
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
+            patch("open_orchestrator.core.agent_launcher._init_pane_tracking"),
+        ):
             reg.return_value.get.return_value = _FakeTool()
             launcher.launch(
                 LaunchRequest(
@@ -212,9 +219,11 @@ class TestInteractiveLaunch:
 class TestAutomatedLaunch:
     def test_automated_sets_automated_flag(self, tmp_path: Path) -> None:
         launcher, _, tmux, _ = _make_launcher(tmp_path)
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
-        ), patch("open_orchestrator.core.agent_launcher._init_pane_tracking"):
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
+            patch("open_orchestrator.core.agent_launcher._init_pane_tracking"),
+        ):
             reg.return_value.get.return_value = _FakeTool()
             launcher.launch(
                 LaunchRequest(
@@ -239,8 +248,9 @@ class TestAutomatedLaunch:
         launcher, _, tmux, _ = _make_launcher(tmp_path)
         tmux.create_worktree_session.side_effect = TmuxSessionExistsError("already exists")
 
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
         ):
             reg.return_value.get.return_value = _FakeTool()
             with pytest.raises(PaneActionError, match="refusing to reuse"):
@@ -262,9 +272,11 @@ class TestAutomatedLaunch:
         tmux.create_worktree_session.side_effect = TmuxSessionExistsError("already exists")
         tmux.generate_session_name.return_value = "owt-wt"
 
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
-        ), patch("open_orchestrator.core.agent_launcher._init_pane_tracking"):
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
+            patch("open_orchestrator.core.agent_launcher._init_pane_tracking"),
+        ):
             reg.return_value.get.return_value = _FakeTool()
             result = launcher.launch(
                 LaunchRequest(
@@ -289,8 +301,9 @@ class TestHeadlessLaunch:
         mock_popen.return_value = MagicMock(pid=42)
         launcher, _, tmux, _ = _make_launcher(tmp_path)
 
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
         ):
             reg.return_value.get.return_value = _FakeTool()
             result = launcher.launch(
@@ -318,9 +331,11 @@ class TestRollback:
         launcher, _, tmux, _ = _make_launcher(tmp_path)
         tmux.create_worktree_session.side_effect = TmuxError("tmux not found")
 
-        with patch("open_orchestrator.core.agent_launcher.get_registry") as reg, patch(
-            "open_orchestrator.core.agent_launcher._setup_pane_environment"
-        ), patch("open_orchestrator.core.agent_launcher.PaneTransaction") as mock_txn_cls:
+        with (
+            patch("open_orchestrator.core.agent_launcher.get_registry") as reg,
+            patch("open_orchestrator.core.agent_launcher._setup_pane_environment"),
+            patch("open_orchestrator.core.agent_launcher.PaneTransaction") as mock_txn_cls,
+        ):
             reg.return_value.get.return_value = _FakeTool()
             mock_txn = mock_txn_cls.return_value
             with pytest.raises(PaneActionError, match="Failed to create tmux session"):

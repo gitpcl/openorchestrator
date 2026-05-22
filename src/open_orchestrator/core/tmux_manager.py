@@ -302,11 +302,12 @@ class TmuxManager:
             prompt=prompt,
         )
 
-        # For Claude with a prompt, write to a temp file and pipe via cat.
-        # Using `cat file | claude -p` rather than `claude -p < file` because
-        # pipe-based stdin is the confirmed working pattern (file redirects
-        # fail silently inside tmux panes on some configurations).
-        if prompt and ai_tool == "claude":
+        # For tools that consume the prompt via stdin (Claude, Pi), write
+        # the prompt to a temp file and pipe via cat. Using `cat file | tool -p`
+        # rather than `tool -p < file` because pipe-based stdin is the confirmed
+        # working pattern (file redirects fail silently inside tmux panes on
+        # some configurations).
+        if prompt and ai_tool in {"claude", "pi"}:
             prompt_path = self._write_prompt_file(prompt)
             quoted_path = shlex.quote(prompt_path)
             prefix = "export OWT_AUTOMATED=1; " if automated or auto_exit else ""
