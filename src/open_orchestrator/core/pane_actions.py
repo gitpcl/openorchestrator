@@ -51,6 +51,9 @@ class PaneTransaction:
     worktree_created: bool = False
     tmux_session_created: bool = False
     status_initialized: bool = False
+    branch_created: bool = False
+    stash_created: bool = False
+    session_type: str = "worktree"  # "worktree" or "branch"
 
     def rollback(self) -> None:
         """Roll back all tracked resources using teardown_worktree()."""
@@ -58,11 +61,13 @@ class PaneTransaction:
             return
 
         logger.warning(
-            "Rolling back pane creation for '%s' (worktree=%s, tmux=%s, status=%s)",
+            "Rolling back pane creation for '%s' (worktree=%s, tmux=%s, status=%s, branch=%s, stash=%s)",
             self.worktree_name,
             self.worktree_created,
             self.tmux_session_created,
             self.status_initialized,
+            self.branch_created,
+            self.stash_created,
         )
         teardown_worktree(
             self.worktree_name,
@@ -70,6 +75,8 @@ class PaneTransaction:
             kill_tmux=self.tmux_session_created,
             delete_git_worktree=self.worktree_created,
             clean_status=self.status_initialized,
+            delete_branch=self.branch_created,
+            pop_stash=self.stash_created,
             force=True,
         )
 
@@ -186,7 +193,9 @@ def _setup_pane_environment(worktree_path: str, repo_path: str, config: object) 
 
 
 def _init_pane_tracking(
-    worktree: object,
+    worktree_name: str,
+    worktree_path: str,
+    branch: str,
     ai_tool: str,
     tmux_session_name: str,
     repo_path: str,
@@ -203,8 +212,8 @@ def _init_pane_tracking(
         from open_orchestrator.core.hooks import install_hooks
 
         install_hooks(
-            worktree.path,  # type: ignore[attr-defined]
-            worktree.name,  # type: ignore[attr-defined]
+            Path(worktree_path),
+            worktree_name,
             ai_tool,
             db_path=tracker.storage_path,
         )
@@ -213,9 +222,9 @@ def _init_pane_tracking(
 
     try:
         tracker.initialize_status(
-            worktree_name=worktree.name,  # type: ignore[attr-defined]
-            worktree_path=str(worktree.path),  # type: ignore[attr-defined]
-            branch=worktree.branch,  # type: ignore[attr-defined]
+            worktree_name=worktree_name,
+            worktree_path=worktree_path,
+            branch=branch,
             tmux_session=tmux_session_name,
             ai_tool=ai_tool,
         )
@@ -224,7 +233,7 @@ def _init_pane_tracking(
             from open_orchestrator.models.status import AIActivityStatus
 
             tracker.update_task(
-                worktree.name,  # type: ignore[attr-defined]
+                worktree_name,
                 (display_task or ai_instructions or "")[:100],
                 AIActivityStatus.WORKING,
             )
@@ -308,11 +317,13 @@ def teardown_worktree(
     kill_tmux: bool = True,
     delete_git_worktree: bool = True,
     clean_status: bool = True,
+    delete_branch: bool = False,
+    pop_stash: bool = False,
     force: bool = False,
 ) -> list[str]:
     """Best-effort cleanup of all worktree resources.
 
-    Always attempts all three cleanup steps regardless of individual failures,
+    Always attempts all cleanup steps regardless of individual failures,
     preventing orphaned resources when one step errors.
 
     Args:
@@ -321,6 +332,9 @@ def teardown_worktree(
         kill_tmux: Whether to kill the associated tmux session.
         delete_git_worktree: Whether to delete the git worktree directory.
         clean_status: Whether to remove the status DB entry.
+        delete_branch: Whether to delete the git branch and restore original.
+        pop_stash: Whether to pop the auto-stash (branch mode).
+        force: Whether to force deletion of git worktree.
 
     Returns:
         List of error strings for any steps that failed (empty = full success).
@@ -343,7 +357,7 @@ def teardown_worktree(
             logger.warning(msg)
             errors.append(msg)
 
-    # 2. Delete git worktree
+    # 2. Delete git worktree (worktree mode) or delete branch (branch mode)
     if delete_git_worktree and repo_path:
         try:
             wt_manager = WorktreeManager(repo_path=Path(repo_path))
@@ -357,7 +371,25 @@ def teardown_worktree(
             logger.warning(msg)
             errors.append(msg)
 
-    # 3. Clean up status tracking
+    # 3. Branch-mode cleanup: switch back to base branch and delete
+    if delete_branch and repo_path:
+        try:
+            _cleanup_branch(repo_path, worktree_name, errors)
+        except Exception as e:
+            msg = f"Unexpected error during branch cleanup for '{worktree_name}': {e}"
+            logger.warning(msg)
+            errors.append(msg)
+
+    # 4. Pop the auto-stash (branch mode, after cleanup so we're on the right branch)
+    if pop_stash and repo_path:
+        try:
+            _pop_auto_stash(repo_path, worktree_name, errors)
+        except Exception as e:
+            msg = f"Unexpected error popping stash for '{worktree_name}': {e}"
+            logger.warning(msg)
+            errors.append(msg)
+
+    # 5. Clean up status tracking
     if clean_status:
         try:
             StatusTracker(runtime_status_config(repo_path)).remove_status(worktree_name)
@@ -369,6 +401,56 @@ def teardown_worktree(
     return errors
 
 
+STASH_MARKER = "owt-auto-stash-"
+
+
+def _cleanup_branch(repo_path: str, worktree_name: str, errors: list[str]) -> None:
+    """Switch back to the original branch and delete the session branch."""
+    from git import Repo
+    from git.exc import GitCommandError
+
+    repo = Repo(repo_path)
+    try:
+        current = repo.active_branch.name
+        if current == worktree_name:
+            default = _detect_default_branch(repo)
+            repo.git.checkout(default)
+        repo.git.branch("-D", worktree_name)
+        logger.info("Deleted branch '%s' in %s", worktree_name, repo_path)
+    except GitCommandError as e:
+        msg = f"Could not clean up branch '{worktree_name}': {e}"
+        logger.warning(msg)
+        errors.append(msg)
+
+
+def _detect_default_branch(repo: object) -> str:
+    """Detect the default branch (main or master)."""
+    try:
+        repo.git.rev_parse("main")  # type: ignore[attr-defined]
+        return "main"
+    except Exception:
+        return "master"
+
+
+def _pop_auto_stash(repo_path: str, worktree_name: str, errors: list[str]) -> None:
+    """Pop the auto-stash with the matching marker."""
+    from git import Repo
+    from git.exc import GitCommandError
+
+    repo = Repo(repo_path)
+    marker = f"{STASH_MARKER}{worktree_name}"
+    try:
+        stash_list = repo.git.stash("list").splitlines()
+        for entry in stash_list:
+            if marker in entry:
+                repo.git.stash("pop")
+                logger.info("Popped auto-stash for '%s'", worktree_name)
+                return
+        logger.debug("No auto-stash found for '%s'", worktree_name)
+    except GitCommandError as e:
+        msg = f"Could not pop stash for '{worktree_name}': {e}"
+        logger.warning(msg)
+        errors.append(msg)
 def remove_pane(
     worktree_name: str,
     repo_path: str | None = None,

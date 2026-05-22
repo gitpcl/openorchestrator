@@ -49,7 +49,7 @@ from open_orchestrator.core.tool_protocol import AIToolProtocol
 from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.core.worktree import WorktreeAlreadyExistsError, WorktreeError, WorktreeManager
 from open_orchestrator.models.status import AIActivityStatus
-from open_orchestrator.models.worktree_info import SessionType, WorktreeInfo
+from open_orchestrator.models.worktree_info import SessionType
 
 logger = logging.getLogger(__name__)
 
@@ -128,16 +128,21 @@ class AgentLauncher:
         warnings: list[str] = []
 
         try:
-            worktree = self._create_worktree(request, txn)
-            self._setup_environment(str(worktree.path), warnings)
+            session_name, session_path, branch = self._prepare_checkout(request, txn)
+            txn.worktree_name = session_name
+            txn.session_type = request.session_type.value
+
+            self._setup_environment(session_path, warnings)
 
             if request.mode == LaunchMode.HEADLESS:
-                tracker = self._init_tracking_headless(worktree, request, txn, warnings)
-                pid = self._launch_headless(worktree, tool, request, tracker)
+                tracker = self._init_tracking_headless(
+                    session_name, session_path, branch, request, txn, warnings
+                )
+                pid = self._launch_headless_by_path(session_path, tool, request, tracker)
                 return LaunchResult(
-                    worktree_name=worktree.name,
-                    worktree_path=str(worktree.path),
-                    branch=worktree.branch,
+                    worktree_name=session_name,
+                    worktree_path=session_path,
+                    branch=branch,
                     ai_tool=request.ai_tool,
                     tmux_session=None,
                     subprocess_pid=pid,
@@ -145,11 +150,16 @@ class AgentLauncher:
                 )
 
             # Interactive or automated: create tmux session, deliver prompt via paste.
-            session_name = self._create_tmux_session(worktree, request, txn)
+            tmux_session_name = self._create_tmux_session_name(
+                session_name, session_path, request
+            )
+            txn.tmux_session_created = True
             tracker = _init_pane_tracking(
-                worktree=worktree,
+                worktree_name=session_name,
+                worktree_path=session_path,
+                branch=branch,
                 ai_tool=request.ai_tool,
-                tmux_session_name=session_name,
+                tmux_session_name=tmux_session_name,
                 repo_path=self._repo_path,
                 ai_instructions=request.prompt,
                 display_task=request.display_task,
@@ -158,16 +168,18 @@ class AgentLauncher:
                 txn=txn,
             )
             if request.prompt:
-                self._deliver_prompt_via_paste(session_name, request.prompt)
+                self._deliver_prompt_via_paste(tmux_session_name, request.prompt)
 
             return LaunchResult(
-                worktree_name=worktree.name,
-                worktree_path=str(worktree.path),
-                branch=worktree.branch,
+                worktree_name=session_name,
+                worktree_path=session_path,
+                branch=branch,
                 ai_tool=request.ai_tool,
-                tmux_session=session_name,
+                tmux_session=tmux_session_name,
                 subprocess_pid=None,
                 warnings=warnings,
+                session_type=request.session_type,
+                repo_root=self._repo_path,
             )
         except PaneActionError:
             txn.rollback()
@@ -178,7 +190,17 @@ class AgentLauncher:
 
     # -- pipeline steps -----------------------------------------------------
 
-    def _create_worktree(self, request: LaunchRequest, txn: PaneTransaction) -> WorktreeInfo:
+    def _prepare_checkout(self, request: LaunchRequest, txn: PaneTransaction) -> tuple[str, str, str]:
+        """Dispatch to worktree creation or branch checkout based on session type.
+
+        Returns:
+            Tuple of (session_name, session_path, branch).
+        """
+        if request.session_type == SessionType.BRANCH:
+            return self._checkout_branch(request, txn)
+        return self._create_worktree(request, txn)
+
+    def _create_worktree(self, request: LaunchRequest, txn: PaneTransaction) -> tuple[str, str, str]:
         candidate_name = request.branch.split("/")[-1] if "/" in request.branch else request.branch
         existing_names = {wt.name for wt in self._wt_manager.list_all()}
         if candidate_name in existing_names:
@@ -187,14 +209,45 @@ class AgentLauncher:
             worktree = self._wt_manager.create(branch=request.branch, base_branch=request.base_branch)
             txn.worktree_created = True
         except WorktreeAlreadyExistsError:
-            # Race condition safety net: list_all() saw no conflict but create()
-            # did. Recover by fetching the existing worktree.
             worktree = self._wt_manager.get(request.branch)
         except WorktreeError as e:
             raise PaneActionError(f"Failed to create worktree: {e}") from e
 
         txn.worktree_name = worktree.name
-        return worktree
+        return (worktree.name, str(worktree.path), worktree.branch)
+
+    def _checkout_branch(self, request: LaunchRequest, txn: PaneTransaction) -> tuple[str, str, str]:
+        """Create a branch in the current checkout (no git worktree)."""
+        from git import Repo
+        from git.exc import GitCommandError
+
+        candidate_name = request.branch.split("/")[-1] if "/" in request.branch else request.branch
+        repo = Repo(self._repo_path)
+
+        # Guard: reject if branch already exists locally
+        try:
+            repo.git.rev_parse("--verify", candidate_name)
+            raise PaneActionError(f"Branch '{candidate_name}' already exists locally. Use a different branch name.")
+        except GitCommandError:
+            pass  # Branch doesn't exist — good
+
+        # Guard: stash dirty state if present
+        if repo.is_dirty(untracked_files=True):
+            stash_marker = f"owt-auto-stash-{candidate_name}"
+            repo.git.stash("push", "-u", "-m", stash_marker)
+            txn.stash_created = True
+            logger.info("Stashed dirty state for branch mode session '%s'", candidate_name)
+
+        try:
+            base_branch = request.base_branch or "main"
+            repo.git.checkout("-b", candidate_name, base_branch)
+            txn.branch_created = True
+            logger.info("Created branch '%s' from '%s'", candidate_name, base_branch)
+        except GitCommandError as e:
+            raise PaneActionError(f"Failed to create branch '{candidate_name}': {e}") from e
+
+        txn.worktree_name = candidate_name
+        return (candidate_name, self._repo_path, candidate_name)
 
     def _setup_environment(self, worktree_path: str, warnings: list[str]) -> None:
         from open_orchestrator.config import load_config
@@ -205,33 +258,28 @@ class AgentLauncher:
         except Exception as e:  # noqa: BLE001
             warnings.append(f"Environment setup warning: {e}")
 
-    def _create_tmux_session(
+    def _create_tmux_session_name(
         self,
-        worktree: WorktreeInfo,
+        session_name: str,
+        session_path: str,
         request: LaunchRequest,
-        txn: PaneTransaction,
     ) -> str:
         automated = request.mode == LaunchMode.AUTOMATED
         try:
             info = self._tmux.create_worktree_session(
-                worktree_name=worktree.name,
-                worktree_path=str(worktree.path),
+                worktree_name=session_name,
+                worktree_path=session_path,
                 ai_tool=request.ai_tool,
                 plan_mode=request.plan_mode,
                 automated=automated,
             )
-            txn.tmux_session_created = True
             return info.session_name
         except TmuxSessionExistsError:
-            # Session reuse is only safe for INTERACTIVE attach-on-existing.
-            # For AUTOMATED, silently binding to a stale session would
-            # miss the fresh-prompt contract that batch/orchestrator rely
-            # on (they'd pick up whatever the previous run left behind).
             if request.mode != LaunchMode.INTERACTIVE:
                 raise PaneActionError(
-                    f"tmux session for '{worktree.name}' already exists; refusing to reuse it in {request.mode.value} mode"
+                    f"tmux session for '{session_name}' already exists; refusing to reuse it in {request.mode.value} mode"
                 )
-            return self._tmux.generate_session_name(worktree.name)
+            return self._tmux.generate_session_name(session_name)
         except TmuxError as e:
             raise PaneActionError(f"Failed to create tmux session: {e}") from e
 
@@ -247,7 +295,9 @@ class AgentLauncher:
 
     def _init_tracking_headless(
         self,
-        worktree: WorktreeInfo,
+        session_name: str,
+        session_path: str,
+        branch: str,
         request: LaunchRequest,
         txn: PaneTransaction,
         warnings: list[str],
@@ -259,8 +309,8 @@ class AgentLauncher:
             from open_orchestrator.core.hooks import install_hooks
 
             install_hooks(
-                worktree.path,
-                worktree.name,
+                Path(session_path),
+                session_name,
                 request.ai_tool,
                 db_path=tracker.storage_path,
             )
@@ -268,16 +318,16 @@ class AgentLauncher:
             warnings.append(f"Hook installation failed: {e}")
         try:
             tracker.initialize_status(
-                worktree_name=worktree.name,
-                worktree_path=str(worktree.path),
-                branch=worktree.branch,
+                worktree_name=session_name,
+                worktree_path=session_path,
+                branch=branch,
                 tmux_session=None,
                 ai_tool=request.ai_tool,
             )
             txn.status_initialized = True
             if request.prompt:
                 tracker.update_task(
-                    worktree.name,
+                    session_name,
                     (request.display_task or request.prompt)[:100],
                     AIActivityStatus.WORKING,
                 )
@@ -285,9 +335,9 @@ class AgentLauncher:
             warnings.append(f"Status tracking init failed: {e}")
         return tracker
 
-    def _launch_headless(
+    def _launch_headless_by_path(
         self,
-        worktree: WorktreeInfo,
+        session_path: str,
         tool: AIToolProtocol,
         request: LaunchRequest,
         tracker: StatusTracker,
@@ -314,7 +364,7 @@ class AgentLauncher:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                cwd=str(worktree.path),
+                cwd=session_path,
                 env={**os.environ, "OWT_AUTOMATED": "1"},
                 start_new_session=True,
             )
@@ -326,7 +376,7 @@ class AgentLauncher:
 
         try:
             tracker.update_task(
-                worktree.name,
+                request.branch,
                 request.prompt[:100],
             )
         except Exception as e:  # noqa: BLE001

@@ -1,9 +1,8 @@
 """Pydantic models for worktree information."""
 
 from datetime import datetime
-from pathlib import Path
-
 from enum import Enum
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 

@@ -49,6 +49,8 @@ class TestPaneTransaction:
             kill_tmux=True,
             delete_git_worktree=True,
             clean_status=False,
+            delete_branch=False,
+            pop_stash=False,
             force=True,
         )
 
@@ -69,6 +71,8 @@ class TestPaneTransaction:
             kill_tmux=False,
             delete_git_worktree=True,
             clean_status=False,
+            delete_branch=False,
+            pop_stash=False,
             force=True,
         )
 
