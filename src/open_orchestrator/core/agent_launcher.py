@@ -49,7 +49,7 @@ from open_orchestrator.core.tool_protocol import AIToolProtocol
 from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.core.worktree import WorktreeAlreadyExistsError, WorktreeError, WorktreeManager
 from open_orchestrator.models.status import AIActivityStatus
-from open_orchestrator.models.worktree_info import WorktreeInfo
+from open_orchestrator.models.worktree_info import SessionType, WorktreeInfo
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,6 @@ class LaunchMode(str, Enum):
     INTERACTIVE = "interactive"  # tmux, user attaches, prompt optional
     AUTOMATED = "automated"  # tmux with OWT_AUTOMATED=1; completion via Stop hook
     HEADLESS = "headless"  # subprocess, no tmux, prompt required
-
 
 @dataclass(frozen=True)
 class LaunchRequest:
@@ -73,6 +72,7 @@ class LaunchRequest:
     prompt: str | None = None
     display_task: str | None = None
     plan_mode: bool = False
+    session_type: SessionType = SessionType.WORKTREE
 
 
 @dataclass
@@ -86,6 +86,8 @@ class LaunchResult:
     tmux_session: str | None
     subprocess_pid: int | None
     warnings: list[str] = field(default_factory=list)
+    session_type: SessionType = SessionType.WORKTREE
+    repo_root: str | None = None
 
 
 class AgentLauncher:
