@@ -109,27 +109,36 @@ class TestSendCommand:
     """Test 'owt send' command."""
 
     @patch("open_orchestrator.commands._shared.StatusTracker")
-    @patch("open_orchestrator.core.tmux_manager.TmuxManager")
+    @patch("open_orchestrator.core.backend_factory.select_backend")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_to_worktree(
         self,
         mock_wt_manager: MagicMock,
-        mock_tmux: MagicMock,
+        mock_select_backend: MagicMock,
         mock_status: MagicMock,
         cli_runner: CliRunner,
         mock_worktree_info: WorktreeInfo,
     ) -> None:
-        """Test sending a command to a worktree's AI agent."""
+        """Test sending a command to a worktree's AI agent via the backend."""
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.return_value = mock_worktree_info
 
-        mock_tmux_instance = mock_tmux.return_value
-        mock_tmux_instance.generate_session_name.return_value = "owt-test-worktree"
-        mock_tmux_instance.session_exists.return_value = True
+        # Tracker reports a live session for the worktree.
+        session = BackendSession(kind=BackendKind.TMUX, id="owt-test-worktree", worktree_name="test-worktree")
+        mock_status.return_value.get_backend_session.return_value = session
+
+        mock_backend = MagicMock()
+        mock_backend.is_alive.return_value = True
+        mock_select_backend.return_value = mock_backend
 
         result = cli_runner.invoke(main, ["send", "feature/test", "echo", "hello"])
         assert result.exit_code == 0
-        mock_tmux_instance.send_keys_to_pane.assert_called_once()
+        mock_backend.send_text.assert_called_once()
+        sent_session, sent_text = mock_backend.send_text.call_args.args
+        assert sent_session.id == "owt-test-worktree"
+        assert sent_text == "echo hello"
 
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_to_nonexistent_worktree(
@@ -145,22 +154,21 @@ class TestSendCommand:
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
 
-    @patch("open_orchestrator.core.tmux_manager.TmuxManager")
+    @patch("open_orchestrator.commands._shared.StatusTracker")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_without_tmux_session(
         self,
         mock_wt_manager: MagicMock,
-        mock_tmux: MagicMock,
+        mock_status: MagicMock,
         cli_runner: CliRunner,
         mock_worktree_info: WorktreeInfo,
     ) -> None:
-        """Test sending a command to a worktree without a tmux session fails."""
+        """Test sending a command to a worktree without a live session fails."""
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.return_value = mock_worktree_info
 
-        mock_tmux_instance = mock_tmux.return_value
-        mock_tmux_instance.generate_session_name.return_value = "owt-test-worktree"
-        mock_tmux_instance.session_exists.return_value = False
+        # No backend session recorded → send must fail with a clear error.
+        mock_status.return_value.get_backend_session.return_value = None
 
         result = cli_runner.invoke(main, ["send", "feature/test", "echo", "hello"])
         assert result.exit_code != 0
@@ -170,14 +178,14 @@ class TestDeleteCommand:
     """Test 'owt delete' command."""
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
-    @patch("open_orchestrator.core.pane_actions.TmuxManager")
+    @patch("open_orchestrator.core.backend_factory.select_backend")
     @patch("open_orchestrator.core.pane_actions.WorktreeManager")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_delete_worktree_success(
         self,
         mock_wt_manager: MagicMock,
         mock_pa_wt_manager: MagicMock,
-        mock_pa_tmux: MagicMock,
+        mock_select_backend: MagicMock,
         mock_pa_status: MagicMock,
         cli_runner: CliRunner,
         mock_worktree_info: WorktreeInfo,
@@ -187,8 +195,10 @@ class TestDeleteCommand:
         mock_wt_instance.get.return_value = mock_worktree_info
         mock_wt_instance.git_root = Path("/tmp/test-repo")
 
-        mock_pa_tmux.return_value.generate_session_name.return_value = "owt-test-worktree"
-        mock_pa_tmux.return_value.session_exists.return_value = False
+        mock_backend = MagicMock()
+        mock_backend.session_for.return_value = None  # no live session
+        mock_select_backend.return_value = mock_backend
+        mock_pa_status.return_value.get_status.return_value = None  # no DB row
 
         result = cli_runner.invoke(main, ["delete", "feature/test", "--force", "--yes"])
         assert result.exit_code == 0

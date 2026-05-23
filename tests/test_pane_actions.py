@@ -52,6 +52,9 @@ class TestPaneTransaction:
             delete_branch=False,
             pop_stash=False,
             force=True,
+            backend_kind="tmux",
+            backend_session_id=None,
+            backend_meta=None,
         )
 
     @patch("open_orchestrator.core.pane_actions.teardown_worktree")
@@ -74,6 +77,9 @@ class TestPaneTransaction:
             delete_branch=False,
             pop_stash=False,
             force=True,
+            backend_kind="tmux",
+            backend_session_id=None,
+            backend_meta=None,
         )
 
 
@@ -117,7 +123,7 @@ class TestBuildAgentPrompt:
 
 
 @patch("open_orchestrator.core.hooks.install_hooks")
-@patch("open_orchestrator.core.pane_actions.TmuxManager")
+@patch("open_orchestrator.core.agent_launcher.TmuxManager")
 @patch("open_orchestrator.core.pane_actions.ProjectDetector")
 @patch("open_orchestrator.core.pane_actions.WorktreeManager")
 @patch("open_orchestrator.core.agent_launcher.load_config", create=True)
@@ -264,54 +270,69 @@ class TestTeardownWorktree:
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
     @patch("open_orchestrator.core.pane_actions.WorktreeManager")
-    @patch("open_orchestrator.core.pane_actions.TmuxManager")
+    @patch("open_orchestrator.core.backend_factory.select_backend")
     def test_teardown_full_cleanup(
         self,
-        mock_tmux_cls: MagicMock,
+        mock_select_backend: MagicMock,
         mock_wt_cls: MagicMock,
         mock_tracker_cls: MagicMock,
     ) -> None:
-        """Full teardown kills tmux, deletes worktree, cleans status."""
-        mock_tmux_cls.return_value.session_exists.return_value = True
+        """Full teardown kills backend session, deletes worktree, cleans status."""
+        mock_backend = MagicMock()
+        mock_select_backend.return_value = mock_backend
 
-        errors = teardown_worktree("auth-jwt", repo_path="/tmp/repo")
+        errors = teardown_worktree(
+            "auth-jwt",
+            repo_path="/tmp/repo",
+            backend_kind="tmux",
+            backend_session_id="owt-auth-jwt",
+        )
 
         assert errors == []
-        mock_tmux_cls.return_value.kill_session.assert_called_once()
+        mock_backend.kill.assert_called_once()
         mock_wt_cls.return_value.delete.assert_called_once_with("auth-jwt", force=False)
         mock_tracker_cls.return_value.remove_status.assert_called_once_with("auth-jwt")
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
     @patch("open_orchestrator.core.pane_actions.WorktreeManager")
-    @patch("open_orchestrator.core.pane_actions.TmuxManager")
+    @patch("open_orchestrator.core.backend_factory.select_backend")
     def test_teardown_skip_tmux(
         self,
-        mock_tmux_cls: MagicMock,
+        mock_select_backend: MagicMock,
         mock_wt_cls: MagicMock,
         mock_tracker_cls: MagicMock,
     ) -> None:
         """Teardown with kill_tmux=False skips session cleanup."""
+        mock_backend = MagicMock()
+        mock_select_backend.return_value = mock_backend
+
         errors = teardown_worktree("auth-jwt", repo_path="/tmp/repo", kill_tmux=False)
 
         assert errors == []
-        mock_tmux_cls.return_value.kill_session.assert_not_called()
+        mock_backend.kill.assert_not_called()
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
     @patch("open_orchestrator.core.pane_actions.WorktreeManager")
-    @patch("open_orchestrator.core.pane_actions.TmuxManager")
+    @patch("open_orchestrator.core.backend_factory.select_backend")
     def test_teardown_continues_on_tmux_error(
         self,
-        mock_tmux_cls: MagicMock,
+        mock_select_backend: MagicMock,
         mock_wt_cls: MagicMock,
         mock_tracker_cls: MagicMock,
     ) -> None:
-        """Teardown continues all steps even if tmux kill fails."""
+        """Teardown continues all steps even if backend kill fails."""
         from open_orchestrator.core.tmux_manager import TmuxError
 
-        mock_tmux_cls.return_value.session_exists.return_value = True
-        mock_tmux_cls.return_value.kill_session.side_effect = TmuxError("kill failed")
+        mock_backend = MagicMock()
+        mock_backend.kill.side_effect = TmuxError("kill failed")
+        mock_select_backend.return_value = mock_backend
 
-        errors = teardown_worktree("auth-jwt", repo_path="/tmp/repo")
+        errors = teardown_worktree(
+            "auth-jwt",
+            repo_path="/tmp/repo",
+            backend_kind="tmux",
+            backend_session_id="owt-auth-jwt",
+        )
 
         assert len(errors) == 1
         assert "Could not kill tmux" in errors[0]
@@ -320,18 +341,23 @@ class TestTeardownWorktree:
         mock_tracker_cls.return_value.remove_status.assert_called_once()
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
-    @patch("open_orchestrator.core.pane_actions.TmuxManager")
+    @patch("open_orchestrator.core.backend_factory.select_backend")
     def test_teardown_no_repo_path_skips_worktree_delete(
         self,
-        mock_tmux_cls: MagicMock,
+        mock_select_backend: MagicMock,
         mock_tracker_cls: MagicMock,
     ) -> None:
         """Teardown without repo_path skips git worktree deletion."""
-        mock_tmux_cls.return_value.session_exists.return_value = False
+        # No DB row exists, no explicit session_id: backend.kill should not fire.
+        mock_tracker_cls.return_value.get_status.return_value = None
+        mock_backend = MagicMock()
+        mock_backend.session_for.return_value = None
+        mock_select_backend.return_value = mock_backend
 
         errors = teardown_worktree("auth-jwt", repo_path=None)
 
         assert errors == []
+        mock_backend.kill.assert_not_called()
         mock_tracker_cls.return_value.remove_status.assert_called_once()
 
 

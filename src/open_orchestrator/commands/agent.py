@@ -33,16 +33,20 @@ def send_to_worktree(
 ) -> None:
     """Send a command/message to a worktree's AI agent.
 
+    Routes via the multiplexer backend recorded for each worktree at
+    create-time, so herdr-created sessions are dispatched over the
+    herdr socket and tmux-created sessions through tmux.
+
     Examples:
         owt send auth-jwt "Fix the failing tests"
         owt send --all "Run tests"
         owt send --working "Wrap up and commit"
         owt send --swarm swarm-abc12345 "status check"
     """
-    from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
+    del pane_index  # backend protocol targets the primary pane; pane_index is legacy
+    from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend
 
     msg = " ".join(message)
-    tmux = TmuxManager()
     tracker = get_status_tracker()
 
     if swarm_id:
@@ -56,21 +60,36 @@ def send_to_worktree(
         console.print(f"[green]Broadcast to {len(targets)} swarm worker(s):[/green] {msg[:80]}")
         return
 
+    def _send_via_backend(worktree_name: str) -> bool:
+        """Resolve backend for ``worktree_name`` and dispatch ``msg``."""
+        session = tracker.get_backend_session(worktree_name)
+        if session is None:
+            return False
+        try:
+            backend = select_backend(None, override=session.kind.value)
+        except BackendUnavailableError:
+            return False
+        if not backend.is_alive(session):
+            return False
+        backend.send_text(session, msg)
+        try:
+            tracker.record_command(worktree_name, msg)
+        except Exception:
+            logger.debug("Failed to record command for %s", worktree_name, exc_info=True)
+        return True
+
     if send_all or send_working:
-        # Broadcast mode
         statuses = tracker.get_all_statuses()
         if send_working:
             statuses = [s for s in statuses if s.activity_status == AIActivityStatus.WORKING]
 
         sent = 0
         for s in statuses:
-            if s.tmux_session and tmux.session_exists(s.tmux_session):
-                try:
-                    tmux.send_keys_to_pane(s.tmux_session, msg, pane_index=pane_index)
-                    tracker.record_command(s.worktree_name, msg)
+            try:
+                if _send_via_backend(s.worktree_name):
                     sent += 1
-                except TmuxError:
-                    console.print(f"[yellow]Failed to send to {s.worktree_name}[/yellow]")
+            except Exception:  # noqa: BLE001
+                console.print(f"[yellow]Failed to send to {s.worktree_name}[/yellow]")
         console.print(f"[green]Broadcast to {sent} worktree(s):[/green] {msg[:80]}")
         return
 
@@ -83,21 +102,12 @@ def send_to_worktree(
     except WorktreeNotFoundError as e:
         raise click.ClickException(str(e)) from e
 
-    session_name = tmux.generate_session_name(worktree.name)
-
-    if not tmux.session_exists(session_name):
-        raise click.ClickException(f"No tmux session for '{worktree.name}'.")
-
     try:
-        tmux.send_keys_to_pane(session_name, msg, pane_index=pane_index)
-        console.print(f"[green]Sent to {worktree.name}:[/green] {msg[:80]}")
-    except TmuxError as e:
-        raise click.ClickException(str(e)) from e
-
-    try:
-        tracker.record_command(worktree.name, msg)
-    except Exception:
-        logger.debug("Failed to record command for %s", worktree.name, exc_info=True)
+        if not _send_via_backend(worktree.name):
+            raise click.ClickException(f"No live session for '{worktree.name}'.")
+    except BackendUnavailableError as err:
+        raise click.ClickException(str(err)) from err
+    console.print(f"[green]Sent to {worktree.name}:[/green] {msg[:80]}")
 
 
 @click.command("wait")
@@ -206,9 +216,10 @@ def hook_event(event: str, worktree: str) -> None:
 
     This command is called by hooks installed in .claude/settings.local.json
     or .factory/settings.json. It updates the worktree's status in the
-    shared status store so the switchboard reflects real-time state.
+    shared status store and forwards the new state to the backend (so
+    herdr's sidebar reflects WORKING/WAITING/BLOCKED in real time).
     """
-    from datetime import datetime
+    from open_orchestrator.core.backend_factory import select_backend
 
     status_map = {
         "working": AIActivityStatus.WORKING,
@@ -219,10 +230,19 @@ def hook_event(event: str, worktree: str) -> None:
     try:
         tracker = get_status_tracker()
         wt_status = tracker.get_status(worktree)
-        if wt_status:
-            wt_status.activity_status = status_map[event]
-            wt_status.updated_at = datetime.now()
-            tracker.set_status(wt_status)
+        if not wt_status:
+            return
+        backend = None
+        try:
+            backend = select_backend(None, override=wt_status.backend_kind or "tmux")
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not resolve backend for hook event %s/%s", event, worktree, exc_info=True)
+        tracker.update_task(
+            worktree,
+            wt_status.current_task or event,
+            status_map[event],
+            backend=backend,
+        )
     except Exception:
         logger.debug("Hook event handler failed for %s", worktree, exc_info=True)
 

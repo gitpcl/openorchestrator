@@ -126,6 +126,36 @@ With herdr enabled, the tracker *also* calls
 herdr's sidebar reflects the same picture. If that call fails, the
 SQLite write is unaffected and the control plane (`owt`) still works.
 
+## What gets recorded per worktree
+
+Each status row carries three fields written at create-time so later
+commands route correctly without re-passing flags:
+
+| Column                | Meaning                                                  |
+|-----------------------|----------------------------------------------------------|
+| `backend_kind`        | `"tmux"` or `"herdr"` — picked by the launcher           |
+| `backend_session_id`  | tmux session name OR herdr pane id                        |
+| `backend_meta`        | JSON with backend-specific extras (e.g. `workspace_id`)  |
+
+`owt attach <name>`, `owt send <name> "msg"`, and `owt delete <name>`
+all look at `backend_kind` (then `backend_session_id`) to dispatch to
+the right adapter. Use `--herdr` / `--tmux` only when you want to
+override what was recorded.
+
+## Known limitations
+
+- **Orchestrator and batch runs are tmux-only today.** `owt orchestrate`,
+  `owt batch`, `owt swarm`, and `owt subagent` create sessions through
+  `TmuxManager` directly because their pane-split / coordinator-worker
+  topology has no direct herdr analogue yet. They are unaffected by
+  `--herdr` and will continue to create tmux sessions even when
+  `[backend] mode = "herdr"` is set.
+- **Plan mode + automated mode are honored only by tmux** (they are
+  propagated via the agent command and `OWT_AUTOMATED=1` env var, which
+  herdr's `pane.send_text` doesn't currently set on the pane shell).
+- The `switchboard` (`owt --legacy-cards`) hosts its *own* tmux session;
+  this is unaffected by the backend choice for agent sessions.
+
 ## Out of scope (not in this sprint)
 
 - Pushing DAG / orchestration progress into herdr's UI (could be a follow-up).

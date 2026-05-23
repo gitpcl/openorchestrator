@@ -10,20 +10,23 @@ launch mode goes through the same pipeline:
 2. Create the worktree (recovering from an already-existing match).
 3. Set up environment (deps, .env, CLAUDE.md injection).
 4. Install status hooks (if the tool supports them).
-5. Initialize the status tracker entry.
-6. Start the agent session:
-   * ``INTERACTIVE`` — tmux session, user attaches; prompt is optional.
-   * ``AUTOMATED`` — tmux session with ``OWT_AUTOMATED=1``; prompt
-     required. Completion is detected via the agent's Stop hook
-     reporting ``WAITING`` status — the pane stays running (interactive
-     claude) rather than auto-exiting.
-   * ``HEADLESS`` — detached subprocess; prompt required.
-7. Deliver the prompt via ``wait_for_ai_ready + paste_to_pane`` for tmux
-   modes (killing the old ``time.sleep(2) + send_keys`` path) or
-   ``subprocess.Popen`` + stdin for headless.
+5. Initialize the status tracker entry (recording the backend kind so
+   later ``owt attach``/``owt send``/``owt delete`` route correctly).
+6. Start the agent session via the multiplexer backend
+   (:class:`open_orchestrator.core.multiplexer.MultiplexerBackend`):
+   * ``INTERACTIVE`` — backend session, user attaches; prompt optional.
+   * ``AUTOMATED`` — backend session with ``OWT_AUTOMATED=1`` (tmux only
+     today); completion via the agent's Stop hook.
+   * ``HEADLESS`` — detached subprocess; prompt required. No backend.
+7. Deliver the prompt:
+   * tmux backends: ``wait_for_ai_ready + paste_to_pane`` for large
+     prompts that overflow ``send-keys`` buffers.
+   * herdr backends: prompt is appended to the agent command in
+     :meth:`HerdrBackend.create_session` (pane.send_text is one-shot).
+   * headless: ``subprocess.Popen`` + stdin.
 
 Any failure after step 2 triggers a ``PaneTransaction`` rollback so the
-worktree/tmux/status entry are torn down together.
+worktree, backend session, and status entry are torn down together.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from open_orchestrator.core.pane_actions import (
     PaneActionError,
@@ -48,8 +52,13 @@ from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager, TmuxSess
 from open_orchestrator.core.tool_protocol import AIToolProtocol
 from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.core.worktree import WorktreeAlreadyExistsError, WorktreeError, WorktreeManager
+from open_orchestrator.models.backend import BackendKind
 from open_orchestrator.models.status import AIActivityStatus
 from open_orchestrator.models.worktree_info import SessionType
+
+if TYPE_CHECKING:
+    from open_orchestrator.core.multiplexer import MultiplexerBackend
+    from open_orchestrator.models.backend import BackendSession
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +83,7 @@ class LaunchRequest:
     display_task: str | None = None
     plan_mode: bool = False
     session_type: SessionType = SessionType.WORKTREE
+    backend_kind: BackendKind = BackendKind.TMUX
 
 
 @dataclass
@@ -89,6 +99,8 @@ class LaunchResult:
     warnings: list[str] = field(default_factory=list)
     session_type: SessionType = SessionType.WORKTREE
     repo_root: str | None = None
+    backend_kind: BackendKind = BackendKind.TMUX
+    backend_session_id: str | None = None
 
 
 class AgentLauncher:
@@ -103,13 +115,18 @@ class AgentLauncher:
         status_tracker: StatusTracker | None = None,
         status_config: StatusConfig | None = None,
         config: object | None = None,
+        backend: MultiplexerBackend | None = None,
     ) -> None:
         self._repo_path = repo_path
         self._wt_manager = wt_manager or WorktreeManager(repo_path=Path(repo_path))
+        # Legacy tmux handle — only used by HEADLESS mode (no backend) and
+        # by tests that already inject one. Backend path supersedes it for
+        # session lifecycle.
         self._tmux = tmux or TmuxManager()
         self._status_tracker = status_tracker
         self._status_config = status_config
         self._config = config
+        self._backend = backend
 
     def launch(self, request: LaunchRequest) -> LaunchResult:
         """Provision worktree + agent for the given request."""
@@ -146,37 +163,47 @@ class AgentLauncher:
                     tmux_session=None,
                     subprocess_pid=pid,
                     warnings=warnings,
+                    backend_kind=BackendKind.TMUX,
                 )
 
-            # Interactive or automated: create tmux session, deliver prompt via paste.
-            tmux_session_name = self._create_tmux_session_name(session_name, session_path, request)
-            txn.tmux_session_created = True
-            tracker = _init_pane_tracking(
+            # Interactive or automated: create backend session, deliver prompt.
+            backend = self._resolve_backend(request)
+            backend_session = self._create_backend_session(backend, session_name, session_path, request)
+            txn.tmux_session_created = backend.kind == BackendKind.TMUX
+            txn.backend_session_id = backend_session.id
+            txn.backend_kind = backend.kind.value
+            txn.backend_meta = dict(backend_session.meta)
+            _init_pane_tracking(
                 worktree_name=session_name,
                 worktree_path=session_path,
                 branch=branch,
                 ai_tool=request.ai_tool,
-                tmux_session_name=tmux_session_name,
+                tmux_session_name=backend_session.id if backend.kind == BackendKind.TMUX else None,
                 repo_path=self._repo_path,
                 ai_instructions=request.prompt,
                 display_task=request.display_task,
                 status_tracker=self._status_tracker,
                 status_config=self._status_config,
                 txn=txn,
+                backend_kind=backend.kind.value,
+                backend_session_id=backend_session.id,
+                backend_meta=dict(backend_session.meta),
             )
             if request.prompt:
-                self._deliver_prompt_via_paste(tmux_session_name, request.prompt)
+                self._deliver_prompt(backend, backend_session, request.prompt)
 
             return LaunchResult(
                 worktree_name=session_name,
                 worktree_path=session_path,
                 branch=branch,
                 ai_tool=request.ai_tool,
-                tmux_session=tmux_session_name,
+                tmux_session=backend_session.id if backend.kind == BackendKind.TMUX else None,
                 subprocess_pid=None,
                 warnings=warnings,
                 session_type=request.session_type,
                 repo_root=self._repo_path,
+                backend_kind=backend.kind,
+                backend_session_id=backend_session.id,
             )
         except PaneActionError:
             txn.rollback()
@@ -255,40 +282,88 @@ class AgentLauncher:
         except Exception as e:  # noqa: BLE001
             warnings.append(f"Environment setup warning: {e}")
 
-    def _create_tmux_session_name(
+    def _resolve_backend(self, request: LaunchRequest) -> MultiplexerBackend:
+        """Return the backend to use.
+
+        Precedence:
+          1. Explicit ``backend=`` injected into the constructor.
+          2. If ``request.backend_kind == TMUX``: wrap the injected
+             ``TmuxManager`` so tests can mock the manager and still
+             exercise the backend code path without spinning up a real
+             tmux server.
+          3. Resolve via :func:`select_backend` using the request's kind.
+        """
+        if self._backend is not None:
+            return self._backend
+        if request.backend_kind == BackendKind.TMUX:
+            from open_orchestrator.core.tmux_backend import TmuxBackend
+
+            return TmuxBackend(self._tmux)
+        from open_orchestrator.core.backend_factory import select_backend
+
+        backend_cfg = getattr(self._config, "backend", None) if self._config is not None else None
+        return select_backend(backend_cfg, override=request.backend_kind.value)
+
+    def _create_backend_session(
         self,
+        backend: MultiplexerBackend,
         session_name: str,
         session_path: str,
         request: LaunchRequest,
-    ) -> str:
+    ) -> BackendSession:
+        """Create a multiplexer session via the resolved backend.
+
+        Both adapters accept the registered tool name as ``agent_command``;
+        :class:`TmuxBackend` forwards it to :class:`TmuxManager` (which
+        applies plan-mode / automated flags) and :class:`HerdrBackend`
+        types it into a fresh herdr workspace pane.
+        """
         automated = request.mode == LaunchMode.AUTOMATED
         try:
-            info = self._tmux.create_worktree_session(
-                worktree_name=session_name,
-                worktree_path=session_path,
-                ai_tool=request.ai_tool,
+            return backend.create_session(
+                session_name,
+                session_path,
+                agent_command=request.ai_tool,
                 plan_mode=request.plan_mode,
                 automated=automated,
             )
-            return info.session_name
         except TmuxSessionExistsError:
-            if request.mode != LaunchMode.INTERACTIVE:
+            # Only tmux raises this — recover by reusing the existing session
+            # for INTERACTIVE; refuse otherwise (prevents double-spawning agents).
+            if request.mode != LaunchMode.INTERACTIVE or backend.kind != BackendKind.TMUX:
                 raise PaneActionError(
                     f"tmux session for '{session_name}' already exists; refusing to reuse it in {request.mode.value} mode"
                 )
-            return self._tmux.generate_session_name(session_name)
+            from open_orchestrator.models.backend import BackendSession
+
+            return BackendSession(
+                kind=BackendKind.TMUX,
+                id=self._tmux.generate_session_name(session_name),
+                worktree_name=session_name,
+            )
         except TmuxError as e:
             raise PaneActionError(f"Failed to create tmux session: {e}") from e
 
-    def _deliver_prompt_via_paste(self, session_name: str, prompt: str) -> None:
-        """Wait for the agent to be ready, then paste the prompt.
+    def _deliver_prompt(self, backend: MultiplexerBackend, session: BackendSession, prompt: str) -> None:
+        """Deliver the prompt via the backend.
 
-        This replaces the legacy ``time.sleep(2) + send_keys`` path with
-        ``wait_for_ai_ready + paste_to_pane``, which handles prompts >2K
-        chars without send-keys buffer truncation.
+        Tmux requires a wait-for-ready dance because the AI process spawns
+        in the pane shell; herdr's ``pane.send_text`` is one-shot and the
+        prompt is already part of the agent_command (passed in
+        :meth:`HerdrBackend.create_session`). Calling ``send_text`` again
+        for herdr would inject the prompt a second time — skip it.
         """
-        self._tmux.wait_for_ai_ready(session_name=session_name, timeout=15)
-        self._tmux.paste_to_pane(session_name=session_name, text=prompt)
+        if backend.kind == BackendKind.HERDR:
+            backend.send_text(session, prompt)
+            return
+        # tmux: tap into the adapter's wait+paste helper so the
+        # heavy-prompt path is preserved.
+        from open_orchestrator.core.tmux_backend import TmuxBackend
+
+        if isinstance(backend, TmuxBackend):
+            backend.wait_and_paste(session, prompt)
+        else:
+            backend.send_text(session, prompt)
 
     def _init_tracking_headless(
         self,

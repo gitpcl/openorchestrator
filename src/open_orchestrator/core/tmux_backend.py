@@ -44,6 +44,7 @@ class TmuxBackend:
         *,
         agent_command: str | None = None,
         plan_mode: bool = False,
+        automated: bool = False,
     ) -> BackendSession:
         info = self._tmux.create_worktree_session(
             worktree_name=worktree_name,
@@ -52,12 +53,31 @@ class TmuxBackend:
             auto_start_ai=bool(agent_command),
             ai_tool=agent_command or "claude",
             plan_mode=plan_mode,
+            automated=automated,
         )
         return BackendSession(
             kind=self.kind,
             id=info.session_name,
             worktree_name=worktree_name,
         )
+
+    def generate_session_name(self, worktree_name: str) -> str:
+        """Return the canonical session id for ``worktree_name``.
+
+        Surface area to let callers (e.g. ``AgentLauncher`` reuse path)
+        compute the id without importing :class:`TmuxManager` directly.
+        """
+        return self._tmux.generate_session_name(worktree_name)
+
+    def wait_and_paste(self, session: BackendSession, prompt: str, *, timeout: int = 15) -> None:
+        """Tmux-only: wait for AI readiness then paste a (possibly large) prompt.
+
+        Herdr's ``pane.send_text`` is one-shot so we don't need this — the
+        bridge is built into ``HerdrBackend.create_session``. Keeping it
+        on the tmux adapter avoids pushing tmux-specifics into call sites.
+        """
+        self._tmux.wait_for_ai_ready(session_name=session.id, timeout=timeout)
+        self._tmux.paste_to_pane(session_name=session.id, text=prompt)
 
     def kill(self, session: BackendSession) -> None:
         try:

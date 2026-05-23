@@ -75,8 +75,9 @@ class HerdrBackend:
         *,
         agent_command: str | None = None,
         plan_mode: bool = False,
+        automated: bool = False,
     ) -> BackendSession:
-        del plan_mode  # plan_mode is communicated via the prompt itself
+        del plan_mode, automated  # both are communicated via prompt content for herdr
         workspace = self._call(
             "workspace.create",
             {"cwd": cwd, "label": worktree_name},

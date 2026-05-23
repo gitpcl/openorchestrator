@@ -311,6 +311,9 @@ class TestPaneTransactionBranchMode:
                 delete_branch=True,
                 pop_stash=True,
                 force=True,
+                backend_kind="tmux",
+                backend_session_id=None,
+                backend_meta=None,
             )
 
     def test_rollback_branch_only(self) -> None:
@@ -333,6 +336,9 @@ class TestPaneTransactionBranchMode:
                 delete_branch=True,
                 pop_stash=False,
                 force=True,
+                backend_kind="tmux",
+                backend_session_id=None,
+                backend_meta=None,
             )
 
 

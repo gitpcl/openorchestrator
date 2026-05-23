@@ -13,6 +13,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from open_orchestrator.core import status_policy
 from open_orchestrator.models.status import (
@@ -20,6 +21,9 @@ from open_orchestrator.models.status import (
     StatusSummary,
     WorktreeAIStatus,
 )
+
+if TYPE_CHECKING:
+    from open_orchestrator.models.backend import BackendSession
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,9 @@ CREATE TABLE IF NOT EXISTS worktree_status (
     last_task_update TEXT,
     notes TEXT,
     modified_files TEXT DEFAULT '[]',
+    backend_kind TEXT DEFAULT 'tmux',
+    backend_session_id TEXT,
+    backend_meta TEXT DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -94,6 +101,9 @@ def _str_to_dt(s: str | None) -> datetime | None:
 
 
 def _row_to_status(row: sqlite3.Row) -> WorktreeAIStatus:
+    # sqlite3.Row.keys() is the safe portable way to introspect columns;
+    # older DBs created before Sprint 025 P7 may not have backend_* columns.
+    columns = set(row.keys())
     return WorktreeAIStatus(
         worktree_name=row["worktree_name"],
         worktree_path=row["worktree_path"],
@@ -105,6 +115,9 @@ def _row_to_status(row: sqlite3.Row) -> WorktreeAIStatus:
         last_task_update=_str_to_dt(row["last_task_update"]),
         notes=row["notes"],
         modified_files=json.loads(row["modified_files"] or "[]"),
+        backend_kind=(row["backend_kind"] if "backend_kind" in columns else None) or "tmux",
+        backend_session_id=row["backend_session_id"] if "backend_session_id" in columns else None,
+        backend_meta=json.loads((row["backend_meta"] if "backend_meta" in columns else None) or "{}"),
         created_at=_str_to_dt(row["created_at"]) or datetime.now(),
         updated_at=_str_to_dt(row["updated_at"]) or datetime.now(),
     )
@@ -207,10 +220,21 @@ class SQLiteStatusRepository:
             pass
 
     def _ensure_schema(self) -> None:
-        """Create tables if they don't exist."""
+        """Create tables if they don't exist and migrate columns added later."""
         self.conn.executescript(_SCHEMA_SQL)
-        self.conn.execute("INSERT OR IGNORE INTO metadata (key, value) VALUES ('version', '3.0')")
+        self._migrate_backend_columns()
+        self.conn.execute("INSERT OR IGNORE INTO metadata (key, value) VALUES ('version', '3.1')")
         self.conn.commit()
+
+    def _migrate_backend_columns(self) -> None:
+        """Sprint 025 P7: add backend_* columns to pre-existing DBs."""
+        existing_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(worktree_status)").fetchall()}
+        if "backend_kind" not in existing_cols:
+            self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_kind TEXT DEFAULT 'tmux'")
+        if "backend_session_id" not in existing_cols:
+            self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_session_id TEXT")
+        if "backend_meta" not in existing_cols:
+            self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_meta TEXT DEFAULT '{}'")
 
     def load_legacy_json(self) -> tuple[Path | None, dict[str, object] | None]:
         """Load legacy ai_status.json if present."""
@@ -338,8 +362,9 @@ class StatusTracker:
             """INSERT OR REPLACE INTO worktree_status
                (worktree_name, worktree_path, branch, tmux_session, ai_tool,
                 activity_status, current_task, last_task_update, notes,
-                modified_files, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                modified_files, backend_kind, backend_session_id, backend_meta,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 s.worktree_name,
                 s.worktree_path,
@@ -351,6 +376,9 @@ class StatusTracker:
                 _dt_to_str(s.last_task_update),
                 s.notes,
                 json.dumps(s.modified_files),
+                s.backend_kind,
+                s.backend_session_id,
+                json.dumps(s.backend_meta),
                 _dt_to_str(s.created_at),
                 _dt_to_str(s.updated_at),
             ),
@@ -368,8 +396,17 @@ class StatusTracker:
         branch: str,
         tmux_session: str | None = None,
         ai_tool: str = "claude",
+        *,
+        backend_kind: str = "tmux",
+        backend_session_id: str | None = None,
+        backend_meta: dict[str, str] | None = None,
     ) -> WorktreeAIStatus:
-        """Initialize status tracking for a new worktree."""
+        """Initialize status tracking for a new worktree.
+
+        ``backend_kind`` records which multiplexer hosts the session so
+        ``owt attach``/``owt send``/``owt delete`` can pick the right
+        backend later without a CLI flag.
+        """
         status = WorktreeAIStatus(
             worktree_name=worktree_name,
             worktree_path=worktree_path,
@@ -377,11 +414,41 @@ class StatusTracker:
             tmux_session=tmux_session,
             ai_tool=ai_tool,
             activity_status=AIActivityStatus.IDLE,
+            backend_kind=backend_kind,
+            backend_session_id=backend_session_id,
+            backend_meta=backend_meta or {},
             created_at=datetime.now(),
             updated_at=datetime.now(),
         )
         self._upsert_status(status)
         return status
+
+    def get_backend_session(self, worktree_name: str) -> "BackendSession | None":
+        """Reconstruct a :class:`BackendSession` from the DB row, if any.
+
+        Returns ``None`` when no row exists or the row carries no backend
+        session id (legacy rows without backend bookkeeping).
+        """
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        wt_status = self.get_status(worktree_name)
+        if wt_status is None:
+            return None
+        # Prefer explicit backend_session_id; fall back to tmux_session for
+        # legacy rows written before Sprint 025 P7.
+        session_id = wt_status.backend_session_id or wt_status.tmux_session
+        if not session_id:
+            return None
+        try:
+            kind = BackendKind(wt_status.backend_kind)
+        except ValueError:
+            kind = BackendKind.TMUX
+        return BackendSession(
+            kind=kind,
+            id=session_id,
+            worktree_name=wt_status.worktree_name,
+            meta=dict(wt_status.backend_meta),
+        )
 
     def update_task(
         self,
@@ -419,10 +486,14 @@ class StatusTracker:
         try:
             from open_orchestrator.models.backend import BackendSession  # local import to avoid cycle
 
+            # Prefer the backend-native session id; fall back to legacy
+            # tmux_session, then worktree_name as a last resort.
+            session_id = wt_status.backend_session_id or wt_status.tmux_session or wt_status.worktree_name
             session = BackendSession(
                 kind=getattr(backend, "kind"),
-                id=wt_status.tmux_session or wt_status.worktree_name,
+                id=session_id,
                 worktree_name=wt_status.worktree_name,
+                meta=dict(wt_status.backend_meta),
             )
             report = getattr(backend, "report_agent_state", None)
             if report is None:
@@ -542,26 +613,37 @@ class StatusTracker:
     def cleanup_orphans(self, valid_worktree_names: list[str]) -> list[str]:
         """Remove status entries for worktrees that no longer exist.
 
-        For each orphaned entry, also kills the associated tmux session if one
-        is still running, keeping all three systems (git, tmux, SQLite) in sync.
+        For each orphaned entry, also kills the associated backend session
+        (tmux or herdr, per the row's ``backend_kind``) so all three
+        systems — git, multiplexer, SQLite — stay in sync.
         """
         all_statuses = self.get_all_statuses()
         orphans = [s for s in all_statuses if s.worktree_name not in valid_worktree_names]
         if not orphans:
             return []
 
-        from open_orchestrator.core.tmux_manager import TmuxManager
+        from open_orchestrator.core.backend_factory import select_backend
+        from open_orchestrator.models.backend import BackendConfig, BackendKind, BackendSession
 
-        tmux = TmuxManager()
         removed = []
         for s in orphans:
-            # Kill the tmux session before removing the status entry
-            session_name = s.tmux_session or tmux.generate_session_name(s.worktree_name)
             try:
-                tmux.kill_session(session_name)
-                logger.debug("Killed orphan tmux session %s", session_name)
-            except Exception as e:
-                logger.debug("Could not kill tmux session %s: %s", session_name, e)
+                backend = select_backend(
+                    BackendConfig(),
+                    override=s.backend_kind if s.backend_kind in {BackendKind.TMUX.value, BackendKind.HERDR.value} else "tmux",
+                )
+                session_id = s.backend_session_id or s.tmux_session
+                if session_id:
+                    session = BackendSession(
+                        kind=BackendKind(s.backend_kind or "tmux"),
+                        id=session_id,
+                        worktree_name=s.worktree_name,
+                        meta=dict(s.backend_meta),
+                    )
+                    backend.kill(session)
+                    logger.debug("Killed orphan %s session %s", s.backend_kind, session_id)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Could not kill backend session for %s: %s", s.worktree_name, e)
 
             self.remove_status(s.worktree_name)
             removed.append(s.worktree_name)

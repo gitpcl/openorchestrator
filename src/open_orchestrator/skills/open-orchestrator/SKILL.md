@@ -165,6 +165,8 @@ herdr_session = "default"   # named herdr session (selects which socket)
 
 **Status DB is source of truth.** `StatusTracker.update_task(..., backend=)` writes SQLite first, *then* forwards to `backend.report_agent_state` so herdr's sidebar reflects owt's state. If herdr is down the SQLite write is unaffected and the control plane keeps working.
 
+**Recorded per worktree:** the status row carries `backend_kind` (`"tmux"` | `"herdr"`), `backend_session_id` (tmux session name OR herdr pane id), and `backend_meta` (e.g. herdr `workspace_id`). `owt attach <name>`, `owt send <name> "msg"`, and `owt delete <name>` all consult those fields, so once a worktree is created with `--herdr` no further flags are needed for follow-ups.
+
 **Architecture:**
 ```
             commands/ (owt CLI)
@@ -177,7 +179,9 @@ herdr_session = "default"   # named herdr session (selects which socket)
    (TmuxManager)        (HerdrClient RPC)
 ```
 
-Call sites depend only on `MultiplexerBackend` (`core/multiplexer.py`); concrete adapters live behind `TmuxBackend` (`core/tmux_backend.py`) and `HerdrBackend` (`core/herdr_backend.py`). The factory at `core/backend_factory.py` is the single resolution point.
+`AgentLauncher`, `commands/agent.py:send`, `commands/worktree.py:{new,switch,attach,delete,list}`, and `commands/doctor.py` resolve a backend through `core/backend_factory.py` and never touch `TmuxManager` directly — the protocol is the only seam.
+
+**Known limitation:** `owt orchestrate`, `owt batch`, `owt swarm`, and `owt subagent` still create sessions through `TmuxManager` directly because their pane-split / coordinator-worker topology has no direct herdr analogue yet. They ignore `--herdr` and use tmux even when `[backend] mode = "herdr"` is set. The standalone `owt new` flow is fully herdr-aware.
 
 See [`docs/herdr-integration.md`](../../../../docs/herdr-integration.md) for the full configuration, troubleshooting, and named-session walkthrough.
 

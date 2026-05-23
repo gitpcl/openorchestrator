@@ -17,7 +17,7 @@ from open_orchestrator.core.status import (
     StatusTracker,
     runtime_status_config,
 )
-from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
+from open_orchestrator.core.tmux_manager import TmuxError
 from open_orchestrator.core.worktree import WorktreeError, WorktreeManager
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,10 @@ class PaneTransaction:
 
     Each field records whether a resource was created, so rollback()
     can clean up only what was actually provisioned.
+
+    Sprint 025 P7: ``backend_kind`` / ``backend_session_id`` /
+    ``backend_meta`` track the multiplexer-native session id so rollback
+    targets the correct backend (tmux vs herdr).
     """
 
     repo_path: str | None = None
@@ -54,6 +58,9 @@ class PaneTransaction:
     branch_created: bool = False
     stash_created: bool = False
     session_type: str = "worktree"  # "worktree" or "branch"
+    backend_kind: str = "tmux"
+    backend_session_id: str | None = None
+    backend_meta: dict[str, str] | None = None
 
     def rollback(self) -> None:
         """Roll back all tracked resources using teardown_worktree()."""
@@ -61,10 +68,11 @@ class PaneTransaction:
             return
 
         logger.warning(
-            "Rolling back pane creation for '%s' (worktree=%s, tmux=%s, status=%s, branch=%s, stash=%s)",
+            "Rolling back pane creation for '%s' (worktree=%s, backend=%s/%s, status=%s, branch=%s, stash=%s)",
             self.worktree_name,
             self.worktree_created,
-            self.tmux_session_created,
+            self.backend_kind,
+            self.backend_session_id,
             self.status_initialized,
             self.branch_created,
             self.stash_created,
@@ -72,12 +80,15 @@ class PaneTransaction:
         teardown_worktree(
             self.worktree_name,
             repo_path=self.repo_path,
-            kill_tmux=self.tmux_session_created,
+            kill_tmux=self.tmux_session_created or bool(self.backend_session_id),
             delete_git_worktree=self.worktree_created,
             clean_status=self.status_initialized,
             delete_branch=self.branch_created,
             pop_stash=self.stash_created,
             force=True,
+            backend_kind=self.backend_kind,
+            backend_session_id=self.backend_session_id,
+            backend_meta=self.backend_meta,
         )
 
 
@@ -197,13 +208,17 @@ def _init_pane_tracking(
     worktree_path: str,
     branch: str,
     ai_tool: str,
-    tmux_session_name: str,
+    tmux_session_name: str | None,
     repo_path: str,
     ai_instructions: str | None,
     display_task: str | None,
     status_tracker: StatusTracker | None,
     status_config: StatusConfig | None,
     txn: PaneTransaction,
+    *,
+    backend_kind: str = "tmux",
+    backend_session_id: str | None = None,
+    backend_meta: dict[str, str] | None = None,
 ) -> StatusTracker:
     """Install hooks and initialize status tracking. Returns the tracker."""
     tracker_config = status_config or runtime_status_config(repo_path)
@@ -227,6 +242,9 @@ def _init_pane_tracking(
             branch=branch,
             tmux_session=tmux_session_name,
             ai_tool=ai_tool,
+            backend_kind=backend_kind,
+            backend_session_id=backend_session_id,
+            backend_meta=backend_meta or {},
         )
         txn.status_initialized = True
         if ai_instructions:
@@ -283,11 +301,9 @@ def create_pane(
     mode = LaunchMode.AUTOMATED if ai_instructions else LaunchMode.INTERACTIVE
 
     wt_manager = WorktreeManager(repo_path=Path(repo_path))
-    tmux_manager = TmuxManager()
     launcher = AgentLauncher(
         repo_path=repo_path,
         wt_manager=wt_manager,
-        tmux=tmux_manager,
         status_tracker=status_tracker,
         status_config=status_config,
     )
@@ -320,6 +336,9 @@ def teardown_worktree(
     delete_branch: bool = False,
     pop_stash: bool = False,
     force: bool = False,
+    backend_kind: str | None = None,
+    backend_session_id: str | None = None,
+    backend_meta: dict[str, str] | None = None,
 ) -> list[str]:
     """Best-effort cleanup of all worktree resources.
 
@@ -329,33 +348,37 @@ def teardown_worktree(
     Args:
         worktree_name: Name of the worktree to tear down.
         repo_path: Path to main repo (needed to delete git worktree).
-        kill_tmux: Whether to kill the associated tmux session.
+        kill_tmux: Whether to kill the backend multiplexer session. The
+            argument name predates the herdr backend; ``True`` kills the
+            session via the backend resolved from ``backend_kind`` (or
+            the status DB row when omitted).
         delete_git_worktree: Whether to delete the git worktree directory.
         clean_status: Whether to remove the status DB entry.
         delete_branch: Whether to delete the git branch and restore original.
         pop_stash: Whether to pop the auto-stash (branch mode).
         force: Whether to force deletion of git worktree.
+        backend_kind: Override the backend (otherwise resolved from the
+            status DB row, defaulting to ``"tmux"``).
+        backend_session_id: Override the session id (otherwise resolved
+            from the status DB row).
+        backend_meta: Override the session meta (otherwise resolved from
+            the status DB row).
 
     Returns:
         List of error strings for any steps that failed (empty = full success).
     """
     errors: list[str] = []
 
-    # 1. Kill tmux session
+    # 1. Kill backend session (tmux or herdr) — resolve from DB when not given.
     if kill_tmux:
-        try:
-            tmux_manager = TmuxManager()
-            session_name = tmux_manager.generate_session_name(worktree_name)
-            if tmux_manager.session_exists(session_name):
-                tmux_manager.kill_session(session_name)
-        except TmuxError as e:
-            msg = f"Could not kill tmux session for '{worktree_name}': {e}"
-            logger.warning(msg)
-            errors.append(msg)
-        except Exception as e:
-            msg = f"Unexpected error killing tmux session for '{worktree_name}': {e}"
-            logger.warning(msg)
-            errors.append(msg)
+        _teardown_backend_session(
+            worktree_name=worktree_name,
+            repo_path=repo_path,
+            backend_kind=backend_kind,
+            backend_session_id=backend_session_id,
+            backend_meta=backend_meta,
+            errors=errors,
+        )
 
     # 2. Delete git worktree (worktree mode) or delete branch (branch mode)
     if delete_git_worktree and repo_path:
@@ -399,6 +422,69 @@ def teardown_worktree(
             errors.append(msg)
 
     return errors
+
+
+def _teardown_backend_session(
+    *,
+    worktree_name: str,
+    repo_path: str | None,
+    backend_kind: str | None,
+    backend_session_id: str | None,
+    backend_meta: dict[str, str] | None,
+    errors: list[str],
+) -> None:
+    """Resolve the right backend and kill the session, best-effort.
+
+    Looks up the status DB row when explicit overrides aren't provided so
+    legacy callers (``owt delete`` without --herdr/--tmux flags) still
+    target the correct backend.
+    """
+    try:
+        from open_orchestrator.core.backend_factory import select_backend
+        from open_orchestrator.models.backend import BackendConfig, BackendKind, BackendSession
+
+        kind = backend_kind
+        session_id = backend_session_id
+        meta = dict(backend_meta or {})
+
+        if kind is None or session_id is None:
+            tracker = StatusTracker(runtime_status_config(repo_path))
+            wt_status = tracker.get_status(worktree_name)
+            if wt_status is not None:
+                if kind is None:
+                    kind = wt_status.backend_kind or "tmux"
+                if session_id is None:
+                    session_id = wt_status.backend_session_id or wt_status.tmux_session
+                if not meta:
+                    meta = dict(wt_status.backend_meta)
+
+        kind = kind or "tmux"
+        if kind not in {BackendKind.TMUX.value, BackendKind.HERDR.value}:
+            kind = "tmux"
+
+        backend = select_backend(BackendConfig(), override=kind)
+        # Resolve via session_for when we don't have an id (legacy rows).
+        if not session_id:
+            existing = backend.session_for(worktree_name)
+            if existing is None:
+                return
+            session = existing
+        else:
+            session = BackendSession(
+                kind=BackendKind(kind),
+                id=session_id,
+                worktree_name=worktree_name,
+                meta=meta,
+            )
+        backend.kill(session)
+    except TmuxError as e:
+        msg = f"Could not kill tmux session for '{worktree_name}': {e}"
+        logger.warning(msg)
+        errors.append(msg)
+    except Exception as e:  # noqa: BLE001
+        msg = f"Unexpected error killing backend session for '{worktree_name}': {e}"
+        logger.warning(msg)
+        errors.append(msg)
 
 
 STASH_MARKER = "owt-auto-stash-"

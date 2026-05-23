@@ -37,6 +37,13 @@ class WorktreeAIStatus(BaseModel):
     last_task_update: datetime | None = Field(default=None, description="When the task was last updated")
     notes: str | None = Field(default=None, description="Additional notes or context")
     modified_files: list[str] = Field(default_factory=list, description="Files modified vs base branch")
+    backend_kind: str = Field(default="tmux", description="Multiplexer backend hosting the session ('tmux' | 'herdr')")
+    backend_session_id: str | None = Field(
+        default=None, description="Backend-native session id (tmux session name OR herdr pane id)"
+    )
+    backend_meta: dict[str, str] = Field(
+        default_factory=dict, description="Backend-specific metadata (e.g. herdr workspace_id, socket path)"
+    )
     created_at: datetime = Field(default_factory=datetime.now, description="When this status record was created")
     updated_at: datetime = Field(default_factory=datetime.now, description="When this status was last updated")
 

@@ -56,20 +56,22 @@ def test_owt_new_herdr_incompatible_with_headless() -> None:
 
 def test_owt_attach_invokes_backend_attach(tmp_path) -> None:  # noqa: ANN001
     """When attach succeeds, ``backend.attach`` is the only path called."""
+    from open_orchestrator.models.backend import BackendKind, BackendSession
+
     runner = CliRunner()
     fake_backend = MagicMock()
     fake_backend.kind.value = "tmux"
-    fake_backend.session_for.return_value = MagicMock(id="owt-wt", worktree_name="wt")
+    recorded = BackendSession(kind=BackendKind.TMUX, id="owt-wt", worktree_name="wt")
 
     with (
         patch("open_orchestrator.core.backend_factory.select_backend", return_value=fake_backend),
         patch("open_orchestrator.commands.worktree.get_worktree_manager") as wt_get,
-        patch("open_orchestrator.commands.worktree.get_status_tracker"),
+        patch("open_orchestrator.commands.worktree.get_status_tracker") as tr_get,
     ):
         wt_get.return_value.get.return_value = MagicMock(name="wt", branch="feat/x")
         wt_get.return_value.get.return_value.name = "wt"
+        tr_get.return_value.get_backend_session.return_value = recorded
         result = runner.invoke(main, ["attach", "wt"])
-    # Either succeeds via mock OR is gated by missing args — verify attach was attempted
-    fake_backend.session_for.assert_called_once_with("wt")
-    fake_backend.attach.assert_called_once()
+    # The DB-recorded session is preferred over session_for().
+    fake_backend.attach.assert_called_once_with(recorded)
     del result  # exit code from mocked attach is not meaningful

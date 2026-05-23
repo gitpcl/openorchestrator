@@ -31,8 +31,15 @@ class MultiplexerBackend(Protocol):
         *,
         agent_command: str | None = None,
         plan_mode: bool = False,
+        automated: bool = False,
     ) -> BackendSession:
-        """Create a session bound to ``cwd`` and optionally spawn ``agent_command``."""
+        """Create a session bound to ``cwd`` and optionally spawn ``agent_command``.
+
+        ``automated`` is a hint that the agent is running unattended (no
+        human will type follow-ups). Backends that surface this to the
+        underlying process (e.g. tmux sets ``OWT_AUTOMATED=1``) should
+        honor it; herdr currently treats it as advisory.
+        """
         ...
 
     def session_for(self, worktree_name: str) -> BackendSession | None:

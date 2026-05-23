@@ -232,17 +232,21 @@ herdr_session = "default"   # named herdr session (selects which socket)
 
 `mode = "auto"` picks herdr when installed and reachable, otherwise tmux. Status updates from owt's tracker are forwarded to herdr's sidebar via `pane.report_agent` (non-fatal — SQLite is source of truth).
 
+**Recorded per worktree:** each status row carries `backend_kind`, `backend_session_id`, and `backend_meta` (e.g. herdr workspace id) so `owt attach <name>`, `owt send <name> "msg"`, and `owt delete <name>` route to the right backend without re-passing flags.
+
 **What owt sends to herdr:**
 
 | owt action            | herdr RPC                              |
 |-----------------------|----------------------------------------|
 | `owt new --herdr`     | `workspace.create` + `pane.send_text`  |
-| `owt send`            | `pane.send_text`                       |
+| `owt send`            | `pane.send_text` (per worktree's recorded backend) |
 | `owt attach --herdr`  | `herdr agent attach <pane_id>` (exec)  |
-| status update         | `pane.report_agent` (non-fatal)        |
+| status update (hooks) | `pane.report_agent` (non-fatal)        |
 | `owt delete`          | `pane.close` + `workspace.close`       |
 
-**Architecture:** call sites depend only on `core/multiplexer.py::MultiplexerBackend`; concrete adapters live behind `core/tmux_backend.py` (wraps `TmuxManager`) and `core/herdr_backend.py` (wraps `HerdrClient` JSON-RPC over Unix socket). The factory at `core/backend_factory.py` is the single resolution point.
+**Architecture:** call sites depend only on `core/multiplexer.py::MultiplexerBackend`; `AgentLauncher`, `commands/agent.py`, `commands/worktree.py`, and `commands/doctor.py` resolve a backend via `core/backend_factory.py` and never touch `TmuxManager` directly. Concrete adapters live behind `core/tmux_backend.py` (wraps `TmuxManager`) and `core/herdr_backend.py` (wraps `HerdrClient` JSON-RPC over Unix socket).
+
+**Known limitation:** `owt orchestrate`, `owt batch`, `owt swarm`, and `owt subagent` create sessions through tmux directly today — they ignore `--herdr` and continue to use tmux even when `[backend] mode = "herdr"` is set. The standalone `owt new` flow is fully herdr-aware.
 
 See [`docs/herdr-integration.md`](docs/herdr-integration.md) for the full configuration, troubleshooting, named-session walkthrough, and protocol reference.
 
