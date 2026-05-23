@@ -1,8 +1,0 @@
-{"timestamp": "2026-05-22T22:50:08.509600", "action": "ship", "target": "test-worktree", "is_safe": true, "summary": "[OK] ship 'test-worktree': 1 warning(s), 1 info", "blocking": 0, "warning": 1}
-{"timestamp": "2026-05-22T22:50:08.512009", "action": "ship", "target": "clean-worktree", "is_safe": true, "summary": "[OK] ship 'clean-worktree': 1 info", "blocking": 0, "warning": 0}
-{"timestamp": "2026-05-22T22:50:08.512770", "action": "merge", "target": "test-worktree", "is_safe": false, "summary": "[BLOCKED] merge 'test-worktree': 2 blocking, 1 info", "blocking": 2, "warning": 0}
-{"timestamp": "2026-05-22T22:50:08.513474", "action": "ship", "target": "empty-feature", "is_safe": false, "summary": "[BLOCKED] ship 'empty-feature': 1 blocking", "blocking": 1, "warning": 0}
-{"timestamp": "2026-05-22T22:50:08.514292", "action": "delete", "target": "old-feature", "is_safe": true, "summary": "[OK] delete 'old-feature': 1 warning(s)", "blocking": 0, "warning": 1}
-{"timestamp": "2026-05-22T22:50:08.515169", "action": "ship", "target": "test", "is_safe": true, "summary": "[OK] ship 'test': 1 info", "blocking": 0, "warning": 0}
-{"timestamp": "2026-05-22T22:50:08.516471", "action": "ship", "target": "my-feature", "is_safe": true, "summary": "[OK] ship 'my-feature': 1 info", "blocking": 0, "warning": 0}
-{"timestamp": "2026-05-22T22:50:08.517999", "action": "merge", "target": "my-feature", "is_safe": false, "summary": "[BLOCKED] merge 'my-feature': 1 blocking, 1 info", "blocking": 1, "warning": 0}
