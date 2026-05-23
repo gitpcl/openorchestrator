@@ -1,11 +1,15 @@
 """Switchboard modal screens for user interaction.
 
 Extracted from switchboard.py to keep file sizes manageable.
-Provides InputModal, ConfirmModal, DetailModal, and SearchableSelectModal.
+Provides InputModal, ConfirmModal, and SearchableSelectModal.
 
 Sprint 020: CSS uses Textual ``$variable`` references so the active
 ``self.theme`` (textual-dark / textual-light / textual-ansi) controls the
 color scheme without code changes.
+
+Sprint 024 removed ``DetailModal`` — the control plane uses an inline
+review panel instead. Callers that still need a "tell the user N lines"
+flow should use a toast or write a small adhoc widget.
 """
 
 from __future__ import annotations
@@ -15,7 +19,6 @@ from dataclasses import dataclass
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
-from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, Static
 
@@ -160,55 +163,6 @@ class ConfirmModal(ModalScreen[bool]):
 
     def action_no(self) -> None:
         self.dismiss(False)
-
-
-class DetailModal(ModalScreen[None]):
-    """Modal screen for detail panels (info, overlap)."""
-
-    DEFAULT_CSS = """
-    DetailModal {
-        align: center middle;
-    }
-    #detail-panel {
-        width: 70;
-        max-width: 90%;
-        max-height: 80%;
-        padding: 2 3;
-        border: none;
-        background: $surface;
-        overflow-y: auto;
-    }
-    #detail-panel .modal-title {
-        text-style: bold;
-        margin-bottom: 1;
-    }
-    #detail-panel .modal-hint {
-        margin-top: 1;
-        text-style: dim;
-    }
-    """
-
-    BINDINGS = [Binding("escape", "close", "Close", show=False)]
-
-    def __init__(self, title: str, lines: list[str]) -> None:
-        super().__init__()
-        self._title = title
-        self._lines = lines
-
-    def on_mount(self) -> None:
-        _apply_modal_bg(self, "detail-panel")
-
-    def compose(self) -> ComposeResult:
-        with Container(id="detail-panel"):
-            yield Static(self._title, classes="modal-title")
-            yield Static("\n".join(self._lines), classes="modal-body")
-            yield Static("[dim]Esc[/dim] close", classes="modal-hint")
-
-    def on_key(self, event: Key) -> None:
-        self.dismiss(None)
-
-    def action_close(self) -> None:
-        self.dismiss(None)
 
 
 @dataclass

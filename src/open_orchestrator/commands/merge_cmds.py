@@ -350,7 +350,6 @@ def merge_worktree(
         )
 
         if result.worktree_cleaned and not keep:
-
             # Worktree already deleted by merge_manager; only kill tmux + clean status
             teardown_worktree(
                 worktree.name,
@@ -397,8 +396,13 @@ def ship_worktree(
 
     if branch_mode:
         _ship_branch(
-            worktree_name, base_branch, commit_message, yes,
-            leave_conflicts, strategy, rebase,
+            worktree_name,
+            base_branch,
+            commit_message,
+            yes,
+            leave_conflicts,
+            strategy,
+            rebase,
         )
         return
 
@@ -545,6 +549,7 @@ def merge_queue(base_branch: str | None, auto_ship: bool, yes: bool) -> None:
             return
 
         from open_orchestrator.core.merge import MergeConflictError, MergeStatus
+
         for name, _, _ in order:
             console.print(f"\n[bold]Shipping {name}...[/bold]")
             try:

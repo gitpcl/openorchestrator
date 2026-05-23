@@ -249,10 +249,12 @@ def list_worktrees(show_all: bool) -> None:
     branch_sessions: list[dict[str, str]] = []
     for s in tracker.get_all_statuses():
         if s.worktree_name not in worktree_names and s.branch:
-            branch_sessions.append({
-                "name": s.worktree_name,
-                "branch": s.branch,
-            })
+            branch_sessions.append(
+                {
+                    "name": s.worktree_name,
+                    "branch": s.branch,
+                }
+            )
 
     if not show_all:
         worktrees = [wt for wt in worktrees if not wt.is_main]
@@ -454,6 +456,41 @@ def branch_cmd(
     )
 
 
+@click.command("attach")
+@click.argument("identifier")
+def attach_worktree(identifier: str) -> None:
+    """Hand off to a worktree's session (control plane → tmux/herdr).
+
+    Today: attaches to the worktree's tmux session (replacing the current
+    foreground process when not already inside tmux, switching the client
+    when inside).  Sprint 025 extends this to herdr panes.
+    """
+    from open_orchestrator.core.tmux_manager import TmuxManager
+
+    wt_manager = get_worktree_manager()
+    tracker = get_status_tracker(wt_manager.git_root)
+    tmux = TmuxManager()
+
+    # Try worktree lookup first; fall back to branch-mode session in the
+    # status DB so ``owt attach`` works for branch sessions too.
+    session_name: str | None = None
+    try:
+        worktree = wt_manager.get(identifier)
+        session_name = tmux.generate_session_name(worktree.name)
+    except WorktreeNotFoundError:
+        status = tracker.get_status(identifier)
+        if status and status.tmux_session:
+            session_name = status.tmux_session
+
+    if not session_name or not tmux.session_exists(session_name):
+        raise click.ClickException(f"No session for '{identifier}'. Run 'owt new' to create one.")
+
+    if tmux.is_inside_tmux():
+        tmux.switch_client(session_name)
+    else:
+        tmux.attach(session_name)
+
+
 def register(main: click.Group) -> None:
     """Register worktree commands on the main CLI group."""
     main.add_command(new_worktree)
@@ -461,3 +498,4 @@ def register(main: click.Group) -> None:
     main.add_command(switch_worktree)
     main.add_command(delete_worktree)
     main.add_command(branch_cmd)
+    main.add_command(attach_worktree)

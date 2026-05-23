@@ -31,6 +31,12 @@ from open_orchestrator.commands import (
     default=None,
     help="UI theme (default: auto, detects terminal background).",
 )
+@click.option(
+    "--legacy-cards",
+    "legacy_cards",
+    is_flag=True,
+    help="Use the legacy card-grid switchboard instead of the control plane (deprecated).",
+)
 @click.pass_context
 def main(
     ctx: click.Context,
@@ -39,6 +45,7 @@ def main(
     verbose: bool,
     json_output: bool,
     theme: str | None,
+    legacy_cards: bool,
 ) -> None:
     """Open Orchestrator — multi-agent worktree orchestration.
 
@@ -90,9 +97,19 @@ def main(
         return
 
     if ctx.invoked_subcommand is None:
-        from open_orchestrator.core.switchboard import launch_switchboard
+        if legacy_cards:
+            click.echo(
+                "[deprecation] --legacy-cards renders the card-grid switchboard; "
+                "this flag will be removed in the next minor release.",
+                err=True,
+            )
+            from open_orchestrator.core.switchboard import launch_switchboard
 
-        launch_switchboard()
+            launch_switchboard()
+        else:
+            from open_orchestrator.core.control_plane_view import ControlPlaneApp
+
+            ControlPlaneApp().run()
 
 
 # Register all command modules

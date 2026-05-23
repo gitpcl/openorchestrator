@@ -15,12 +15,20 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from open_orchestrator.models.control_plane import BackgroundEvent
 
 logger = logging.getLogger(__name__)
+
+CRITIC_LOG_MAX_LINES = 200
 
 
 class Severity(str, Enum):
@@ -94,6 +102,56 @@ class CriticAgent:
 
     def __init__(self, repo_path: Path | None = None) -> None:
         self._repo_path = repo_path or Path.cwd()
+        self._log_path = self._repo_path / ".owt" / "critic_verdicts.jsonl"
+
+    def _record_verdict(self, verdict: CriticVerdict) -> None:
+        """Append a verdict to the rolling log (auto-passes feed the BACKGROUND section)."""
+        try:
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "timestamp": datetime.now().isoformat(),
+                "action": verdict.action,
+                "target": verdict.target,
+                "is_safe": verdict.is_safe,
+                "summary": verdict.summary,
+                "blocking": verdict.blocking_count,
+                "warning": verdict.warning_count,
+            }
+            existing: list[str] = []
+            if self._log_path.exists():
+                existing = self._log_path.read_text().splitlines()[-(CRITIC_LOG_MAX_LINES - 1) :]
+            existing.append(json.dumps(payload))
+            self._log_path.write_text("\n".join(existing) + "\n")
+        except OSError as exc:
+            logger.debug("Failed to record critic verdict: %s", exc)
+
+    def recent_events(self, limit: int = 5) -> list[BackgroundEvent]:
+        """Surface recent critic verdicts (especially auto-passes) for the BACKGROUND section."""
+        from open_orchestrator.models.control_plane import BackgroundEvent
+
+        if not self._log_path.exists():
+            return []
+        events: list[BackgroundEvent] = []
+        try:
+            lines = self._log_path.read_text().splitlines()
+        except OSError:
+            return []
+        for raw in lines[-limit * 2 :]:  # over-fetch then filter
+            try:
+                payload = json.loads(raw)
+                ts = datetime.fromisoformat(payload["timestamp"])
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue
+            events.append(
+                BackgroundEvent(
+                    timestamp=ts,
+                    source="critic",
+                    summary=str(payload.get("summary", "")),
+                    worktree_name=str(payload.get("target")) or None,
+                )
+            )
+        events.sort(key=lambda e: e.timestamp, reverse=True)
+        return events[:limit]
 
     def review_ship(self, worktree_name: str) -> CriticVerdict:
         """Run critic review before shipping a worktree.
@@ -101,20 +159,24 @@ class CriticAgent:
         Checks: uncommitted changes, file overlaps, commit count, base divergence.
         """
         findings = list(self._check_all(worktree_name, action="ship"))
-        return CriticVerdict(
+        verdict = CriticVerdict(
             action="ship",
             target=worktree_name,
             findings=tuple(findings),
         )
+        self._record_verdict(verdict)
+        return verdict
 
     def review_merge(self, worktree_name: str) -> CriticVerdict:
         """Run critic review before merging a worktree."""
         findings = list(self._check_all(worktree_name, action="merge"))
-        return CriticVerdict(
+        verdict = CriticVerdict(
             action="merge",
             target=worktree_name,
             findings=tuple(findings),
         )
+        self._record_verdict(verdict)
+        return verdict
 
     def review_delete(self, worktree_name: str) -> CriticVerdict:
         """Run critic review before deleting a worktree."""
@@ -126,11 +188,13 @@ class CriticAgent:
         # Check for unmerged commits
         findings.extend(self._check_unmerged_commits(worktree_name))
 
-        return CriticVerdict(
+        verdict = CriticVerdict(
             action="delete",
             target=worktree_name,
             findings=tuple(findings),
         )
+        self._record_verdict(verdict)
+        return verdict
 
     def review_action(self, action: str, worktree_name: str) -> CriticVerdict:
         """Run critic review for an arbitrary action."""

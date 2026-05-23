@@ -61,6 +61,7 @@ class LaunchMode(str, Enum):
     AUTOMATED = "automated"  # tmux with OWT_AUTOMATED=1; completion via Stop hook
     HEADLESS = "headless"  # subprocess, no tmux, prompt required
 
+
 @dataclass(frozen=True)
 class LaunchRequest:
     """Input to ``AgentLauncher.launch``."""
@@ -135,9 +136,7 @@ class AgentLauncher:
             self._setup_environment(session_path, warnings)
 
             if request.mode == LaunchMode.HEADLESS:
-                tracker = self._init_tracking_headless(
-                    session_name, session_path, branch, request, txn, warnings
-                )
+                tracker = self._init_tracking_headless(session_name, session_path, branch, request, txn, warnings)
                 pid = self._launch_headless_by_path(session_path, tool, request, tracker)
                 return LaunchResult(
                     worktree_name=session_name,
@@ -150,9 +149,7 @@ class AgentLauncher:
                 )
 
             # Interactive or automated: create tmux session, deliver prompt via paste.
-            tmux_session_name = self._create_tmux_session_name(
-                session_name, session_path, request
-            )
+            tmux_session_name = self._create_tmux_session_name(session_name, session_path, request)
             txn.tmux_session_created = True
             tracker = _init_pane_tracking(
                 worktree_name=session_name,

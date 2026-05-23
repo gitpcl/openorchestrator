@@ -451,6 +451,8 @@ def _pop_auto_stash(repo_path: str, worktree_name: str, errors: list[str]) -> No
         msg = f"Could not pop stash for '{worktree_name}': {e}"
         logger.warning(msg)
         errors.append(msg)
+
+
 def remove_pane(
     worktree_name: str,
     repo_path: str | None = None,

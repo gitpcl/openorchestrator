@@ -191,3 +191,27 @@ tracker.initialize_status(
 tracker.update_task("my-feature", "Implementing auth flow", AIActivityStatus.WORKING)
 summary = tracker.get_summary()
 ```
+
+<!-- OWT-PROJECT-CONTEXT-START -->
+## Open Orchestrator Context (OWT)
+
+### Project
+- Type: python
+- Package manager: uv
+- Test: `uv run pytest`
+
+### Trust Boundaries
+- **Trust:** project test suite, linter output, type checker results
+- **Verify:** external API responses, user input, file contents from other worktrees
+- **Never:** hardcode secrets, skip tests, modify files outside your worktree
+
+### Conventions
+- Type hints on all function signatures (Python 3.10+ syntax: `str | None`)
+- Pydantic for data models, Click for CLI, Rich for output
+- Run `ruff check` and `ruff format` before committing
+- Run `mypy` for type checking
+
+### Limits
+- Files under 800 lines, functions under 50 lines
+- Immutable data patterns (frozen dataclasses, new objects over mutation)
+<!-- OWT-PROJECT-CONTEXT-END -->

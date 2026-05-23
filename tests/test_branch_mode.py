@@ -106,6 +106,7 @@ class TestBranchCheckout:
         mock_repo = MagicMock()
         mock_repo.is_dirty.return_value = False
         from git.exc import GitCommandError
+
         mock_repo.git.rev_parse.side_effect = GitCommandError("rev-parse", 1)
         mock_repo_cls.return_value = mock_repo
 
@@ -143,6 +144,7 @@ class TestBranchCheckout:
         mock_repo = MagicMock()
         mock_repo.is_dirty.return_value = True
         from git.exc import GitCommandError
+
         mock_repo.git.rev_parse.side_effect = GitCommandError("rev-parse", 1)
         mock_repo_cls.return_value = mock_repo
 
@@ -352,6 +354,7 @@ class TestLaunchResultBranchMode:
         mock_repo = MagicMock()
         mock_repo.is_dirty.return_value = False
         from git.exc import GitCommandError
+
         mock_repo.git.rev_parse.side_effect = GitCommandError("rev-parse", 1)
         mock_repo_cls.return_value = mock_repo
 

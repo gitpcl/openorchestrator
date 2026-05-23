@@ -21,6 +21,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from open_orchestrator.models.control_plane import BackgroundEvent
 
 logger = logging.getLogger(__name__)
 
@@ -333,3 +337,42 @@ class DreamDaemon:
         if not self._reports_dir.exists():
             return []
         return sorted(self._reports_dir.glob("*.json"), reverse=True)[:limit]
+
+    def recent_events(self, limit: int = 5) -> list[BackgroundEvent]:
+        """Surface recent dream cycles as BackgroundEvent rows.
+
+        Each report becomes one event with a brief summary; if the report
+        carried per-worktree findings, each finding becomes its own event so
+        the control plane can attribute it correctly.
+        """
+        from open_orchestrator.models.control_plane import BackgroundEvent
+
+        events: list[BackgroundEvent] = []
+        for report_path in self.list_reports(limit=limit):
+            try:
+                payload = json.loads(report_path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            try:
+                ts = datetime.fromisoformat(str(payload.get("timestamp", "")))
+            except ValueError:
+                continue
+            findings = payload.get("findings") or []
+            if findings:
+                for f in findings[:3]:
+                    events.append(
+                        BackgroundEvent(
+                            timestamp=ts,
+                            source="dream",
+                            summary=f"{f.get('category', '?')}: {f.get('message', '')}",
+                            worktree_name=f.get("worktree") or None,
+                        )
+                    )
+            else:
+                memory_actions = int(payload.get("memory_actions", 0) or 0)
+                stale = int(payload.get("stale_worktrees", 0) or 0)
+                summary = f"consolidated · memory={memory_actions} stale={stale}"
+                events.append(BackgroundEvent(timestamp=ts, source="dream", summary=summary))
+            if len(events) >= limit:
+                break
+        return events[:limit]

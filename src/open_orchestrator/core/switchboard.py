@@ -1,24 +1,15 @@
-"""
-Switchboard: Textual-based card grid for multi-agent orchestration.
+"""Legacy card-grid switchboard (kept behind ``--legacy-cards``).
 
-The switchboard is the command center for Open Orchestrator. It displays
-all active worktrees as cards with status lights, and provides keyboard
-shortcuts to navigate, patch into sessions, send messages, and manage
-worktrees — all from one screen.
-
-The switchboard runs in its own tmux session ("owt-switchboard"). When
-you patch into an agent session (Enter), the switchboard stays alive.
-Alt+s from any session switches back to the switchboard. Press q to
-exit completely back to the terminal.
-
-Metaphor: Like a telephone switchboard operator managing multiple lines.
+Sprint 024 introduced the control plane as the default UI
+(:mod:`open_orchestrator.core.control_plane_view`).  This module remains
+for users on the deprecated ``--legacy-cards`` migration path — it will
+be removed in the next minor release.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
 
 from rich.columns import Columns
 from rich.panel import Panel
@@ -52,7 +43,6 @@ from open_orchestrator.core.switchboard_cards import (
 )
 from open_orchestrator.core.switchboard_modals import (
     ConfirmModal,
-    DetailModal,
     InputModal,
     SearchableSelectModal,
     SelectOption,
@@ -65,13 +55,10 @@ from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
 logger = logging.getLogger(__name__)
 
-# Re-export all public names for backward compatibility
 __all__ = [
     "Card",
     "CardGrid",
-    "CardWidget",
     "ConfirmModal",
-    "DetailModal",
     "HOOK_CAPABLE_TOOLS",
     "HOOK_TRUST_MAX_SECONDS",
     "InputModal",
@@ -91,60 +78,15 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Card widgets (tightly coupled to SwitchboardApp)
+# Card grid (legacy single-pass renderer; per-card CardWidget removed in S024)
 # ---------------------------------------------------------------------------
 
 
-class CardWidget(Static):
-    """Textual widget for a single worktree card with independent rendering."""
-
-    DEFAULT_CSS = f"""
-    CardWidget {{
-        width: {CARD_WIDTH + 4};
-        height: 5;
-    }}
-    """
-
-    def __init__(self, card: Card, index: int, **kwargs: object) -> None:
-        super().__init__(**kwargs)  # type: ignore[arg-type]
-        self.card = card
-        self.card_index = index
-
-    def render(self) -> Panel:
-        app: SwitchboardApp = self.app  # type: ignore[assignment]
-        selected = self.card_index == app._selected
-        content = _render_card(self.card, app._tick)
-        flash_remaining = self.card.flash_until - app._tick
-        if flash_remaining > 3:
-            border_style = "bold white reverse"
-        elif flash_remaining > 0:
-            border_style = "bold white"
-        elif selected:
-            border_style = "white"
-        else:
-            border_style = COLORS["card_border"]
-        return Panel(
-            content,
-            width=CARD_WIDTH + 2,
-            padding=(0, 1),
-            border_style=border_style,
-        )
-
-
 class CardGrid(Static):
-    """Widget that renders all cards in a wrapping grid via Rich Columns.
-
-    Uses CardWidget instances for granular updates when possible,
-    but falls back to bulk Columns rendering for the grid layout.
-    """
+    """Single-pass card-grid widget (legacy view)."""
 
     DEFAULT_CSS = """
-    CardGrid {
-        width: 100%;
-        height: 1fr;
-        overflow-y: auto;
-        padding: 1 1;
-    }
+    CardGrid { width: 100%; height: 1fr; overflow-y: auto; padding: 1 1; }
     """
 
     def render(self) -> Text | Columns:
@@ -152,18 +94,23 @@ class CardGrid(Static):
         if not app._cards:
             return Text.from_markup(
                 "\n\n\n"
-                "  [bold white]Open Orchestrator[/bold white]\n\n"
+                "  [bold white]Open Orchestrator (legacy view)[/bold white]\n\n"
                 "  No active worktrees.\n\n"
-                "  [dim]Press [bold]n[/bold] to create a new worktree[/dim]\n"
-                "  [dim]Press [bold]q[/bold] to quit[/dim]\n"
+                "  [dim]Press [bold]n[/bold] for new, [bold]q[/bold] to quit[/dim]\n"
+                "  [yellow dim]Drop --legacy-cards for the control plane.[/yellow dim]\n"
             )
-
         panels = []
         for i, card in enumerate(app._cards):
-            widget = CardWidget(card, i)
-            widget._app = app  # type: ignore[attr-defined]
-            panels.append(widget.render())
-
+            selected = i == app._selected
+            border = "white" if selected else COLORS["card_border"]
+            panels.append(
+                Panel(
+                    _render_card(card, app._tick),
+                    width=CARD_WIDTH + 2,
+                    padding=(0, 1),
+                    border_style=border,
+                )
+            )
         return Columns(panels, padding=(0, 1))
 
 
@@ -241,23 +188,14 @@ class SwitchboardApp(App[None]):
         Binding("q", "quit", "Quit", show=False),
     ]
 
-    _FOOTER_KEYS = (
-        "[bold]\u2191\u2193\u2190\u2192[/bold] [dim]nav[/dim] | "
-        "[bold]Enter[/bold] [dim]patch[/dim] | "
-        "[bold]s[/bold] [dim]send[/dim] | "
-        "[bold]a[/bold] [dim]all[/dim] | "
-        "[bold]n[/bold] [dim]new[/dim] | "
-        "[bold]S[/bold] [dim]ship[/dim] | "
-        "[bold]f[/bold] [dim]files[/dim] | "
-        "[bold]i[/bold] [dim]info[/dim] | "
-        "[bold]q[/bold] [dim]quit[/dim]"
+    _FOOTER = (
+        " [yellow]legacy[/yellow] \u00b7 [bold]\u2191\u2193\u2190\u2192[/bold] nav \u00b7 "
+        "[bold]Enter[/bold] patch \u00b7 [bold]n[/bold] new \u00b7 "
+        "[bold]S[/bold] ship \u00b7 [bold]q[/bold] quit"
     )
 
     def _build_footer(self) -> str:
-        """Build dynamic footer with keybind hints and card position."""
-        n = len(self._cards)
-        pos = f"Card {self._selected + 1}/{n}" if n > 0 else "No cards"
-        return f" {self._FOOTER_KEYS}  [bold]{pos}[/bold]"
+        return self._FOOTER
 
     def __init__(self, detected_bg: str | None = None) -> None:
         super().__init__()
@@ -312,41 +250,16 @@ class SwitchboardApp(App[None]):
         self.call_after_refresh(self._heavy_refresh)
 
     def _apply_theme(self) -> None:
-        """Apply the Textual built-in theme matching the active palette."""
         try:
             from open_orchestrator.core.theme import get_active_palette
 
-            palette = get_active_palette()
-            self.theme = palette.textual_theme
+            self.theme = get_active_palette().textual_theme
         except Exception:
             logger.debug("Theme apply skipped", exc_info=True)
 
     def _apply_background_color(self) -> None:
-        """Apply terminal background color (auto-detected, env var, or config)."""
-        import os
-
-        bg = self._detected_bg
-        if not bg:
-            bg = os.environ.get("OWT_BACKGROUND")
-        if not bg:
-            try:
-                from open_orchestrator.config import load_config
-
-                bg = load_config().switchboard.background_color
-            except Exception:
-                pass
-        if bg:
-            from open_orchestrator.core.switchboard_modals import _darken
-
-            self._bg_color = bg
-            darker = _darken(bg, 0.75)
-            self.screen.styles.background = bg
-            # Header/footer slightly darker than bg
-            try:
-                self.query_one("#header").styles.background = darker
-                self.query_one("#footer").styles.background = darker
-            except Exception:
-                pass
+        """Legacy view skips custom backgrounds; control plane handles theming."""
+        return
 
     def on_resize(self) -> None:
         """Recalculate columns for navigation on terminal resize."""
@@ -367,85 +280,35 @@ class SwitchboardApp(App[None]):
         self.query_one("#card-grid", CardGrid).refresh()
 
     async def _heavy_refresh(self) -> None:
-        """Heavy refresh: parallel async pane + diff polling.
-
-        Skips the expensive _build_cards_async when no status changes
-        have been detected since the last refresh (change-detection guard).
-        """
+        """Parallel async pane + diff polling (legacy)."""
         self._heavy_refresh_count += 1
-
-        # Change-detection: skip expensive rebuild if nothing changed
-        if self._tracker.has_changed_since(self._last_generation):
-            self._last_generation = self._tracker.get_generation()
-        elif self._heavy_refresh_count > 1:
-            # Still update elapsed times from cache but skip full rebuild
-            logger.debug("Skipping heavy refresh — no status changes")
+        if not self._tracker.has_changed_since(self._last_generation) and self._heavy_refresh_count > 1:
             self._update_header()
             self.query_one("#card-grid", CardGrid).refresh()
             return
+        self._last_generation = self._tracker.get_generation()
 
         self._cards, self._file_map = await _build_cards_async(self._tracker, self._wt_manager)
-
-        # Periodic orphan cleanup (~every 20s)
         if self._heavy_refresh_count % 10 == 0:
-            valid_names = [c.name for c in self._cards]
-            self._tracker.cleanup_orphans(valid_names)
-
-        # Cache statuses for light-tick elapsed updates
+            self._tracker.cleanup_orphans([c.name for c in self._cards])
         self._cached_statuses = {s.worktree_name: s for s in self._tracker.get_all_statuses()}
-
-        # Flash on status transitions
-        current_names = {c.name for c in self._cards}
-        for name in list(self._prev_statuses):
-            if name not in current_names:
-                del self._prev_statuses[name]
-        for card in self._cards:
-            prev = self._prev_statuses.get(card.name)
-            if prev is not None and prev != card.status:
-                card.flash_until = self._tick + 5
-            self._prev_statuses[card.name] = card.status
-
-        # Clamp selection
         if self._cards:
             self._selected = min(self._selected, len(self._cards) - 1)
-
         self._update_header()
-        self._update_footer()
         self.query_one("#card-grid", CardGrid).refresh()
 
     def _update_header(self) -> None:
-        """Update the header stats (right side). Title is static."""
         cards = self._cards
         active = sum(1 for c in cards if status_policy.ui_bucket(c.status) == "active")
         waiting = sum(1 for c in cards if status_policy.ui_bucket(c.status) == "waiting")
         total = len(cards)
         idle = total - active - waiting
-        overlaps = sum(1 for c in cards if c.overlap_count > 0)
-
         working_color = STATUS_COLORS["working"]
-        waiting_color = STATUS_COLORS["waiting"]
         idle_color = STATUS_COLORS["idle"]
-
-        parts = [
-            f"{total} lines",
-            f"[{working_color}]\u25cf{active} active[/{working_color}]",
-        ]
+        parts = [f"{total}", f"[{working_color}]\u25cf{active}[/{working_color}]", f"[{idle_color}]\u25cb{idle}[/{idle_color}]"]
         if waiting:
-            parts.append(f"[{waiting_color}]\u26a0{waiting} waiting[/{waiting_color}]")
-        parts.append(f"[{idle_color}]\u25cb{idle}[/{idle_color}]")
-        if overlaps:
-            parts.append(f"[yellow]!{overlaps} overlap[/yellow]")
-
-        # DAG progress indicator
-        try:
-            dag_progress = self._tracker.get_metadata("dag_progress")
-            if dag_progress:
-                parts.append(f"DAG: {dag_progress}")
-        except Exception:
-            logger.debug("Failed to read DAG progress", exc_info=True)
-
-        stats = "  ".join(parts) + " "
-        self.query_one("#header-stats", Static).update(stats)
+            parts.append(f"[{STATUS_COLORS['waiting']}]\u26a0{waiting}[/{STATUS_COLORS['waiting']}]")
+        self.query_one("#header-stats", Static).update("  ".join(parts) + " ")
 
     # ---- Actions ----
 
@@ -462,55 +325,22 @@ class SwitchboardApp(App[None]):
         elif direction == "right":
             self._selected = min(self._selected + 1, n - 1)
         self.query_one("#card-grid", CardGrid).refresh()
-        self._update_footer()
-
-    def _update_footer(self) -> None:
-        """Refresh the footer bar with current card position."""
-        self.query_one("#footer", Static).update(self._build_footer())
 
     def _show_toast(self, message: str, variant: str = "info") -> None:
-        """Show a temporary toast bar above the footer."""
         toast = self.query_one("#toast", Static)
         color = COLORS.get(f"toast_{variant}", COLORS["toast_info"])
         toast.update(Text(f" {message}"))
         toast.styles.background = color
         toast.styles.color = "#ffffff" if variant in ("error", "warning") else COLORS["text_primary"]
         toast.add_class("visible")
-        self.set_timer(3.0 if variant != "error" else 5.0, self._hide_toast)
-
-    def _hide_toast(self) -> None:
-        toast = self.query_one("#toast", Static)
-        toast.remove_class("visible")
+        self.set_timer(3.0 if variant != "error" else 5.0, lambda: toast.remove_class("visible"))
 
     def action_patch_in(self) -> None:
         if not self._cards:
             return
         card = self._cards[self._selected]
         if not card.tmux_session or not self._tmux.session_exists(card.tmux_session):
-
-            def _on_delete_confirm(yes: bool | None) -> None:
-                if yes:
-                    self.run_worker(
-                        self._run_shell_bg(
-                            ["owt", "delete", card.name, "--yes"],
-                            f"Deleting '{card.name}'...",
-                            clamp=True,
-                        )
-                    )
-                else:
-
-                    def _on_recreate(yes2: bool | None) -> None:
-                        if yes2:
-                            self.run_worker(
-                                self._run_shell_bg(
-                                    ["owt", "new", card.branch, "--yes"],
-                                    f"Recreating '{card.name}'...",
-                                )
-                            )
-
-                    self.push_screen(ConfirmModal(f"Recreate session for '{card.name}'?"), _on_recreate)
-
-            self.push_screen(ConfirmModal(f"No session for '{card.name}'. Delete stale worktree?"), _on_delete_confirm)
+            self._show_toast(f"No tmux session for '{card.name}'", variant="warning")
             return
         self._tmux.switch_client(card.tmux_session)
 
@@ -540,27 +370,12 @@ class SwitchboardApp(App[None]):
             except ValueError:
                 branch = task.lower().replace(" ", "-")[:40]
             self._new_wt_branch = branch
-
-            # Ask whether to create a worktree or branch session
-            type_options = [
-                SelectOption(value="worktree", label="worktree", description="Full git worktree (isolated clone)", category=""),
-                SelectOption(value="branch", label="branch", description="Branch in current checkout (faster)", category=""),
-            ]
             self.push_screen(
-                SearchableSelectModal("Session type:", type_options),
-                self._on_session_type_chosen,
+                ConfirmModal(f"Task: {task}\nBranch: {branch}\n\nProceed?"),
+                self._on_new_confirm,
             )
 
         self.push_screen(InputModal("Task description:"), _on_input)
-
-    def _on_session_type_chosen(self, session_type: str | None) -> None:
-        if not session_type:
-            return
-        self._new_wt_session_type = session_type
-        self.push_screen(
-            ConfirmModal(f"Task: {self._new_wt_task}\nBranch: {self._new_wt_branch}\nType: {session_type}\n\nProceed?"),
-            self._on_new_confirm,
-        )
 
     def _on_new_confirm(self, yes: bool | None) -> None:
         if not yes:
@@ -568,22 +383,11 @@ class SwitchboardApp(App[None]):
         from open_orchestrator.core.agent_detector import detect_installed_agents
 
         installed = detect_installed_agents()
-        if len(installed) == 0:
+        if not installed:
             self._show_toast("No AI tools found (claude, opencode, droid)", variant="error")
             return
-        elif len(installed) == 1:
-            self._new_wt_tool = installed[0]
-            self._do_create_worktree()
-        else:
-            options = [SelectOption(value=name, label=name, category="Detected") for name in installed]
-
-            def _on_tool(tool_value: str | None) -> None:
-                if not tool_value:
-                    return
-                self._new_wt_tool = tool_value
-                self._do_create_worktree()
-
-            self.push_screen(SearchableSelectModal("Select AI tool", options), _on_tool)
+        self._new_wt_tool = installed[0]
+        self._do_create_worktree()
 
     async def _run_shell_bg(self, cmd: list[str], toast_msg: str, *, clamp: bool = False) -> None:
         """Run a shell command in the background without suspending the UI."""
@@ -650,20 +454,6 @@ class SwitchboardApp(App[None]):
         if not self._cards:
             return
         card = self._cards[self._selected]
-
-        completed = [c for c in self._cards if c.status == AIActivityStatus.COMPLETED]
-        if len(completed) > 1 and card.status != AIActivityStatus.COMPLETED:
-            options = [
-                SelectOption(value=c.name, label=c.name, description=c.diff_stat or "", category="Completed") for c in completed
-            ]
-
-            def _on_pick(name: str | None) -> None:
-                if name:
-                    self._confirm_and_shell(f"Merge '{name}'?", ["owt", "merge", name])
-
-            self.push_screen(SearchableSelectModal("Merge which worktree?", options), _on_pick)
-            return
-
         self._confirm_and_shell(f"Merge '{card.name}'?", ["owt", "merge", card.name])
 
     def action_show_files(self) -> None:
@@ -672,56 +462,19 @@ class SwitchboardApp(App[None]):
         card = self._cards[self._selected]
         if card.overlap_count <= 0 or not card.overlap_names:
             return
+        self._show_toast(
+            f"Overlap: {card.name} ({card.overlap_count} files) with {', '.join(card.overlap_names)}",
+            variant="warning",
+        )
 
-        my_files = set(self._file_map.get(card.name, []))
-        overlap_files: dict[str, list[str]] = {}
-        for other_name, other_files_list in self._file_map.items():
-            if other_name == card.name:
-                continue
-            for f in my_files & set(other_files_list):
-                overlap_files.setdefault(f, []).append(other_name)
-
-        lines = [f"  {f_path} \u2190 {', '.join(wt_names)}" for f_path, wt_names in sorted(overlap_files.items())]
-        self.push_screen(DetailModal(f"Overlap: {card.name} ({card.overlap_count} files)", lines))
-
-    async def action_show_info(self) -> None:
+    def action_show_info(self) -> None:
         if not self._cards:
             return
         card = self._cards[self._selected]
-        status = self._tracker.get_status(card.name)
-        wt_path = status.worktree_path if status else ""
-
-        commits: list[str] = []
-        if wt_path:
-            try:
-                result = await asyncio.to_thread(
-                    subprocess.run,
-                    ["git", "log", "--oneline", "-5"],
-                    capture_output=True,
-                    text=True,
-                    cwd=wt_path,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    commits = [line for line in result.stdout.strip().split("\n") if line]
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-
-        lines = [
-            f"  Branch: {card.branch}",
-            f"  Status: {card.status.value}  Elapsed: {card.elapsed}",
-            f"  AI: {card.ai_tool}  Diff: {card.diff_stat or 'n/a'}",
-            f"  Task: {card.task or chr(8212)}",
-            "",
-            "  Recent commits:",
-        ]
-        for c in commits[:5]:
-            lines.append(f"    {c}")
-        if card.overlap_count > 0:
-            lines.append("")
-            lines.append(f"  \u26a0 {card.overlap_count} file(s) overlap with: {', '.join(card.overlap_names or [])}")
-
-        self.push_screen(DetailModal(f"Detail: {card.name}", lines))
+        info = (
+            f"{card.name} \u00b7 {card.branch} \u00b7 {card.status.value} \u00b7 {card.ai_tool} \u00b7 {card.diff_stat or 'n/a'}"
+        )
+        self._show_toast(info, variant="info")
 
     def action_broadcast(self) -> None:
         if not self._cards:

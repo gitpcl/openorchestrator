@@ -248,12 +248,22 @@ class TestSwitchCommand:
 
 
 class TestSwitchboardLaunch:
-    """Test switchboard launches when no subcommand given."""
+    """Test default UI launches when no subcommand given.
+
+    Sprint 024 made the control plane the default; the legacy card grid
+    is still available behind ``--legacy-cards``.
+    """
+
+    @patch("open_orchestrator.core.control_plane_view.ControlPlaneApp")
+    def test_no_args_launches_control_plane(self, mock_app: MagicMock, cli_runner: CliRunner) -> None:
+        """'owt' with no args launches the control plane (Sprint 024)."""
+        cli_runner.invoke(main, [])
+        mock_app.assert_called_once()
 
     @patch("open_orchestrator.core.switchboard.launch_switchboard")
-    def test_no_args_launches_switchboard(self, mock_switchboard: MagicMock, cli_runner: CliRunner) -> None:
-        """Test that 'owt' with no args launches the switchboard."""
-        cli_runner.invoke(main, [])
+    def test_legacy_flag_launches_switchboard(self, mock_switchboard: MagicMock, cli_runner: CliRunner) -> None:
+        """'owt --legacy-cards' still launches the legacy switchboard."""
+        cli_runner.invoke(main, ["--legacy-cards"])
         mock_switchboard.assert_called_once()
 
     def test_help_still_works(self, cli_runner: CliRunner) -> None:

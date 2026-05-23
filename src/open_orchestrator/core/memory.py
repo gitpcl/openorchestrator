@@ -14,6 +14,7 @@ import logging
 import re
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from open_orchestrator.models.memory import (
     MemoryEntry,
@@ -21,6 +22,9 @@ from open_orchestrator.models.memory import (
     SearchResult,
     TopicFile,
 )
+
+if TYPE_CHECKING:
+    from open_orchestrator.models.control_plane import BackgroundEvent
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +220,39 @@ class MemoryManager:
             logger.info("Deleted topic file: %s", path)
             return True
         return removed_index
+
+    def recent_events(self, limit: int = 5) -> list[BackgroundEvent]:
+        """Surface recent memory writes as BackgroundEvent rows.
+
+        Uses topic-file mtimes as a proxy for "recently captured fact". The
+        control plane uses this to make invisible memory work visible.
+        """
+        from datetime import datetime as _dt
+
+        from open_orchestrator.models.control_plane import BackgroundEvent
+
+        if not self._memory_dir.exists():
+            return []
+        events: list[BackgroundEvent] = []
+        for path in self._memory_dir.glob("*.md"):
+            if path.name == "MEMORY.md":
+                continue
+            try:
+                ts = _dt.fromtimestamp(path.stat().st_mtime)
+            except OSError:
+                continue
+            topic = self._parse_topic_file(path)
+            if not topic:
+                continue
+            events.append(
+                BackgroundEvent(
+                    timestamp=ts,
+                    source="memory",
+                    summary=f"{topic.memory_type.value}: {topic.description[:80]}",
+                )
+            )
+        events.sort(key=lambda e: e.timestamp, reverse=True)
+        return events[:limit]
 
     def list_topics(self) -> list[TopicFile]:
         """List all topic files in .owt/memory/."""
