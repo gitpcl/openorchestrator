@@ -1,22 +1,28 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI agent orchestration with Textual switchboard UI, persistent cross-worktree recall memory, swarm mode, dream daemon, critic safety reviews, multi-palette theming, plugin architecture, optional Agno intelligence layer, and MCP peer communication. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a switchboard card grid (owt), (3) Jumping between agent sessions (owt switch), (4) Sending messages to agents (owt send), (5) Broadcasting to all agents (owt send --all/--working/--swarm), (6) Merging worktree branches with conflict guard (owt merge), (7) Shipping worktrees in one shot with quality gate (owt ship), (8) AI-powered task decomposition into dependency DAGs (owt plan), (9) Running batch autopilot tasks with DAG scheduling (owt batch), (10) Viewing optimal merge order (owt queue), (11) Sharing context across agents (owt note), (12) Headless CI/CD mode (owt new --headless, owt wait), (13) Orchestrating AI tools across branches (auto-detects claude, pi, opencode, droid), (14) Agno-powered intelligent planning with codebase awareness, (15) Quality gate review before shipping, (16) AI-powered merge conflict resolution, (17) End-to-end orchestration into feature branch (owt orchestrate), (18) Stop/resume orchestration with persistent state, (19) User presence detection pauses auto-actions, (20) Cross-worktree coordination with Agno or template fallback, (21) MCP-based agent-to-agent peer communication (list_peers, send_message, check_messages), (22) Registering custom AI tools via config (plugin architecture), (23) Diagnosing orphaned resources (owt doctor), (24) Config validation and inspection (owt config validate/show), (25) Database maintenance (owt db purge/vacuum/health), (26) Structured logging with correlation IDs and JSON output (--json), (27) Task-aware prompt building with type-specific protocols, (28) Persistent cross-worktree memory with auto-classification (owt memory add/search/consolidate/list/mine), (29) SQLite + FTS5 recall store with 4-layer token-budgeted stack (L0 identity / L1 critical / L2 topics / L3 search), AAAK shorthand compression for L1, temporal knowledge graph with point-in-time queries and contradiction detection, (30) Auto-injection of L0+L1 recall payload into CLAUDE.md on every owt new, (31) Mining facts from git history, progress files, and code comments (owt memory mine), (32) Coordinator + specialist worker swarms with role constraints (owt swarm start/list/send/stop), (33) Pre-action critic safety review with denial tracking (owt critic ship/merge/delete), (34) Background KAIROS-style dream daemon for memory consolidation, stale worktree surfacing, and KG contradiction detection (owt dream enable/disable/status/consolidate/reports), (36) Branch mode sessions without git worktrees — faster setup, zero extra disk (owt branch, owt new --in-place). Triggers: worktree, parallel development, multi-branch, AI orchestration, switchboard, owt commands, owt new, owt merge, owt ship, owt delete, owt switch, owt send, owt plan, owt batch, owt queue, owt note, owt wait, owt orchestrate, owt doctor, owt config, owt db, owt memory, owt swarm, owt critic, owt dream, owt branch, auto-detect agents, conflict guard, autopilot, DAG, task planning, agno, quality gate, conflict resolution, intelligent planner, orchestrator, feature branch, coordination, stop resume, MCP, peer communication, agent messaging, plugin, custom tool, structured logging, correlation ID, prompt builder, recall, memory store, fact mining, knowledge graph, AAAK, swarm mode, coordinator, specialist worker, critic, denial tracking, dream daemon, KAIROS, theming, palette, OSC 11."
+description: "Git worktree + AI agent orchestration with a prioritized Textual control plane UI (NEEDS YOU / READY TO SHIP / IN FLIGHT / BACKGROUND), pluggable multiplexer backends (tmux default, herdr opt-in), persistent cross-worktree recall memory, swarm mode, dream daemon, critic safety reviews, multi-palette theming, plugin architecture, optional Agno intelligence layer, and MCP peer communication. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a prioritized control plane (owt — sectioned decision surface; legacy card grid behind owt --legacy-cards), (3) Handing off to an agent session via the active backend (owt attach), (4) Jumping between agent sessions (owt switch), (5) Sending messages to agents (owt send), (6) Broadcasting to all agents (owt send --all/--working/--swarm), (7) Merging worktree branches with conflict guard (owt merge), (8) Shipping worktrees in one shot with quality gate (owt ship), (9) AI-powered task decomposition into dependency DAGs (owt plan), (10) Running batch autopilot tasks with DAG scheduling (owt batch), (11) Viewing optimal merge order (owt queue), (12) Sharing context across agents (owt note), (13) Headless CI/CD mode (owt new --headless, owt wait), (14) Orchestrating AI tools across branches (auto-detects claude, pi, opencode, droid), (15) Agno-powered intelligent planning with codebase awareness, (16) Quality gate review before shipping, (17) AI-powered merge conflict resolution, (18) End-to-end orchestration into feature branch (owt orchestrate), (19) Stop/resume orchestration with persistent state, (20) User presence detection pauses auto-actions, (21) Cross-worktree coordination with Agno or template fallback, (22) MCP-based agent-to-agent peer communication (list_peers, send_message, check_messages), (23) Registering custom AI tools via config (plugin architecture), (24) Diagnosing orphaned resources (owt doctor), (25) Config validation and inspection (owt config validate/show), (26) Database maintenance (owt db purge/vacuum/health), (27) Structured logging with correlation IDs and JSON output (--json), (28) Task-aware prompt building with type-specific protocols, (29) Persistent cross-worktree memory with auto-classification (owt memory add/search/consolidate/list/mine), (30) SQLite + FTS5 recall store with 4-layer token-budgeted stack (L0 identity / L1 critical / L2 topics / L3 search), AAAK shorthand compression for L1, temporal knowledge graph with point-in-time queries and contradiction detection, (31) Auto-injection of L0+L1 recall payload into CLAUDE.md on every owt new, (32) Mining facts from git history, progress files, and code comments (owt memory mine), (33) Coordinator + specialist worker swarms with role constraints (owt swarm start/list/send/stop), (34) Pre-action critic safety review with denial tracking (owt critic ship/merge/delete), (35) Background KAIROS-style dream daemon for memory consolidation, stale worktree surfacing, and KG contradiction detection (owt dream enable/disable/status/consolidate/reports), (36) Branch mode sessions without git worktrees — faster setup, zero extra disk (owt branch, owt new --in-place), (37) Opt-in herdr multiplexer backend so owt is the orchestration brain and herdr is the rendering surface (owt new --herdr, owt attach --herdr, [backend] mode = 'tmux' | 'herdr' | 'auto', status forwarding to herdr's sidebar via pane.report_agent — non-fatal, SQLite stays source of truth). Triggers: worktree, parallel development, multi-branch, AI orchestration, control plane, switchboard, owt commands, owt new, owt attach, owt merge, owt ship, owt delete, owt switch, owt send, owt plan, owt batch, owt queue, owt note, owt wait, owt orchestrate, owt doctor, owt config, owt db, owt memory, owt swarm, owt critic, owt dream, owt branch, auto-detect agents, conflict guard, autopilot, DAG, task planning, agno, quality gate, conflict resolution, intelligent planner, orchestrator, feature branch, coordination, stop resume, MCP, peer communication, agent messaging, plugin, custom tool, structured logging, correlation ID, prompt builder, recall, memory store, fact mining, knowledge graph, AAAK, swarm mode, coordinator, specialist worker, critic, denial tracking, dream daemon, KAIROS, theming, palette, OSC 11, multiplexer backend, herdr, herdr integration, MultiplexerBackend protocol, --legacy-cards, control plane sections."
 ---
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
-Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **Textual-based switchboard UI**. The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, installs deps, and starts the AI tool in a tmux session. Run `owt` with no arguments to launch the switchboard — a card grid showing all active agents with status lights, diff stats, and file overlap warnings.
+Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **Textual-based control plane UI**. The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, installs deps, and starts the AI tool in a tmux session. Run `owt` with no arguments to launch the **control plane** — a sectioned decision surface (NEEDS YOU / READY TO SHIP / IN FLIGHT / BACKGROUND) where every row carries a verb action (`[s]hip`, `[r]eview`, `[a]ttach`, `[f]ix`). The legacy card-grid switchboard is still available behind `owt --legacy-cards` for one release.
+
+Sprint 025 added an optional **herdr multiplexer backend** so owt becomes the orchestration brain and herdr (when installed) becomes the rendering surface — opt in via `--herdr` or `[backend] mode = "herdr" | "auto"`. tmux remains the default.
 
 ## Commands (40+ total)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `owt` | | **Launch the Switchboard** — card grid with status lights, navigate + act |
+| `owt` | | **Launch the Control Plane** — prioritized sections, row verbs |
+| `owt --legacy-cards` | | Launch the deprecated card-grid switchboard (one-release migration window) |
 | `owt new "task"` | `owt n` | Create worktree + tmux session + deps + AI agent. One command. |
+| `owt new "task" --herdr` | | Use the herdr multiplexer backend instead of tmux |
+| `owt new "task" --tmux` | | Force tmux backend (default; useful to override config) |
 | `owt branch "task"` | | Create branch in current checkout instead of worktree (faster, zero disk) |
 | `owt new "task" --headless` | | Create worktree without tmux (CI/script use) |
 | `owt list` | `owt ls` | Quick text list of worktrees (non-interactive, for scripts/pipes) |
 | `owt switch <name>` | `owt s` | Jump to a worktree's tmux session |
+| `owt attach <name>` | | Hand off to the worktree's session via the active backend (`--herdr` / `--tmux` to override) |
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
 | `owt send --all "msg"` | | Broadcast to ALL worktrees |
 | `owt send --working "msg"` | | Broadcast to WORKING worktrees only |
@@ -62,12 +68,51 @@ Open Orchestrator (`owt`) enables developers to manage parallel development work
 | `owt --json <cmd>` | | Machine-readable JSON output for `list`, `queue`, `doctor`, `db health` |
 | `owt version` | | Show version |
 
-## The Switchboard
+## The Control Plane (default — Sprint 024)
 
-Run `owt` to launch the switchboard — your command center for multi-agent orchestration:
+Run `owt` to launch the **control plane** — a prioritized decision surface. Four sections render top-to-bottom in priority order; empty sections are hidden so you always see the most important thing first.
 
 ```
-  SWITCHBOARD                          4 lines  *3 active  !1 overlap
+  open-orchestrator · 5 rows · 14:32:08
+  ▸ NEEDS YOU      (1)
+  ▶ auth-jwt        merge conflict — needs manual resolution   [f] [a]
+  ▸ READY TO SHIP  (2)
+    fix-login       +3 commits · queued #1/2                   [s] [r] [a]
+    docs-update     +1 commits · queued #2/2                   [s] [r] [a]
+  ▸ IN FLIGHT      (1)
+    api-refactor    45m · opencode · Refactoring REST routes   [a] [r]
+  ▸ BACKGROUND     (1)
+    14:20 dream     consolidated · memory=3 stale=0            [x]
+
+  ↑↓ nav | s ship | r review | a attach | f fix | m merge | x dismiss | q quit
+```
+
+**Control plane sections:**
+- **NEEDS YOU** — conflicts, critic-blocking verdicts, BLOCKED/ERROR status (priority section)
+- **READY TO SHIP** — `MergeManager.plan_merge_order()` output with `[s]hip` action
+- **IN FLIGHT** — WORKING agents with elapsed time + last task message
+- **BACKGROUND** — dream / memory / critic events (≤10, newest first), `[x]` to dismiss
+
+**Row verbs:**
+- `s` — ship (commit + merge + delete via confirm modal)
+- `r` — review (expand critic verdict in inline panel)
+- `a` — attach (hand off via active multiplexer backend, see below)
+- `f` — fix (open conflicted files in `$EDITOR`)
+- `m` — merge (without delete/cleanup)
+- `x` — dismiss (acknowledge a background event)
+
+**Navigation:** `↑/↓` or `j/k` for previous/next row across sections; `q` to quit; `Esc` closes the inline review panel.
+
+**Header bar:** when `owt orchestrate` is active, the header shows DAG progress (`X/Y done · Z running`). Otherwise it shows the project name + total row count + a clock.
+
+**Design notes:** Section builders are pure functions in `core/control_plane_sections.py` (fully testable without a Textual Pilot); the action dispatcher in `core/control_plane_actions.py` is a `(SectionKind, RowAction) → coroutine` table; the view in `core/control_plane_view.py` is dumb — it only knows about rows and key presses.
+
+## The Switchboard (legacy — behind `--legacy-cards`)
+
+`owt --legacy-cards` launches the original card-grid switchboard. It will be removed in the next minor release (Sprint 024 deprecation banner is printed on every legacy invocation):
+
+```
+  SWITCHBOARD (legacy) · 4  ●3  ○1
 
   +- auth-jwt --------------+   +- fix-login --------------+
   | * WORKING        12m    |   | o IDLE              3h    |
@@ -75,29 +120,9 @@ Run `owt` to launch the switchboard — your command center for multi-agent orch
   | claude        +142 -37  |   | claude                    |
   | Implementing JWT auth   |   | -                         |
   +-------------------------+   +---------------------------+
-
-  +- api-refactor ----------+   +- db-migration ------------+
-  | * WORKING        45m    |   | ! BLOCKED           5m    |
-  | refactor/api-v2         |   | feat/db-migration         |
-  | opencode       +89 -12  |   | claude          +23 -5    |
-  | [! 2 overlap]           |   | Waiting for input         |
-  +-------------------------+   +---------------------------+
-
-  [arrows] nav [Enter] patch [s] send [a] all [n] new [S] ship [f] files [i] info [q] quit
 ```
 
-**Switchboard keys:**
-- Arrow keys: navigate between cards
-- `Enter`: patch into that agent's tmux session (switchboard stays alive)
-- `s`: send a message to the selected agent
-- `a`: broadcast a message to ALL agents
-- `n`: create a new worktree + agent
-- `S`: ship the selected worktree (commit + merge + delete)
-- `d`: delete the selected worktree
-- `m`: merge the selected worktree
-- `f`: show file overlap detail for the selected card
-- `i`: show detail panel (commits, diff stats, overlaps)
-- `q`: quit back to terminal
+Keys: arrows nav, `Enter` patch into tmux, `s` send, `a` broadcast, `n` new, `S` ship, `m` merge, `d` delete, `q` quit. Detail/info modals were removed in Sprint 024 — info now surfaces as toasts.
 
 **Global tmux keybindings (work from any agent session):**
 - `Alt+s`: switch back to the switchboard
@@ -105,7 +130,56 @@ Run `owt` to launch the switchboard — your command center for multi-agent orch
 - `Alt+d`: delete current worktree
 - `Alt+c`: create a new worktree (opens popup)
 
-**Navigation flow:** `owt` -> switchboard -> `Enter` -> agent -> `Alt+s` -> switchboard -> `q` -> terminal
+## Multiplexer Backends (tmux / herdr — Sprint 025)
+
+owt defaults to **tmux** for hosting agent sessions. You can opt in to **[herdr](https://herdr.dev)** as the multiplexer backend — owt becomes the orchestration brain, herdr the rendering surface. Purely additive; tmux remains the default.
+
+```bash
+# one-off
+owt new "Refactor billing" --herdr
+owt attach my-feature --herdr
+
+# project-wide via .worktreerc.toml
+[backend]
+mode = "auto"               # tmux | herdr | auto
+herdr_session = "default"   # named herdr session (selects which socket)
+# herdr_socket = "/custom/path/to/herdr.sock"  # only if you've moved it
+```
+
+**Selection precedence:**
+1. `--herdr` / `--tmux` on the command line (per invocation)
+2. `[backend] mode` in `.worktreerc.toml`
+3. `tmux` as the safe default
+
+`mode = "auto"` reaches for herdr first (via `which herdr` + `HerdrClient.ping()`) and falls back to tmux when unreachable.
+
+**What owt sends to herdr:**
+
+| owt action            | herdr RPC                                |
+|-----------------------|------------------------------------------|
+| `owt new --herdr`     | `workspace.create` + `pane.send_text`    |
+| `owt send`            | `pane.send_text`                         |
+| `owt attach --herdr`  | `herdr agent attach <pane_id>`           |
+| status update         | `pane.report_agent` (non-fatal)          |
+| `owt delete`          | `pane.close` + `workspace.close`         |
+
+**Status DB is source of truth.** `StatusTracker.update_task(..., backend=)` writes SQLite first, *then* forwards to `backend.report_agent_state` so herdr's sidebar reflects owt's state. If herdr is down the SQLite write is unaffected and the control plane keeps working.
+
+**Architecture:**
+```
+            commands/ (owt CLI)
+                  │
+       MultiplexerBackend  (protocol)
+                  │
+      ┌───────────┴───────────┐
+      │                       │
+ TmuxBackend            HerdrBackend
+   (TmuxManager)        (HerdrClient RPC)
+```
+
+Call sites depend only on `MultiplexerBackend` (`core/multiplexer.py`); concrete adapters live behind `TmuxBackend` (`core/tmux_backend.py`) and `HerdrBackend` (`core/herdr_backend.py`). The factory at `core/backend_factory.py` is the single resolution point.
+
+See [`docs/herdr-integration.md`](../../../../docs/herdr-integration.md) for the full configuration, troubleshooting, and named-session walkthrough.
 
 ## Core Workflow
 
