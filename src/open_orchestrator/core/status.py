@@ -384,16 +384,52 @@ class StatusTracker:
         return status
 
     def update_task(
-        self, worktree_name: str, task: str, status: AIActivityStatus = AIActivityStatus.WORKING
+        self,
+        worktree_name: str,
+        task: str,
+        status: AIActivityStatus = AIActivityStatus.WORKING,
+        *,
+        backend: object | None = None,
     ) -> WorktreeAIStatus | None:
-        """Update the current task for a worktree."""
+        """Update the current task for a worktree.
+
+        ``backend`` is an optional :class:`MultiplexerBackend` (Sprint 025).
+        When provided, the new state is forwarded to its sidebar via
+        ``backend.report_agent_state``. SQLite remains source of truth —
+        backend forwarding is best-effort and non-fatal.
+        """
         wt_status = self.get_status(worktree_name)
         if not wt_status:
             return None
 
         wt_status.update_task(task, status)
         self._upsert_status(wt_status)
+        if backend is not None:
+            self._forward_to_backend(backend, wt_status, status, task)
         return wt_status
+
+    def _forward_to_backend(
+        self,
+        backend: object,
+        wt_status: WorktreeAIStatus,
+        status: AIActivityStatus,
+        message: str,
+    ) -> None:
+        """Best-effort push to a backend's sidebar (Sprint 025)."""
+        try:
+            from open_orchestrator.models.backend import BackendSession  # local import to avoid cycle
+
+            session = BackendSession(
+                kind=getattr(backend, "kind"),
+                id=wt_status.tmux_session or wt_status.worktree_name,
+                worktree_name=wt_status.worktree_name,
+            )
+            report = getattr(backend, "report_agent_state", None)
+            if report is None:
+                return
+            report(session, status.value, message)
+        except Exception as err:  # noqa: BLE001
+            logger.debug("backend.report_agent_state forwarding failed: %s", err)
 
     def record_command(
         self, target_worktree: str, command: str, source_worktree: str | None = None, pane_index: int = 0, window_index: int = 0

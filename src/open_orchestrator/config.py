@@ -16,6 +16,8 @@ from pathlib import Path
 import toml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from open_orchestrator.models.backend import BackendConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -179,6 +181,7 @@ class Config(BaseModel):
     switchboard: SwitchboardConfig = Field(default_factory=SwitchboardConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
     agno: AgnoConfig = Field(default_factory=AgnoConfig)
+    backend: BackendConfig = Field(default_factory=BackendConfig)
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     droid: DroidConfig = Field(default_factory=DroidConfig)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import click
 from rich.table import Table
@@ -14,6 +15,9 @@ from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus
 from open_orchestrator.models.worktree_info import SessionType
+
+if TYPE_CHECKING:
+    from open_orchestrator.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,16 @@ def _resolve_branch(
     return task_description, branch
 
 
+def load_config_safe() -> Config:
+    """Load config, falling back to defaults on any error."""
+    from open_orchestrator.config import Config, load_config
+
+    try:
+        return load_config()
+    except Exception:  # noqa: BLE001
+        return Config()
+
+
 def _check_git_ref_conflicts(branch: str) -> str:
     """Check for git ref conflicts and prompt for alternative if needed."""
     from git import Repo
@@ -110,6 +124,8 @@ def _check_git_ref_conflicts(branch: str) -> str:
     is_flag=True,
     help="Create branch in current checkout instead of a git worktree.",
 )
+@click.option("--herdr", "force_herdr", is_flag=True, help="Use the herdr multiplexer backend.")
+@click.option("--tmux", "force_tmux", is_flag=True, help="Use the tmux backend (default).")
 def new_worktree(
     description: tuple[str, ...],
     base_branch: str | None,
@@ -122,6 +138,8 @@ def new_worktree(
     yes: bool,
     headless: bool,
     branch_mode: bool,
+    force_herdr: bool = False,
+    force_tmux: bool = False,
 ) -> None:
     """Create a worktree + tmux session + deps + AI agent. One command.
 
@@ -141,6 +159,23 @@ def new_worktree(
     """
     if headless and branch_mode:
         raise click.ClickException("--headless and --in-place cannot be used together.")
+    if force_herdr and force_tmux:
+        raise click.ClickException("--herdr and --tmux are mutually exclusive.")
+    if force_herdr and headless:
+        raise click.ClickException("--herdr is incompatible with --headless (no terminal to host).")
+
+    # Backend selection is purely advisory in this command — the actual
+    # spawn path still uses TmuxManager (Sprint 025 §1 establishes the
+    # protocol; deeper integration follows in a later sprint). We still
+    # validate that the requested backend is reachable so users see
+    # errors at create-time rather than attach-time.
+    if force_herdr:
+        from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend
+
+        try:
+            select_backend(load_config_safe().backend, override="herdr")
+        except BackendUnavailableError as err:
+            raise click.ClickException(str(err)) from err
 
     task_description, branch = _resolve_branch(description, explicit_branch, prefix)
     branch = _check_git_ref_conflicts(branch)
@@ -458,37 +493,41 @@ def branch_cmd(
 
 @click.command("attach")
 @click.argument("identifier")
-def attach_worktree(identifier: str) -> None:
-    """Hand off to a worktree's session (control plane → tmux/herdr).
+@click.option("--herdr", "force_herdr", is_flag=True, help="Force herdr backend.")
+@click.option("--tmux", "force_tmux", is_flag=True, help="Force tmux backend.")
+def attach_worktree(identifier: str, force_herdr: bool, force_tmux: bool) -> None:
+    """Hand off to a worktree's session via the active backend.
 
-    Today: attaches to the worktree's tmux session (replacing the current
-    foreground process when not already inside tmux, switching the client
-    when inside).  Sprint 025 extends this to herdr panes.
+    By default uses the backend configured in ``[backend] mode`` (tmux
+    unless changed). Pass ``--herdr`` / ``--tmux`` to override.
     """
-    from open_orchestrator.core.tmux_manager import TmuxManager
+    from open_orchestrator.config import load_config
+    from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend
+
+    if force_herdr and force_tmux:
+        raise click.ClickException("--herdr and --tmux are mutually exclusive.")
+    override = "herdr" if force_herdr else "tmux" if force_tmux else None
 
     wt_manager = get_worktree_manager()
     tracker = get_status_tracker(wt_manager.git_root)
-    tmux = TmuxManager()
-
-    # Try worktree lookup first; fall back to branch-mode session in the
-    # status DB so ``owt attach`` works for branch sessions too.
-    session_name: str | None = None
     try:
-        worktree = wt_manager.get(identifier)
-        session_name = tmux.generate_session_name(worktree.name)
+        backend = select_backend(load_config().backend, override=override)
+    except BackendUnavailableError as err:
+        raise click.ClickException(str(err)) from err
+
+    # Resolve a worktree name (worktree-mode or branch-mode session in DB)
+    try:
+        worktree_name = wt_manager.get(identifier).name
     except WorktreeNotFoundError:
         status = tracker.get_status(identifier)
-        if status and status.tmux_session:
-            session_name = status.tmux_session
+        if not status:
+            raise click.ClickException(f"No session for '{identifier}'. Run 'owt new' to create one.") from None
+        worktree_name = status.worktree_name
 
-    if not session_name or not tmux.session_exists(session_name):
-        raise click.ClickException(f"No session for '{identifier}'. Run 'owt new' to create one.")
-
-    if tmux.is_inside_tmux():
-        tmux.switch_client(session_name)
-    else:
-        tmux.attach(session_name)
+    session = backend.session_for(worktree_name)
+    if session is None:
+        raise click.ClickException(f"No {backend.kind.value} session for '{worktree_name}'. Run 'owt new' to create one.")
+    backend.attach(session)
 
 
 def register(main: click.Group) -> None:

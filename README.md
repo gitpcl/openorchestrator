@@ -159,9 +159,50 @@ owt ship auth-jwt
 | `owt --json <cmd>` | | Machine-readable JSON output for `list`, `queue`, `doctor`, `db health` |
 | `owt version` | | Show version |
 
-## The Switchboard
+## Multiplexer Backends (tmux / herdr)
 
-Run `owt` with no arguments to launch the switchboard — your command center. It runs in a persistent tmux session (`owt-switchboard`), so it stays alive when you patch into an agent session.
+By default owt uses **tmux** to host agent sessions. As of Sprint 025
+you can opt in to **[herdr](https://herdr.dev)** as the multiplexer
+backend — owt becomes the orchestration brain, herdr the rendering
+surface. tmux remains the default; herdr is purely additive.
+
+```bash
+# one-off
+owt new "Refactor billing" --herdr
+owt attach my-feature --herdr
+
+# project-wide via .worktreerc.toml
+[backend]
+mode = "auto"          # tmux | herdr | auto
+herdr_session = "default"
+```
+
+`mode = "auto"` picks herdr when installed and reachable, otherwise tmux.
+Status updates from owt's tracker are forwarded to herdr's sidebar via
+`pane.report_agent` (non-fatal — SQLite is source of truth).
+
+See [`docs/herdr-integration.md`](docs/herdr-integration.md) for the full
+configuration, troubleshooting, and architecture notes.
+
+## The Control Plane (Sprint 024)
+
+Running `owt` with no arguments launches the **control plane** — a
+prioritized decision surface with four sections: `NEEDS YOU`,
+`READY TO SHIP`, `IN FLIGHT`, `BACKGROUND`. Each row exposes verb
+actions (`[s]hip`, `[r]eview`, `[a]ttach`, `[f]ix`); empty sections are
+hidden so you always see the most important thing first.
+
+To go back to the legacy card-grid for one release:
+
+```bash
+owt --legacy-cards
+```
+
+The legacy view will be removed in the next minor release.
+
+## The Switchboard (legacy)
+
+Run `owt --legacy-cards` to launch the card-grid switchboard — your command center. It runs in a persistent tmux session (`owt-switchboard`), so it stays alive when you patch into an agent session.
 
 ```
   SWITCHBOARD                          4 lines  ●3 active  ⚠1 waiting  !1 overlap
