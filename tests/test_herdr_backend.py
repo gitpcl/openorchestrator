@@ -114,3 +114,118 @@ def test_create_session_raises_when_socket_missing() -> None:
     backend = HerdrBackend(socket_path="/tmp/owt-nope-does-not-exist.sock")
     with pytest.raises(HerdrError):
         backend.create_session("wt", "/tmp/wt", agent_command="x")
+
+
+# ── response shape tolerance ──────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "payload,expected_ws,expected_pane",
+    [
+        # Canonical shape we originally coded against.
+        ({"workspace_id": "ws-1", "root_pane_id": "p-1"}, "ws-1", "p-1"),
+        # Alt names: id + pane_id.
+        ({"id": "ws-2", "pane_id": "p-2"}, "ws-2", "p-2"),
+        # Composite shape: sibling workspace + root_pane sub-objects.
+        # This is what real herdr's `workspace_created` returns.
+        (
+            {
+                "type": "workspace_created",
+                "workspace": {"workspace_id": "ws-real", "label": "feat-x"},
+                "tab": {"tab_id": "ws-real:1"},
+                "root_pane": {
+                    "pane_id": "ws-real:1:1",
+                    "terminal_id": "term_abc",
+                    "workspace_id": "ws-real",
+                },
+            },
+            "ws-real",
+            "ws-real:1:1",
+        ),
+        # Composite shape with nested panes array.
+        ({"workspace": {"id": "ws-4", "panes": [{"id": "p-4"}, {"id": "p-5"}]}}, "ws-4", "p-4"),
+        # Envelope under "data".
+        ({"data": {"workspace_id": "ws-6", "root_pane_id": "p-6"}}, "ws-6", "p-6"),
+        # Integer ids get stringified.
+        ({"workspace_id": 7, "root_pane_id": 8}, "7", "8"),
+        # CamelCase root pane key.
+        ({"id": "ws-9", "rootPaneId": "p-9"}, "ws-9", "p-9"),
+    ],
+)
+def test_extract_workspace_pane_shapes(payload, expected_ws, expected_pane) -> None:  # noqa: ANN001
+    from open_orchestrator.core.herdr_backend import _extract_workspace_pane
+
+    ws_id, pane_id = _extract_workspace_pane(payload)
+    assert ws_id == expected_ws
+    assert pane_id == expected_pane
+
+
+def test_extract_workspace_pane_returns_empty_for_garbage() -> None:
+    from open_orchestrator.core.herdr_backend import _extract_workspace_pane
+
+    assert _extract_workspace_pane(None) == ("", "")
+    assert _extract_workspace_pane("not-a-dict") == ("", "")
+    assert _extract_workspace_pane({}) == ("", "")
+    assert _extract_workspace_pane([]) == ("", "")
+
+
+@pytest.mark.asyncio
+async def test_create_session_falls_back_to_workspace_get_for_pane_id(short_sock: Path) -> None:
+    """Some herdr builds return only a workspace id; we must probe for the pane."""
+    sock = short_sock
+    seen: list[str] = []
+
+    async def handler(payload):  # noqa: ANN001
+        method = payload["method"]
+        seen.append(method)
+        if method == "workspace.create":
+            return {"id": payload["id"], "result": {"workspace_id": "ws-late"}}
+        if method == "workspace.get":
+            return {"id": payload["id"], "result": {"id": "ws-late", "root_pane_id": "p-late"}}
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        backend = HerdrBackend(socket_path=str(sock))
+        session = await asyncio.to_thread(
+            backend.create_session,
+            "wt-late",
+            "/tmp/wt-late",
+            agent_command="claude",
+        )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert session.id == "p-late"
+    assert session.meta["workspace_id"] == "ws-late"
+    assert "workspace.create" in seen
+    assert "workspace.get" in seen  # probe fired
+    assert "pane.send_text" in seen  # agent_command then went through
+
+
+@pytest.mark.asyncio
+async def test_create_session_error_includes_raw_response(short_sock: Path) -> None:
+    """When parsing fails, the raw herdr payload appears in the error message."""
+    sock = short_sock
+
+    async def handler(payload):  # noqa: ANN001
+        if payload["method"] == "workspace.create":
+            return {"id": payload["id"], "result": {"weird": "shape"}}
+        return {"id": payload["id"], "result": None}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        backend = HerdrBackend(socket_path=str(sock))
+        with pytest.raises(HerdrError) as exc:
+            await asyncio.to_thread(
+                backend.create_session,
+                "wt-bad",
+                "/tmp/wt-bad",
+                agent_command="claude",
+            )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert "weird" in str(exc.value)
