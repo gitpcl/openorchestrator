@@ -188,6 +188,7 @@ class AgentLauncher:
                 backend_kind=backend.kind.value,
                 backend_session_id=backend_session.id,
                 backend_meta=dict(backend_session.meta),
+                session_type=request.session_type.value,
             )
             if request.prompt:
                 self._deliver_prompt(backend, backend_session, request.prompt)
@@ -395,6 +396,7 @@ class AgentLauncher:
                 branch=branch,
                 tmux_session=None,
                 ai_tool=request.ai_tool,
+                session_type=request.session_type.value,
             )
             txn.status_initialized = True
             if request.prompt:

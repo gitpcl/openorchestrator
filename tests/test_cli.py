@@ -109,7 +109,7 @@ class TestSendCommand:
     """Test 'owt send' command."""
 
     @patch("open_orchestrator.commands._shared.StatusTracker")
-    @patch("open_orchestrator.core.backend_factory.select_backend")
+    @patch("open_orchestrator.core.backend_factory.select_backend_for_session")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_to_worktree(
         self,
@@ -128,6 +128,7 @@ class TestSendCommand:
         # Tracker reports a live session for the worktree.
         session = BackendSession(kind=BackendKind.TMUX, id="owt-test-worktree", worktree_name="test-worktree")
         mock_status.return_value.get_backend_session.return_value = session
+        mock_status.return_value.get_status.return_value = MagicMock(session_type="worktree")
 
         mock_backend = MagicMock()
         mock_backend.is_alive.return_value = True
@@ -140,19 +141,23 @@ class TestSendCommand:
         assert sent_session.id == "owt-test-worktree"
         assert sent_text == "echo hello"
 
+    @patch("open_orchestrator.commands._shared.StatusTracker")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_send_command_to_nonexistent_worktree(
         self,
         mock_wt_manager: MagicMock,
+        mock_status: MagicMock,
         cli_runner: CliRunner,
     ) -> None:
-        """Test sending a command to a nonexistent worktree fails."""
+        """Test sending a command to a nonexistent identifier fails with a clear error."""
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.side_effect = WorktreeNotFoundError("Worktree not found")
+        # No branch-mode row in status DB either — fall-through must error.
+        mock_status.return_value.get_status.return_value = None
 
         result = cli_runner.invoke(main, ["send", "feature/nonexistent", "echo", "hello"])
         assert result.exit_code != 0
-        assert "not found" in result.output.lower()
+        assert "no worktree or branch session" in result.output.lower()
 
     @patch("open_orchestrator.commands._shared.StatusTracker")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
@@ -205,19 +210,23 @@ class TestDeleteCommand:
         # Verify --force is passed through to git worktree remove
         mock_pa_wt_manager.return_value.delete.assert_called_once_with("test-worktree", force=True)
 
+    @patch("open_orchestrator.commands._shared.StatusTracker")
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_delete_nonexistent_worktree(
         self,
         mock_wt_manager: MagicMock,
+        mock_status: MagicMock,
         cli_runner: CliRunner,
     ) -> None:
-        """Test deleting a nonexistent worktree fails."""
+        """Test deleting a nonexistent identifier fails with a clear error."""
         mock_wt_instance = mock_wt_manager.return_value
         mock_wt_instance.get.side_effect = WorktreeNotFoundError("Worktree not found")
+        # No branch-mode row in status DB either.
+        mock_status.return_value.get_status.return_value = None
 
         result = cli_runner.invoke(main, ["delete", "feature/nonexistent"])
         assert result.exit_code != 0
-        assert "not found" in result.output.lower()
+        assert "no worktree or branch session" in result.output.lower()
 
 
 class TestSwitchCommand:

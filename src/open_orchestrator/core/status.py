@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS worktree_status (
     backend_kind TEXT DEFAULT 'tmux',
     backend_session_id TEXT,
     backend_meta TEXT DEFAULT '{}',
+    session_type TEXT DEFAULT 'worktree',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -118,6 +119,7 @@ def _row_to_status(row: sqlite3.Row) -> WorktreeAIStatus:
         backend_kind=(row["backend_kind"] if "backend_kind" in columns else None) or "tmux",
         backend_session_id=row["backend_session_id"] if "backend_session_id" in columns else None,
         backend_meta=json.loads((row["backend_meta"] if "backend_meta" in columns else None) or "{}"),
+        session_type=(row["session_type"] if "session_type" in columns else None) or "worktree",
         created_at=_str_to_dt(row["created_at"]) or datetime.now(),
         updated_at=_str_to_dt(row["updated_at"]) or datetime.now(),
     )
@@ -222,12 +224,17 @@ class SQLiteStatusRepository:
     def _ensure_schema(self) -> None:
         """Create tables if they don't exist and migrate columns added later."""
         self.conn.executescript(_SCHEMA_SQL)
-        self._migrate_backend_columns()
-        self.conn.execute("INSERT OR IGNORE INTO metadata (key, value) VALUES ('version', '3.1')")
+        self._migrate_columns()
+        self.conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('version', '3.2')")
         self.conn.commit()
 
-    def _migrate_backend_columns(self) -> None:
-        """Sprint 025 P7: add backend_* columns to pre-existing DBs."""
+    def _migrate_columns(self) -> None:
+        """Add columns introduced in later sprints to pre-existing DBs.
+
+        Sprint 025 P7 added the ``backend_*`` columns; Sprint 026 P1 adds
+        ``session_type`` so doctor can tell worktree-mode and branch-mode
+        rows apart without crossing the git layer.
+        """
         existing_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(worktree_status)").fetchall()}
         if "backend_kind" not in existing_cols:
             self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_kind TEXT DEFAULT 'tmux'")
@@ -235,6 +242,8 @@ class SQLiteStatusRepository:
             self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_session_id TEXT")
         if "backend_meta" not in existing_cols:
             self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_meta TEXT DEFAULT '{}'")
+        if "session_type" not in existing_cols:
+            self.conn.execute("ALTER TABLE worktree_status ADD COLUMN session_type TEXT DEFAULT 'worktree'")
 
     def load_legacy_json(self) -> tuple[Path | None, dict[str, object] | None]:
         """Load legacy ai_status.json if present."""
@@ -363,8 +372,8 @@ class StatusTracker:
                (worktree_name, worktree_path, branch, tmux_session, ai_tool,
                 activity_status, current_task, last_task_update, notes,
                 modified_files, backend_kind, backend_session_id, backend_meta,
-                created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                session_type, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 s.worktree_name,
                 s.worktree_path,
@@ -379,6 +388,7 @@ class StatusTracker:
                 s.backend_kind,
                 s.backend_session_id,
                 json.dumps(s.backend_meta),
+                s.session_type,
                 _dt_to_str(s.created_at),
                 _dt_to_str(s.updated_at),
             ),
@@ -400,13 +410,20 @@ class StatusTracker:
         backend_kind: str = "tmux",
         backend_session_id: str | None = None,
         backend_meta: dict[str, str] | None = None,
+        session_type: str = "worktree",
     ) -> WorktreeAIStatus:
         """Initialize status tracking for a new worktree.
 
         ``backend_kind`` records which multiplexer hosts the session so
         ``owt attach``/``owt send``/``owt delete`` can pick the right
         backend later without a CLI flag.
+
+        ``session_type`` records whether the session is a git worktree
+        (default) or an in-place branch — Sprint 026 P1 added this so
+        ``owt doctor`` can reconcile branch rows against the branch list
+        instead of mis-flagging them as orphaned worktrees.
         """
+        st = session_type if session_type in {"worktree", "branch"} else "worktree"
         status = WorktreeAIStatus(
             worktree_name=worktree_name,
             worktree_path=worktree_path,
@@ -417,6 +434,7 @@ class StatusTracker:
             backend_kind=backend_kind,
             backend_session_id=backend_session_id,
             backend_meta=backend_meta or {},
+            session_type=st,  # type: ignore[arg-type]
             created_at=datetime.now(),
             updated_at=datetime.now(),
         )
@@ -622,26 +640,26 @@ class StatusTracker:
         if not orphans:
             return []
 
-        from open_orchestrator.core.backend_factory import select_backend
-        from open_orchestrator.models.backend import BackendConfig, BackendKind, BackendSession
+        from open_orchestrator.core.backend_factory import select_backend_for_session
+        from open_orchestrator.models.backend import BackendKind, BackendSession
 
         removed = []
         for s in orphans:
             try:
-                backend = select_backend(
-                    BackendConfig(),
-                    override=s.backend_kind if s.backend_kind in {BackendKind.TMUX.value, BackendKind.HERDR.value} else "tmux",
-                )
+                kind = s.backend_kind if s.backend_kind in {BackendKind.TMUX.value, BackendKind.HERDR.value} else "tmux"
                 session_id = s.backend_session_id or s.tmux_session
                 if session_id:
                     session = BackendSession(
-                        kind=BackendKind(s.backend_kind or "tmux"),
+                        kind=BackendKind(kind),
                         id=session_id,
                         worktree_name=s.worktree_name,
                         meta=dict(s.backend_meta),
                     )
+                    # Use the session-aware factory so a non-default herdr
+                    # socket (recorded on the row) is honored on kill.
+                    backend = select_backend_for_session(session)
                     backend.kill(session)
-                    logger.debug("Killed orphan %s session %s", s.backend_kind, session_id)
+                    logger.debug("Killed orphan %s session %s", kind, session_id)
             except Exception as e:  # noqa: BLE001
                 logger.debug("Could not kill backend session for %s: %s", s.worktree_name, e)
 

@@ -253,7 +253,11 @@ class HerdrBackend:
             kind=self.kind,
             id=pane_id,
             worktree_name=worktree_name,
-            meta={"workspace_id": workspace_id, "socket": self._socket_path},
+            meta={
+                "workspace_id": workspace_id,
+                "socket": self._socket_path,
+                "herdr_session": self._session_name,
+            },
         )
 
     def _discover_root_pane(self, workspace_id: str) -> str:
@@ -294,7 +298,11 @@ class HerdrBackend:
             kind=self.kind,
             id=pane_id,
             worktree_name=worktree_name,
-            meta={"workspace_id": str(result.get("workspace_id", "")), "socket": self._socket_path},
+            meta={
+                "workspace_id": str(result.get("workspace_id", "")),
+                "socket": self._socket_path,
+                "herdr_session": self._session_name,
+            },
         )
 
     def kill(self, session: BackendSession) -> None:

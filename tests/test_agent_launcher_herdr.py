@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,7 +32,6 @@ from open_orchestrator.core.herdr_backend import HerdrBackend
 from open_orchestrator.core.status import StatusConfig, StatusTracker
 from open_orchestrator.models.backend import BackendKind
 from open_orchestrator.models.worktree_info import SessionType
-
 
 # ── fake herdr socket ────────────────────────────────────────────────
 
@@ -65,25 +62,14 @@ async def _serve(sock: Path, calls: list[dict]) -> asyncio.AbstractServer:
 
 
 @pytest.fixture
-def short_sock() -> Path:
-    """macOS Unix sockets cap path length around 104 chars — use /tmp."""
-    fd, name = tempfile.mkstemp(prefix="owt-herdr-int-", suffix=".sock", dir="/tmp")
-    os.close(fd)
-    os.unlink(name)
-    return Path(name)
-
-
-@pytest.fixture
-async def fake_herdr(short_sock: Path) -> AsyncIterator[tuple[Path, list[dict]]]:
+async def fake_herdr(herdr_socket_path: Path) -> AsyncIterator[tuple[Path, list[dict]]]:
     calls: list[dict] = []
-    server = await _serve(short_sock, calls)
+    server = await _serve(herdr_socket_path, calls)
     try:
-        yield short_sock, calls
+        yield herdr_socket_path, calls
     finally:
         server.close()
         await server.wait_closed()
-        if short_sock.exists():
-            short_sock.unlink()
 
 
 # ── helpers ──────────────────────────────────────────────────────────

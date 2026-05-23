@@ -8,11 +8,15 @@ from typing import TYPE_CHECKING
 import click
 from rich.table import Table
 
-from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
+from open_orchestrator.commands._shared import (
+    console,
+    get_status_tracker,
+    get_worktree_manager,
+    resolve_session_target,
+)
 from open_orchestrator.core.agent_launcher import AgentLauncher, LaunchMode, LaunchRequest
 from open_orchestrator.core.pane_actions import PaneActionError
 from open_orchestrator.core.tool_registry import get_registry
-from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.backend import BackendKind
 from open_orchestrator.models.status import AIActivityStatus
 from open_orchestrator.models.worktree_info import SessionType
@@ -165,27 +169,32 @@ def new_worktree(
     if force_herdr and headless:
         raise click.ClickException("--herdr is incompatible with --headless (no terminal to host).")
 
-    # Resolve the backend kind that AgentLauncher will use. We validate
-    # the herdr socket here so users see errors at create-time rather
-    # than after the worktree has been provisioned.
     cfg = load_config_safe()
-    if force_herdr:
-        backend_kind_override = "herdr"
-    elif force_tmux:
-        backend_kind_override = "tmux"
-    else:
-        backend_kind_override = cfg.backend.mode if hasattr(cfg, "backend") else "tmux"
 
-    from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend
+    # Backend resolution only matters for interactive/automated paths —
+    # the headless path runs a detached subprocess and never touches a
+    # multiplexer. Resolving here would make `[backend] mode = "herdr"`
+    # + `--headless` fail without herdr installed (Sprint 026 P6).
+    resolved_backend = None
+    resolved_kind = BackendKind.TMUX
+    if not headless:
+        if force_herdr:
+            backend_kind_override = "herdr"
+        elif force_tmux:
+            backend_kind_override = "tmux"
+        else:
+            backend_kind_override = cfg.backend.mode if hasattr(cfg, "backend") else "tmux"
 
-    try:
-        resolved_backend = select_backend(
-            getattr(cfg, "backend", None),
-            override=backend_kind_override if backend_kind_override != "auto" else None,
-        )
-    except BackendUnavailableError as err:
-        raise click.ClickException(str(err)) from err
-    resolved_kind = resolved_backend.kind
+        from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend
+
+        try:
+            resolved_backend = select_backend(
+                getattr(cfg, "backend", None),
+                override=backend_kind_override if backend_kind_override != "auto" else None,
+            )
+        except BackendUnavailableError as err:
+            raise click.ClickException(str(err)) from err
+        resolved_kind = resolved_backend.kind
 
     task_description, branch = _resolve_branch(description, explicit_branch, prefix)
     branch = _check_git_ref_conflicts(branch)
@@ -234,8 +243,9 @@ def new_worktree(
         wt_manager=wt_manager,
         status_tracker=tracker,
         # Inject the already-resolved backend so the launcher doesn't
-        # re-resolve and risk a second herdr socket probe.
-        backend=resolved_backend if mode != LaunchMode.HEADLESS else None,
+        # re-resolve and risk a second herdr socket probe. None on the
+        # headless path because that code path never uses a backend.
+        backend=resolved_backend,
     )
     request = LaunchRequest(
         branch=branch,
@@ -269,7 +279,7 @@ def new_worktree(
         console.print(f"[yellow]{warn}[/yellow]")
 
     # Attach to the new session via the backend used to create it.
-    if attach and result.backend_session_id:
+    if attach and result.backend_session_id and resolved_backend is not None:
         from open_orchestrator.models.backend import BackendSession
 
         session = BackendSession(
@@ -384,30 +394,28 @@ def list_worktrees(show_all: bool) -> None:
 def switch_worktree(identifier: str) -> None:
     """Jump to a worktree's session via its backend (tmux or herdr).
 
-    Backend is resolved from the status DB row written at create-time so
-    no flag is needed here — herdr-created sessions hand off to herdr,
-    tmux-created sessions hand off to tmux.
+    Works for both worktree-mode and branch-mode sessions. Backend is
+    resolved from the status DB row written at create-time so no flag is
+    needed here — herdr-created sessions hand off to herdr, tmux-created
+    sessions hand off to tmux.
     """
-    from open_orchestrator.core.backend_factory import select_backend
+    from open_orchestrator.core.backend_factory import select_backend, select_backend_for_session
 
     wt_manager = get_worktree_manager()
-    try:
-        worktree = wt_manager.get(identifier)
-    except WorktreeNotFoundError as e:
-        raise click.ClickException(str(e)) from e
-
     tracker = get_status_tracker(wt_manager.git_root)
-    session = tracker.get_backend_session(worktree.name)
+    resolved = resolve_session_target(identifier, wt_manager, tracker)
+
+    session = tracker.get_backend_session(resolved.name)
     if session is None:
         # Legacy row or no row: fall back to tmux + session_for lookup.
         backend = select_backend(load_config_safe().backend, override="tmux")
-        session = backend.session_for(worktree.name)
+        session = backend.session_for(resolved.name)
         if session is None:
-            raise click.ClickException(f"No session found for '{worktree.name}'. Run 'owt new' to create one.")
+            raise click.ClickException(f"No session found for '{resolved.name}'. Run 'owt new' to create one.")
     else:
-        backend = select_backend(load_config_safe().backend, override=session.kind.value)
+        backend = select_backend_for_session(session)
         if not backend.is_alive(session):
-            raise click.ClickException(f"No {session.kind.value} session for '{worktree.name}'. Run 'owt new' to create one.")
+            raise click.ClickException(f"No {session.kind.value} session for '{resolved.name}'. Run 'owt new' to create one.")
     backend.attach(session)
 
 
@@ -416,47 +424,66 @@ def switch_worktree(identifier: str) -> None:
 @click.option("-f", "--force", is_flag=True, help="Force delete even with uncommitted changes.")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation.")
 def delete_worktree(identifier: str, force: bool, yes: bool) -> None:
-    """Delete a worktree + tmux session + status.
+    """Delete a worktree (or branch session) + backend session + status.
 
-    Full teardown: kills the tmux session, removes the git worktree,
+    Full teardown: kills the backend session, removes the git worktree
+    (or deletes the branch + pops auto-stash for branch-mode sessions),
     and cleans up status tracking.
     """
     wt_manager = get_worktree_manager()
-    try:
-        worktree = wt_manager.get(identifier)
-    except WorktreeNotFoundError as e:
-        raise click.ClickException(str(e)) from e
+    tracker = get_status_tracker(wt_manager.git_root)
+    resolved = resolve_session_target(identifier, wt_manager, tracker)
 
-    if worktree.is_main:
+    if resolved.worktree is not None and resolved.worktree.is_main:
         raise click.ClickException("Cannot delete the main worktree")
 
     if not yes:
         console.print("\n[bold]About to delete:[/bold]")
-        console.print(f"  Branch: {worktree.branch}")
-        console.print(f"  Path:   {worktree.path}")
+        if resolved.worktree is not None:
+            console.print(f"  Branch: {resolved.worktree.branch}")
+            console.print(f"  Path:   {resolved.worktree.path}")
+        else:
+            # Branch-mode session — no worktree on disk.
+            console.print(f"  Branch: {resolved.status.branch if resolved.status else resolved.name}")
+            console.print("  Path:   [dim](in-place branch — no separate directory)[/dim]")
         if not click.confirm("\nProceed?"):
             console.print("[yellow]Aborted.[/yellow]")
             return
 
     from open_orchestrator.core.pane_actions import teardown_worktree
 
-    errors = teardown_worktree(
-        worktree.name,
-        repo_path=str(wt_manager.git_root),
-        kill_tmux=True,
-        delete_git_worktree=True,
-        clean_status=True,
-        force=force,
-    )
+    if resolved.is_branch:
+        errors = teardown_worktree(
+            resolved.name,
+            repo_path=str(wt_manager.git_root),
+            kill_tmux=True,
+            delete_git_worktree=False,
+            clean_status=True,
+            delete_branch=True,
+            pop_stash=True,
+            force=force,
+        )
+    else:
+        errors = teardown_worktree(
+            resolved.name,
+            repo_path=str(wt_manager.git_root),
+            kill_tmux=True,
+            delete_git_worktree=True,
+            clean_status=True,
+            force=force,
+        )
 
-    git_errors = [e for e in errors if "git worktree" in e]
-    other_errors = [e for e in errors if "git worktree" not in e]
+    git_errors = [e for e in errors if "git worktree" in e or "clean up branch" in e]
+    other_errors = [e for e in errors if e not in git_errors]
 
     if git_errors:
         raise click.ClickException(git_errors[0])
     for err in other_errors:
         console.print(f"[yellow]Warning: {err}[/yellow]")
-    console.print(f"[green]Deleted worktree:[/green] {worktree.path}")
+    if resolved.worktree is not None:
+        console.print(f"[green]Deleted worktree:[/green] {resolved.worktree.path}")
+    else:
+        console.print(f"[green]Deleted branch session:[/green] {resolved.name}")
 
 
 @click.command("branch")
@@ -513,10 +540,20 @@ def attach_worktree(identifier: str, force_herdr: bool, force_tmux: bool) -> Non
 
     By default reads the backend kind recorded at create-time so
     herdr-created sessions hand off to herdr and tmux-created sessions
-    hand off to tmux. Pass ``--herdr`` / ``--tmux`` to override.
+    hand off to tmux.
+
+    Pass ``--herdr`` / ``--tmux`` to force a specific backend. When the
+    forced backend differs from the recorded backend, owt re-resolves
+    the session via ``backend.session_for(name)`` instead of coercing
+    the recorded id (Sprint 026 P4 — the id formats are different, so
+    coercing would silently misroute the attach).
     """
     from open_orchestrator.config import load_config
-    from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend
+    from open_orchestrator.core.backend_factory import (
+        BackendUnavailableError,
+        select_backend,
+        select_backend_for_session,
+    )
 
     if force_herdr and force_tmux:
         raise click.ClickException("--herdr and --tmux are mutually exclusive.")
@@ -524,29 +561,48 @@ def attach_worktree(identifier: str, force_herdr: bool, force_tmux: bool) -> Non
 
     wt_manager = get_worktree_manager()
     tracker = get_status_tracker(wt_manager.git_root)
+    resolved = resolve_session_target(identifier, wt_manager, tracker)
 
-    # Resolve a worktree name (worktree-mode or branch-mode session in DB).
-    try:
-        worktree_name = wt_manager.get(identifier).name
-    except WorktreeNotFoundError:
-        status = tracker.get_status(identifier)
-        if not status:
-            raise click.ClickException(f"No session for '{identifier}'. Run 'owt new' to create one.") from None
-        worktree_name = status.worktree_name
+    from open_orchestrator.models.backend import BackendSession
 
-    # Backend resolution: prefer DB-recorded kind, then explicit override.
-    recorded_session = tracker.get_backend_session(worktree_name)
-    if override is None and recorded_session is not None:
-        override = recorded_session.kind.value
+    recorded_session = tracker.get_backend_session(resolved.name)
+    session: BackendSession | None
 
+    # No override: prefer the recorded session via its native backend.
+    if override is None:
+        if recorded_session is not None:
+            backend = select_backend_for_session(recorded_session)
+            session = recorded_session
+        else:
+            try:
+                backend = select_backend(load_config().backend, override="tmux")
+            except BackendUnavailableError as err:
+                raise click.ClickException(str(err)) from err
+            session = backend.session_for(resolved.name)
+            if session is None:
+                raise click.ClickException(f"No session for '{resolved.name}'. Run 'owt new' to create one.")
+        backend.attach(session)
+        return
+
+    # Forced override: re-resolve via the forced backend rather than
+    # coercing the recorded session (recorded ids are backend-specific).
     try:
         backend = select_backend(load_config().backend, override=override)
     except BackendUnavailableError as err:
         raise click.ClickException(str(err)) from err
 
-    session = recorded_session or backend.session_for(worktree_name)
-    if session is None:
-        raise click.ClickException(f"No {backend.kind.value} session for '{worktree_name}'. Run 'owt new' to create one.")
+    if recorded_session is not None and recorded_session.kind.value != override:
+        # Re-resolve under the forced backend; do not pass the recorded id.
+        session = backend.session_for(resolved.name)
+        if session is None:
+            raise click.ClickException(
+                f"No {override} session for '{resolved.name}'. Recorded as {recorded_session.kind.value}. "
+                f"Drop --{override} to use the recorded backend."
+            )
+    else:
+        session = recorded_session or backend.session_for(resolved.name)
+        if session is None:
+            raise click.ClickException(f"No {backend.kind.value} session for '{resolved.name}'. Run 'owt new' to create one.")
     backend.attach(session)
 
 

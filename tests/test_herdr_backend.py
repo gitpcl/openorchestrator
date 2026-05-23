@@ -45,14 +45,9 @@ def test_attach_argv_helper() -> None:
 
 
 @pytest.fixture
-def short_sock() -> Path:
-    import os
-    import tempfile
-
-    fd, name = tempfile.mkstemp(prefix="owt-herdr-", suffix=".sock", dir="/tmp")
-    os.close(fd)
-    os.unlink(name)
-    return Path(name)
+def short_sock(herdr_socket_path: Path) -> Path:
+    """Backwards-compat alias for the shared ``herdr_socket_path`` fixture."""
+    return herdr_socket_path
 
 
 @pytest.mark.asyncio
@@ -202,6 +197,159 @@ async def test_create_session_falls_back_to_workspace_get_for_pane_id(short_sock
     assert "workspace.create" in seen
     assert "workspace.get" in seen  # probe fired
     assert "pane.send_text" in seen  # agent_command then went through
+
+
+# ── submit-mode chokepoint (_send_line) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_text_default_appends_carriage_return(short_sock: Path) -> None:
+    """Default OWT_HERDR_SUBMIT path sends body + "\\r" via pane.send_text."""
+    sock = short_sock
+    seen: list[dict] = []
+
+    async def handler(payload):  # noqa: ANN001
+        seen.append(payload)
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        backend = HerdrBackend(socket_path=str(sock))
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        sess = BackendSession(kind=BackendKind.HERDR, id="pane-1", worktree_name="wt")
+        # Clear any inherited env so we exercise the default path.
+        import os
+
+        os.environ.pop("OWT_HERDR_SUBMIT", None)
+        await asyncio.to_thread(backend.send_text, sess, "hello world")
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    submit_calls = [c for c in seen if c["method"] == "pane.send_text"]
+    assert len(submit_calls) == 1
+    assert submit_calls[0]["params"]["text"] == "hello world\r"
+
+
+@pytest.mark.asyncio
+async def test_send_text_text_crlf_override(short_sock: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """OWT_HERDR_SUBMIT=text:\\r\\n delivers CRLF terminator."""
+    sock = short_sock
+    seen: list[dict] = []
+
+    async def handler(payload):  # noqa: ANN001
+        seen.append(payload)
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        monkeypatch.setenv("OWT_HERDR_SUBMIT", "text:\\r\\n")
+        backend = HerdrBackend(socket_path=str(sock))
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        sess = BackendSession(kind=BackendKind.HERDR, id="pane-1", worktree_name="wt")
+        await asyncio.to_thread(backend.send_text, sess, "hi")
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    submit_calls = [c for c in seen if c["method"] == "pane.send_text"]
+    assert len(submit_calls) == 1
+    assert submit_calls[0]["params"]["text"] == "hi\r\n"
+
+
+@pytest.mark.asyncio
+async def test_send_text_keys_enter_override(short_sock: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """OWT_HERDR_SUBMIT=keys:Enter sends text + separate Enter key event."""
+    sock = short_sock
+    seen: list[dict] = []
+
+    async def handler(payload):  # noqa: ANN001
+        seen.append(payload)
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        monkeypatch.setenv("OWT_HERDR_SUBMIT", "keys:Enter")
+        backend = HerdrBackend(socket_path=str(sock))
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        sess = BackendSession(kind=BackendKind.HERDR, id="pane-1", worktree_name="wt")
+        await asyncio.to_thread(backend.send_text, sess, "build it")
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    text_calls = [c for c in seen if c["method"] == "pane.send_text"]
+    key_calls = [c for c in seen if c["method"] == "pane.send_keys"]
+    assert len(text_calls) == 1
+    assert text_calls[0]["params"]["text"] == "build it"  # body only, no terminator
+    assert len(key_calls) == 1
+    assert key_calls[0]["params"]["keys"] == "Enter"
+
+
+@pytest.mark.asyncio
+async def test_send_text_keys_failure_falls_back_to_carriage_return(short_sock: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When pane.send_keys errors, _send_line falls back to embedded \\r."""
+    sock = short_sock
+    seen: list[dict] = []
+
+    async def handler(payload):  # noqa: ANN001
+        seen.append(payload)
+        if payload["method"] == "pane.send_keys":
+            return {"id": payload["id"], "error": {"message": "unknown key", "code": -1}}
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        monkeypatch.setenv("OWT_HERDR_SUBMIT", "keys:Enter")
+        backend = HerdrBackend(socket_path=str(sock))
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        sess = BackendSession(kind=BackendKind.HERDR, id="pane-1", worktree_name="wt")
+        await asyncio.to_thread(backend.send_text, sess, "fallback")
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    text_calls = [c["params"]["text"] for c in seen if c["method"] == "pane.send_text"]
+    # First text call delivers the body, second delivers the fallback \r.
+    assert text_calls == ["fallback", "\r"]
+
+
+def test_resolve_submit_mode_unknown_warns_and_uses_default(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Unknown OWT_HERDR_SUBMIT mode logs a warning and returns the default."""
+    import logging
+
+    from open_orchestrator.core.herdr_backend import (
+        _DEFAULT_SUBMIT_MODE,
+        _DEFAULT_SUBMIT_TERMINATOR,
+        _resolve_submit_mode,
+    )
+
+    monkeypatch.setenv("OWT_HERDR_SUBMIT", "weird:nope")
+    with caplog.at_level(logging.WARNING):
+        mode, terminator = _resolve_submit_mode()
+
+    assert mode == _DEFAULT_SUBMIT_MODE
+    assert terminator == _DEFAULT_SUBMIT_TERMINATOR
+    assert "Unknown OWT_HERDR_SUBMIT mode" in caplog.text
+
+
+def test_resolve_submit_mode_no_env_returns_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OWT_HERDR_SUBMIT", raising=False)
+    from open_orchestrator.core.herdr_backend import (
+        _DEFAULT_SUBMIT_MODE,
+        _DEFAULT_SUBMIT_TERMINATOR,
+        _resolve_submit_mode,
+    )
+
+    mode, terminator = _resolve_submit_mode()
+    assert mode == _DEFAULT_SUBMIT_MODE
+    assert terminator == _DEFAULT_SUBMIT_TERMINATOR
 
 
 @pytest.mark.asyncio

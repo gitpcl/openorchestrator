@@ -21,6 +21,32 @@ def cli_runner() -> CliRunner:
 
 
 @pytest.fixture
+def herdr_socket_path() -> Generator[Path, None, None]:
+    """Yield a short Unix socket path for herdr-related tests.
+
+    macOS caps ``sun_path`` at 104 bytes, so pytest's default ``tmp_path``
+    (under ``/private/var/folders/.../pytest-...``) overflows for long test
+    names. We use a short tempfile under ``$TMPDIR`` / ``/tmp`` instead.
+    The file is removed before yielding so the asyncio server can bind it,
+    and any leftover is cleaned up on teardown.
+    """
+    import os as _os
+
+    fd, name = tempfile.mkstemp(prefix="owt-h-", suffix=".sock")
+    _os.close(fd)
+    _os.unlink(name)
+    path = Path(name)
+    try:
+        yield path
+    finally:
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+@pytest.fixture
 def temp_directory() -> Generator[Path, None, None]:
     """Create a temporary directory for tests."""
     with tempfile.TemporaryDirectory() as temp_dir:

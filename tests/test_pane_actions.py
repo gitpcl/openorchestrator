@@ -270,7 +270,7 @@ class TestTeardownWorktree:
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
     @patch("open_orchestrator.core.pane_actions.WorktreeManager")
-    @patch("open_orchestrator.core.backend_factory.select_backend")
+    @patch("open_orchestrator.core.backend_factory.select_backend_for_session")
     def test_teardown_full_cleanup(
         self,
         mock_select_backend: MagicMock,
@@ -295,7 +295,7 @@ class TestTeardownWorktree:
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
     @patch("open_orchestrator.core.pane_actions.WorktreeManager")
-    @patch("open_orchestrator.core.backend_factory.select_backend")
+    @patch("open_orchestrator.core.backend_factory.select_backend_for_session")
     def test_teardown_skip_tmux(
         self,
         mock_select_backend: MagicMock,
@@ -313,7 +313,7 @@ class TestTeardownWorktree:
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
     @patch("open_orchestrator.core.pane_actions.WorktreeManager")
-    @patch("open_orchestrator.core.backend_factory.select_backend")
+    @patch("open_orchestrator.core.backend_factory.select_backend_for_session")
     def test_teardown_continues_on_tmux_error(
         self,
         mock_select_backend: MagicMock,
@@ -341,7 +341,7 @@ class TestTeardownWorktree:
         mock_tracker_cls.return_value.remove_status.assert_called_once()
 
     @patch("open_orchestrator.core.pane_actions.StatusTracker")
-    @patch("open_orchestrator.core.backend_factory.select_backend")
+    @patch("open_orchestrator.core.backend_factory.select_backend_for_session")
     def test_teardown_no_repo_path_skips_worktree_delete(
         self,
         mock_select_backend: MagicMock,

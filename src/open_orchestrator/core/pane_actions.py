@@ -219,6 +219,7 @@ def _init_pane_tracking(
     backend_kind: str = "tmux",
     backend_session_id: str | None = None,
     backend_meta: dict[str, str] | None = None,
+    session_type: str = "worktree",
 ) -> StatusTracker:
     """Install hooks and initialize status tracking. Returns the tracker."""
     tracker_config = status_config or runtime_status_config(repo_path)
@@ -245,6 +246,7 @@ def _init_pane_tracking(
             backend_kind=backend_kind,
             backend_session_id=backend_session_id,
             backend_meta=backend_meta or {},
+            session_type=session_type,
         )
         txn.status_initialized = True
         if ai_instructions:
@@ -440,8 +442,8 @@ def _teardown_backend_session(
     target the correct backend.
     """
     try:
-        from open_orchestrator.core.backend_factory import select_backend
-        from open_orchestrator.models.backend import BackendConfig, BackendKind, BackendSession
+        from open_orchestrator.core.backend_factory import select_backend_for_session
+        from open_orchestrator.models.backend import BackendKind, BackendSession
 
         kind = backend_kind
         session_id = backend_session_id
@@ -462,13 +464,22 @@ def _teardown_backend_session(
         if kind not in {BackendKind.TMUX.value, BackendKind.HERDR.value}:
             kind = "tmux"
 
-        backend = select_backend(BackendConfig(), override=kind)
         # Resolve via session_for when we don't have an id (legacy rows).
         if not session_id:
+            # We don't have a recorded session to reconstruct — fall back
+            # to the kind-only path. session_for() does the lookup; if it
+            # comes up empty there's nothing to kill.
+            stub = BackendSession(
+                kind=BackendKind(kind),
+                id="",
+                worktree_name=worktree_name,
+                meta=meta,
+            )
+            backend = select_backend_for_session(stub)
             existing = backend.session_for(worktree_name)
             if existing is None:
                 return
-            session = existing
+            backend.kill(existing)
         else:
             session = BackendSession(
                 kind=BackendKind(kind),
@@ -476,7 +487,8 @@ def _teardown_backend_session(
                 worktree_name=worktree_name,
                 meta=meta,
             )
-        backend.kill(session)
+            backend = select_backend_for_session(session)
+            backend.kill(session)
     except TmuxError as e:
         msg = f"Could not kill tmux session for '{worktree_name}': {e}"
         logger.warning(msg)

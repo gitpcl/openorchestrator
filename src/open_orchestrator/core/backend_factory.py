@@ -15,7 +15,7 @@ from open_orchestrator.core.multiplexer import MultiplexerBackend
 from open_orchestrator.models.backend import BackendKind
 
 if TYPE_CHECKING:
-    from open_orchestrator.models.backend import BackendConfig
+    from open_orchestrator.models.backend import BackendConfig, BackendSession
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,16 @@ class BackendUnavailableError(RuntimeError):
 _CACHE: dict[str, MultiplexerBackend] = {}
 
 
-def detect_herdr(socket_session: str = "default") -> bool:
-    """Return True when ``herdr`` is on PATH *and* its socket is alive."""
+def detect_herdr(socket_session: str = "default", socket_path: str | None = None) -> bool:
+    """Return True when ``herdr`` is on PATH *and* its socket is alive.
+
+    ``socket_path`` is optional; when provided, the probe targets that
+    exact socket. Otherwise the default for ``socket_session`` is used.
+    This lets the detector and ``_build_herdr`` agree on the same
+    ``(session, socket_path)`` tuple — earlier Sprint 025 builds would
+    probe the default socket while the backend used a custom one,
+    incorrectly reporting it as unreachable.
+    """
     if shutil.which("herdr") is None:
         return False
     try:
@@ -37,7 +45,7 @@ def detect_herdr(socket_session: str = "default") -> bool:
         from open_orchestrator.core.herdr_client import HerdrClient
 
         async def _probe() -> bool:
-            client = HerdrClient(session=socket_session, request_timeout=1.0)
+            client = HerdrClient(socket_path=socket_path, session=socket_session, request_timeout=1.0)
             try:
                 await client.connect()
                 return await client.ping()
@@ -79,29 +87,59 @@ def select_backend(
       - ``mode == "tmux"`` (default) → tmux
       - ``mode == "herdr"`` → herdr, raising if unreachable
       - ``mode == "auto"`` → herdr when detected else tmux
+
+    The detector and ``_build_herdr`` share the same ``(session, socket_path)``
+    tuple sourced from ``config`` so they always agree on which socket
+    actually backs the chosen herdr session.
     """
     mode = (override or (config.mode if config else "tmux")).lower()
     session = config.herdr_session if config else "default"
-    cache_key = f"{mode}:{session}"
+    socket = config.herdr_socket if config else None
+    cache_key = f"{mode}:{session}:{socket or ''}"
     if cache_key in _CACHE:
         return _CACHE[cache_key]
 
     if mode == "tmux":
         backend: MultiplexerBackend = _build_tmux()
     elif mode == "herdr":
-        if not detect_herdr(session):
+        if not detect_herdr(session, socket):
             raise BackendUnavailableError(
                 "herdr is not installed or its socket is not reachable. Install from https://herdr.dev/install.sh, then retry."
             )
         backend = _build_herdr(config)
     elif mode == "auto":
-        backend = _build_herdr(config) if detect_herdr(session) else _build_tmux()
+        backend = _build_herdr(config) if detect_herdr(session, socket) else _build_tmux()
         logger.debug("backend auto-selected: %s", backend.kind.value)
     else:
         raise BackendUnavailableError(f"Unknown backend mode: {mode!r}")
 
     _CACHE[cache_key] = backend
     return backend
+
+
+def select_backend_for_session(session: BackendSession) -> MultiplexerBackend:
+    """Reconstruct the right backend instance for a recorded session.
+
+    Where :func:`select_backend` answers *"what backend should I use given
+    config + flags?"*, this helper answers *"what backend already owns
+    this recorded session?"*. The former dictates create-time policy; the
+    latter dictates how follow-up commands (``owt send``, ``owt attach``,
+    ``owt doctor``) talk to a session that already exists.
+
+    For herdr sessions this preserves the recorded ``meta["socket"]`` so
+    sessions created against a non-default socket keep talking to the
+    same socket on every subsequent call. Earlier code reached for
+    ``select_backend(None, override=session.kind.value)`` and silently
+    dropped the socket — Sprint 026 P3 closes that.
+    """
+    if session.kind == BackendKind.TMUX:
+        return _build_tmux()
+    # HERDR path
+    socket_path = session.meta.get("socket") or session.meta.get("socket_path")
+    herdr_session = session.meta.get("herdr_session", "default")
+    from open_orchestrator.core.herdr_backend import HerdrBackend
+
+    return HerdrBackend(session=herdr_session, socket_path=socket_path)
 
 
 def clear_cache() -> None:

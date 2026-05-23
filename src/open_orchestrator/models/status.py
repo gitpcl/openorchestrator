@@ -8,6 +8,7 @@ This module provides data models for:
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -43,6 +44,10 @@ class WorktreeAIStatus(BaseModel):
     )
     backend_meta: dict[str, str] = Field(
         default_factory=dict, description="Backend-specific metadata (e.g. herdr workspace_id, socket path)"
+    )
+    session_type: Literal["worktree", "branch"] = Field(
+        default="worktree",
+        description="How the session is provisioned: a git worktree (default) or a branch in the current checkout",
     )
     created_at: datetime = Field(default_factory=datetime.now, description="When this status record was created")
     updated_at: datetime = Field(default_factory=datetime.now, description="When this status was last updated")

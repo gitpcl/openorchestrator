@@ -42,16 +42,9 @@ def test_default_socket_path() -> None:
 
 
 @pytest.fixture
-def short_sock(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Unix socket paths are capped at ~104 chars on macOS — use /tmp."""
-    import tempfile
-
-    fd, name = tempfile.mkstemp(prefix="owt-herdr-", suffix=".sock", dir="/tmp")
-    import os
-
-    os.close(fd)
-    os.unlink(name)
-    return Path(name)
+def short_sock(herdr_socket_path: Path) -> Path:
+    """Backwards-compat alias for the shared ``herdr_socket_path`` fixture."""
+    return herdr_socket_path
 
 
 @pytest.mark.asyncio

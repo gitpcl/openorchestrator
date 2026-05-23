@@ -8,9 +8,13 @@ import time
 
 import click
 
-from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
+from open_orchestrator.commands._shared import (
+    console,
+    get_status_tracker,
+    get_worktree_manager,
+    resolve_session_target,
+)
 from open_orchestrator.core import status_policy
-from open_orchestrator.core.worktree import WorktreeNotFoundError
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
 logger = logging.getLogger(__name__)
@@ -44,7 +48,7 @@ def send_to_worktree(
         owt send --swarm swarm-abc12345 "status check"
     """
     del pane_index  # backend protocol targets the primary pane; pane_index is legacy
-    from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend
+    from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend_for_session
 
     msg = " ".join(message)
     tracker = get_status_tracker()
@@ -66,7 +70,7 @@ def send_to_worktree(
         if session is None:
             return False
         try:
-            backend = select_backend(None, override=session.kind.value)
+            backend = select_backend_for_session(session)
         except BackendUnavailableError:
             return False
         if not backend.is_alive(session):
@@ -97,17 +101,16 @@ def send_to_worktree(
         raise click.ClickException("Specify a worktree name, or use --all / --working / --swarm")
 
     wt_manager = get_worktree_manager()
-    try:
-        worktree = wt_manager.get(identifier)
-    except WorktreeNotFoundError as e:
-        raise click.ClickException(str(e)) from e
+    # Fall back to status DB so branch-mode sessions (no entry in
+    # WorktreeManager) are first-class for send.
+    resolved = resolve_session_target(identifier, wt_manager, tracker)
 
     try:
-        if not _send_via_backend(worktree.name):
-            raise click.ClickException(f"No live session for '{worktree.name}'.")
+        if not _send_via_backend(resolved.name):
+            raise click.ClickException(f"No live session for '{resolved.name}'.")
     except BackendUnavailableError as err:
         raise click.ClickException(str(err)) from err
-    console.print(f"[green]Sent to {worktree.name}:[/green] {msg[:80]}")
+    console.print(f"[green]Sent to {resolved.name}:[/green] {msg[:80]}")
 
 
 @click.command("wait")
@@ -219,7 +222,7 @@ def hook_event(event: str, worktree: str) -> None:
     shared status store and forwards the new state to the backend (so
     herdr's sidebar reflects WORKING/WAITING/BLOCKED in real time).
     """
-    from open_orchestrator.core.backend_factory import select_backend
+    from open_orchestrator.core.backend_factory import select_backend_for_session
 
     status_map = {
         "working": AIActivityStatus.WORKING,
@@ -233,10 +236,12 @@ def hook_event(event: str, worktree: str) -> None:
         if not wt_status:
             return
         backend = None
-        try:
-            backend = select_backend(None, override=wt_status.backend_kind or "tmux")
-        except Exception:  # noqa: BLE001
-            logger.debug("Could not resolve backend for hook event %s/%s", event, worktree, exc_info=True)
+        session = tracker.get_backend_session(worktree)
+        if session is not None:
+            try:
+                backend = select_backend_for_session(session)
+            except Exception:  # noqa: BLE001
+                logger.debug("Could not resolve backend for hook event %s/%s", event, worktree, exc_info=True)
         tracker.update_task(
             worktree,
             wt_status.current_task or event,

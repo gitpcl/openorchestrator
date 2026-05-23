@@ -165,7 +165,15 @@ herdr_session = "default"   # named herdr session (selects which socket)
 
 **Status DB is source of truth.** `StatusTracker.update_task(..., backend=)` writes SQLite first, *then* forwards to `backend.report_agent_state` so herdr's sidebar reflects owt's state. If herdr is down the SQLite write is unaffected and the control plane keeps working.
 
-**Recorded per worktree:** the status row carries `backend_kind` (`"tmux"` | `"herdr"`), `backend_session_id` (tmux session name OR herdr pane id), and `backend_meta` (e.g. herdr `workspace_id`). `owt attach <name>`, `owt send <name> "msg"`, and `owt delete <name>` all consult those fields, so once a worktree is created with `--herdr` no further flags are needed for follow-ups.
+**Recorded per worktree:** the status row carries `session_type` (`"worktree"` | `"branch"`), `backend_kind` (`"tmux"` | `"herdr"`), `backend_session_id` (tmux session name OR herdr pane id), and `backend_meta` (e.g. herdr `workspace_id`, `socket`, `herdr_session`). `owt attach <name>`, `owt send <name>`, `owt switch <name>`, and `owt delete <name>` all consult those fields, so once a worktree is created with `--herdr` no further flags are needed for follow-ups — including custom herdr sockets which are preserved end-to-end (Sprint 026 P3).
+
+**Branch-mode parity (Sprint 026 P5):** `owt send`, `owt switch`, and `owt delete` work on in-place branch sessions (created via `owt branch` / `owt new --in-place`) by falling back to the status DB when `WorktreeManager.get` raises. `owt doctor` reconciles branch rows against `git branch --list`, never against the worktree list — a healthy in-place branch session can never be flagged as an orphan.
+
+**`owt attach --tmux/--herdr` semantics (Sprint 026 P4):** when the forced backend differs from the recorded one, owt re-resolves the session via `backend.session_for(name)` on the forced backend instead of coercing the recorded id. If the forced backend can't find a matching session, the command errors clearly (`No <override> session for '<name>'. Recorded as <recorded.kind>.`).
+
+**Headless + herdr (Sprint 026 P6):** `owt new --headless` skips backend resolution entirely — the detached subprocess never uses a multiplexer — so `[backend] mode = "herdr"` is legal in CI even when herdr isn't installed.
+
+**TUI prompt submission (Sprint 026 P6a):** every agent-facing message routes through `HerdrBackend._send_line()` so TUI agents (pi, claude TUI, droid) receive a real Enter event (default `\r`, escape hatch via `OWT_HERDR_SUBMIT=text:\r\n` or `OWT_HERDR_SUBMIT=keys:Enter`). The empirical default lock-in (Phase 6a step 1) is still pending against a live herdr build — see `tests/manual/herdr_submit_matrix.md`.
 
 **Architecture:**
 ```

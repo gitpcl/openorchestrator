@@ -128,19 +128,99 @@ SQLite write is unaffected and the control plane (`owt`) still works.
 
 ## What gets recorded per worktree
 
-Each status row carries three fields written at create-time so later
+Each status row carries four fields written at create-time so later
 commands route correctly without re-passing flags:
 
 | Column                | Meaning                                                  |
 |-----------------------|----------------------------------------------------------|
+| `session_type`        | `"worktree"` (default) or `"branch"` (in-place branch session) |
 | `backend_kind`        | `"tmux"` or `"herdr"` — picked by the launcher           |
 | `backend_session_id`  | tmux session name OR herdr pane id                        |
-| `backend_meta`        | JSON with backend-specific extras (e.g. `workspace_id`)  |
+| `backend_meta`        | JSON with `workspace_id`, `socket`, and `herdr_session` (herdr) |
 
-`owt attach <name>`, `owt send <name> "msg"`, and `owt delete <name>`
-all look at `backend_kind` (then `backend_session_id`) to dispatch to
-the right adapter. Use `--herdr` / `--tmux` only when you want to
-override what was recorded.
+`owt attach <name>`, `owt send <name> "msg"`, `owt switch <name>`, and
+`owt delete <name>` look at the recorded row to dispatch to the right
+adapter — including the exact herdr socket path. Use `--herdr` /
+`--tmux` only when you want to override what was recorded.
+
+### `--tmux` / `--herdr` on `owt attach`
+
+Forcing a backend re-resolves the session via that backend's
+`session_for(name)` lookup rather than coercing the recorded id (the
+id formats are different between tmux and herdr — coercing would
+silently misroute). If the forced backend has no session for the
+worktree, the command errors with a clear message instead of failing
+later in the attach handshake.
+
+## Branch-mode parity
+
+Branch-mode sessions (`owt branch …` / `owt new --in-place …`) live
+only in the status DB — there's no separate worktree on disk. Sprint
+026 P5 made them first-class across the CLI:
+
+| Command            | Branch-mode behavior                                    |
+|--------------------|---------------------------------------------------------|
+| `owt send <name>`  | Falls back to status DB when `WorktreeManager.get` raises |
+| `owt switch <name>`| Same — attaches via the recorded backend                  |
+| `owt delete <name>`| Routes through branch teardown: `delete_branch=True`, `pop_stash=True` |
+| `owt doctor`       | Reconciles branch rows against `git branch --list`, never against the worktree list |
+
+## `owt new --headless` with `[backend] mode = "herdr"`
+
+Headless mode never touches a multiplexer — it runs a detached
+subprocess and exits. Sprint 026 P6 made the launcher skip backend
+resolution entirely on the headless path, so a CI configuration of
+`[backend] mode = "herdr"` no longer fails when herdr isn't
+installed:
+
+```bash
+# Works even with no herdr installed.
+owt new "Run my batch job" --headless
+```
+
+## Agent prompt submission (TUI agents)
+
+Herdr's `pane.send_text` types text into the pane *as text* — it
+doesn't synthesize a real Enter key event. For TUI agents (pi, claude
+in TUI mode, droid) that's a problem: they read raw stdin and treat a
+literal `\n` as "newline in input", not "submit". So owt routes every
+agent-facing message through a single chokepoint
+(`HerdrBackend._send_line()`) that delivers Enter as a carriage
+return.
+
+```bash
+# Default — sends `<body>\r` via pane.send_text. Matches what a
+# physical Enter key delivers to stdin in raw mode.
+owt new "Build the thing" --herdr
+```
+
+### `OWT_HERDR_SUBMIT` escape hatch
+
+If your herdr build needs a different terminator, override per shell:
+
+```bash
+# CRLF terminator embedded in pane.send_text.
+export OWT_HERDR_SUBMIT='text:\r\n'
+
+# Body via pane.send_text, then a real key event via pane.send_keys.
+export OWT_HERDR_SUBMIT='keys:Enter'      # most TUIs
+export OWT_HERDR_SUBMIT='keys:Return'     # some keymaps name it Return
+export OWT_HERDR_SUBMIT='keys:C-m'        # the literal Enter byte
+```
+
+Unknown values (e.g. `OWT_HERDR_SUBMIT=foo:bar`) log a warning and
+fall back to the default. `\r` / `\n` escapes are expanded so the
+variable stays readable in a shell.
+
+### Empirical matrix (manual verification)
+
+The default terminator was chosen based on raw-mode TTY convention
+(`\r` is what a physical Enter delivers). It has **not yet been
+empirically verified against a live herdr build with all three TUI
+agents** — see [`tests/manual/herdr_submit_matrix.md`](../tests/manual/herdr_submit_matrix.md)
+for the procedure. If you run the matrix and discover a different
+working default for your herdr version, please open an issue with the
+results.
 
 ## Known limitations
 

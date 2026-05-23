@@ -437,6 +437,117 @@ class TestMergeBranchMode:
             assert sig.parameters["branch_mode"].default is False
 
 
+class TestBranchModeCLIParity:
+    """Sprint 026 P5: send/switch/delete work on in-place branch sessions.
+
+    Before this sprint, ``WorktreeManager.get`` returned WorktreeNotFoundError
+    for any branch-mode session (no worktree on disk), which blocked these
+    commands entirely. ``resolve_session_target`` falls back to the status
+    DB for branch sessions.
+    """
+
+    def test_send_to_branch_session(self) -> None:
+        from click.testing import CliRunner
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.core.worktree import WorktreeNotFoundError
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        runner = CliRunner()
+        branch_session = BackendSession(kind=BackendKind.TMUX, id="owt-fix-bug", worktree_name="fix-bug")
+
+        fake_backend = MagicMock()
+        fake_backend.is_alive.return_value = True
+
+        branch_row = MagicMock()
+        branch_row.worktree_name = "fix-bug"
+        branch_row.session_type = "branch"
+
+        with (
+            patch("open_orchestrator.commands._shared.WorktreeManager") as wt_cls,
+            patch("open_orchestrator.commands._shared.StatusTracker") as tr_cls,
+            patch(
+                "open_orchestrator.core.backend_factory.select_backend_for_session",
+                return_value=fake_backend,
+            ),
+        ):
+            wt_cls.return_value.get.side_effect = WorktreeNotFoundError("not on disk")
+            tr_cls.return_value.get_status.return_value = branch_row
+            tr_cls.return_value.get_backend_session.return_value = branch_session
+            result = runner.invoke(main, ["send", "fix-bug", "hello"])
+
+        assert result.exit_code == 0, result.output
+        fake_backend.send_text.assert_called_once()
+        sent_session, sent_text = fake_backend.send_text.call_args.args
+        assert sent_session.worktree_name == "fix-bug"
+        assert sent_text == "hello"
+
+    def test_switch_to_branch_session(self) -> None:
+        from click.testing import CliRunner
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.core.worktree import WorktreeNotFoundError
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        runner = CliRunner()
+        branch_session = BackendSession(kind=BackendKind.TMUX, id="owt-fix-bug", worktree_name="fix-bug")
+
+        fake_backend = MagicMock()
+        fake_backend.is_alive.return_value = True
+
+        branch_row = MagicMock()
+        branch_row.worktree_name = "fix-bug"
+        branch_row.session_type = "branch"
+        branch_row.branch = "fix-bug"
+
+        with (
+            patch("open_orchestrator.commands._shared.WorktreeManager") as wt_cls,
+            patch("open_orchestrator.commands._shared.StatusTracker") as tr_cls,
+            patch(
+                "open_orchestrator.core.backend_factory.select_backend_for_session",
+                return_value=fake_backend,
+            ),
+        ):
+            wt_cls.return_value.get.side_effect = WorktreeNotFoundError("not on disk")
+            tr_cls.return_value.get_status.return_value = branch_row
+            tr_cls.return_value.get_backend_session.return_value = branch_session
+            result = runner.invoke(main, ["switch", "fix-bug"])
+
+        assert result.exit_code == 0, result.output
+        fake_backend.attach.assert_called_once_with(branch_session)
+
+    def test_delete_branch_session_dispatches_to_branch_teardown(self) -> None:
+        """Delete on a branch row passes delete_branch=True + pop_stash=True."""
+        from click.testing import CliRunner
+
+        from open_orchestrator.cli import main
+        from open_orchestrator.core.worktree import WorktreeNotFoundError
+
+        runner = CliRunner()
+        branch_row = MagicMock()
+        branch_row.worktree_name = "fix-bug"
+        branch_row.session_type = "branch"
+        branch_row.branch = "fix-bug"
+
+        with (
+            patch("open_orchestrator.commands._shared.WorktreeManager") as wt_cls,
+            patch("open_orchestrator.commands._shared.StatusTracker") as tr_cls,
+            patch("open_orchestrator.core.pane_actions.teardown_worktree", return_value=[]) as teardown,
+        ):
+            wt_cls.return_value.get.side_effect = WorktreeNotFoundError("not on disk")
+            wt_cls.return_value.git_root = "/tmp/repo"
+            tr_cls.return_value.get_status.return_value = branch_row
+            result = runner.invoke(main, ["delete", "fix-bug", "--yes"])
+
+        assert result.exit_code == 0, result.output
+        teardown.assert_called_once()
+        kwargs = teardown.call_args.kwargs
+        assert kwargs["delete_git_worktree"] is False  # no worktree dir to remove
+        assert kwargs["delete_branch"] is True
+        assert kwargs["pop_stash"] is True
+        assert kwargs["clean_status"] is True
+
+
 class TestCLIIntegration:
     """CLI flags for branch mode."""
 

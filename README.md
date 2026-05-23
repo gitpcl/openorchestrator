@@ -232,7 +232,15 @@ herdr_session = "default"   # named herdr session (selects which socket)
 
 `mode = "auto"` picks herdr when installed and reachable, otherwise tmux. Status updates from owt's tracker are forwarded to herdr's sidebar via `pane.report_agent` (non-fatal — SQLite is source of truth).
 
-**Recorded per worktree:** each status row carries `backend_kind`, `backend_session_id`, and `backend_meta` (e.g. herdr workspace id) so `owt attach <name>`, `owt send <name> "msg"`, and `owt delete <name>` route to the right backend without re-passing flags.
+**Recorded per worktree:** each status row carries `session_type` (`worktree` | `branch`), `backend_kind`, `backend_session_id`, and `backend_meta` (e.g. herdr `workspace_id` + `socket` + `herdr_session`) so `owt attach <name>`, `owt send <name>`, `owt switch <name>`, and `owt delete <name>` route to the right backend (and the right socket for custom herdr deployments) without re-passing flags.
+
+**Force override on `owt attach`:** `--tmux` / `--herdr` re-resolve the session via `backend.session_for(name)` on the forced backend rather than coercing the recorded id (tmux session names and herdr pane ids are different shapes). If the forced backend has no session for that worktree, the command errors clearly instead of misrouting.
+
+**Branch-mode parity:** `owt send`, `owt switch`, and `owt delete` all work on in-place branch sessions (created via `owt branch` / `owt new --in-place`) — they fall back to the status DB when `WorktreeManager.get` raises. `owt doctor` reconciles branch rows against the branch list, never against the worktree list.
+
+**`--headless` + `[backend] mode = "herdr"`:** Headless launches skip backend resolution entirely (the detached subprocess never touches a multiplexer), so CI configurations that set `mode = "herdr"` keep working even without herdr installed.
+
+**TUI prompt submission:** Herdr's `pane.send_text` doesn't synthesize a real Enter event, so owt routes every agent-facing message through `_send_line()` which appends `\r` by default (raw-mode TTY convention). Override per shell with `OWT_HERDR_SUBMIT=text:\r\n` or `OWT_HERDR_SUBMIT=keys:Enter` if your herdr build needs something different. See [`docs/herdr-integration.md`](docs/herdr-integration.md#agent-prompt-submission-tui-agents) for the full escape hatch.
 
 **What owt sends to herdr:**
 
