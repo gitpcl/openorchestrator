@@ -358,6 +358,23 @@ owt new "task" --ai-tool opencode
 owt new "task" --ai-tool droid
 ```
 
+### Branch Mode (No Worktree)
+
+For quick tasks where a full clone is overkill, use `--in-place` or the `owt branch` alias:
+
+```bash
+# Create a branch in the current checkout (faster, zero extra disk)
+owt branch "Fix login bug"
+owt new "Add tests" --in-place
+
+# All lifecycle commands auto-detect branch mode
+owt merge fix-login-bug
+owt ship fix-login-bug
+
+# Switchboard shows branch sessions with a (branch) label
+owt
+```
+
 ### Custom AI Tools
 
 Register any AI coding tool via config — no code changes needed:
