@@ -23,6 +23,7 @@ import os
 import sqlite3
 from datetime import datetime
 
+from open_orchestrator.core._db import open_db
 from open_orchestrator.core.status import PEER_MESSAGES_SCHEMA, default_status_path
 
 logger = logging.getLogger(__name__)
@@ -30,10 +31,7 @@ logger = logging.getLogger(__name__)
 
 def _get_connection(db_path: str) -> sqlite3.Connection:
     """Open a WAL-mode connection matching StatusTracker settings."""
-    conn = sqlite3.connect(db_path, isolation_level="DEFERRED")
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn = open_db(db_path)
     conn.executescript(PEER_MESSAGES_SCHEMA)
     conn.commit()
     return conn

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from open_orchestrator.core import status_policy
+from open_orchestrator.core._db import open_db
 from open_orchestrator.models.status import (
     AIActivityStatus,
     StatusSummary,
@@ -211,10 +212,7 @@ class SQLiteStatusRepository:
         self.config = config or StatusConfig()
         self.storage_path = self.config.storage_path or default_status_path()
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.storage_path), isolation_level="DEFERRED")
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn = open_db(self.storage_path)
         self._ensure_schema()
         try:
             os.chmod(self.storage_path, 0o600)

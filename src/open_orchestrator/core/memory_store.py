@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from open_orchestrator.core._db import open_db
 from open_orchestrator.models.memory import (
     LAYER_BUDGETS,
     ContradictionGroup,
@@ -166,10 +167,7 @@ class MemoryStore:
         self.config = config or MemoryStoreConfig()
         self.storage_path = self.config.storage_path or default_memory_path()
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.storage_path), isolation_level="DEFERRED")
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn = open_db(self.storage_path)
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._ensure_schema()
         try:

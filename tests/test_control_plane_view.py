@@ -8,6 +8,18 @@ from open_orchestrator.core.control_plane_view import ControlPlaneApp, SectionWi
 from open_orchestrator.models.control_plane import ControlPlaneRow, RowAction, SectionKind
 
 
+@pytest.fixture(autouse=True)
+def _isolated_status_db(tmp_path, monkeypatch):  # noqa: ANN001
+    """Point StatusTracker at a per-test SQLite file via OWT_DB_PATH.
+
+    Without this, every test in the module reads from the user's shared
+    ``~/.open-orchestrator/status.db`` and inherits whatever leftover
+    worktree rows happen to be there (the empty-section invariant breaks
+    the moment a real ``owt new`` has ever run on the developer machine).
+    """
+    monkeypatch.setenv("OWT_DB_PATH", str(tmp_path / "status.db"))
+
+
 @pytest.mark.asyncio
 async def test_view_mounts_one_widget_per_section(tmp_path) -> None:  # noqa: ANN001
     app = ControlPlaneApp(repo_root=tmp_path, refresh_seconds=999)
