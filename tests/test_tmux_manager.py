@@ -1071,7 +1071,7 @@ class TestPaneTarget:
         pane.pane_index = "0"
 
         result = TmuxManager._pane_target(pane)
-        assert "session:0.0" == result
+        assert result == "session:0.0"
 
 
 class TestWaitForShellReady:

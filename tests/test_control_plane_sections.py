@@ -134,7 +134,7 @@ class TestBackgroundSection:
         merged = background_section(dream_events=dream, memory_events=memory, cap=10)
         assert len(merged) == 10
         # Newest first
-        for prev, nxt in zip(merged, merged[1:]):
+        for prev, nxt in zip(merged, merged[1:], strict=False):
             assert prev.timestamp >= nxt.timestamp
 
     def test_to_row_conversion(self) -> None:

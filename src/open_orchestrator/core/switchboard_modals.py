@@ -14,6 +14,7 @@ flow should use a toast or write a small adhoc widget.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 
 from textual.app import ComposeResult
@@ -47,10 +48,8 @@ def _apply_modal_bg(modal: ModalScreen, dialog_id: str) -> None:  # type: ignore
     if not bg:
         return
     modal.styles.background = f"{bg} 60%"
-    try:
+    with contextlib.suppress(Exception):
         modal.query_one(f"#{dialog_id}").styles.background = _darken(bg, 0.85)
-    except Exception:
-        pass
 
 
 class InputModal(ModalScreen[str | None]):

@@ -104,13 +104,27 @@ line-length = 130
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP", "S"]
+select = ["E", "F", "I", "N", "W", "UP", "S", "B", "SIM"]
 ignore = [
     "S101",  # assert usage - standard in pytest tests
     "S108",  # insecure temp file usage - acceptable in test fixtures with mocks
     "S603",  # subprocess call - false positive when using list arguments
     "S607",  # partial executable path - acceptable for well-known system commands (git, tmux)
     "S110",  # try-except-pass - acceptable for best-effort cleanup operations
+    "B008",  # function-call-in-default-argument — Click typer/pydantic Field idioms
+    "B904",  # raise-without-from-inside-except — acceptable in CLI/UX layers
+    "SIM108",# if-else-block-instead-of-ternary — ternaries hurt readability in some places
+    "SIM117",# nested-with-statements — pytest context-manager stacks
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use broad assertions and idioms that aren't appropriate in src/.
+"tests/**/*.py" = [
+    "B007",  # Unused loop variable — `for i in range(N)` is fine in tests
+    "B011",  # `assert False` — acceptable in defensive test branches
+    "B017",  # `pytest.raises(Exception)` — sometimes the test wants "any error"
+    "SIM105",# try/except/pass cleanup in conftest is clearer than contextlib.suppress
+    "SIM300",# Yoda conditions occasionally aid readability in assertions
 ]
 
 [tool.mypy]

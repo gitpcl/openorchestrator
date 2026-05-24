@@ -14,7 +14,7 @@ import logging
 import os
 import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -170,10 +170,8 @@ class MemoryStore:
         self.conn = open_db(self.storage_path)
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._ensure_schema()
-        try:
+        with suppress(PermissionError, OSError):
             os.chmod(self.storage_path, 0o600)
-        except (PermissionError, OSError):
-            pass
 
     def _ensure_schema(self) -> None:
         self.conn.executescript(_SCHEMA_SQL)

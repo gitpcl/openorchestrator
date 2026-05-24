@@ -5,6 +5,7 @@ Extracts the business logic from CLI pane commands into reusable functions.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from dataclasses import dataclass
@@ -162,10 +163,8 @@ def read_popup_result(popup_file: str, cleanup: bool = True) -> dict[str, object
         raise PaneActionError(f"Could not read popup result: {popup_file}")
 
     if cleanup:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(popup_file)
-        except OSError:
-            pass
 
     return data
 

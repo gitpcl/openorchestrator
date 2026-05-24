@@ -5,6 +5,7 @@ SQLite backend — replaces the previous JSON + file-locking approach.
 WAL mode allows concurrent reads/writes from the switchboard and hooks.
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -214,10 +215,8 @@ class SQLiteStatusRepository:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = open_db(self.storage_path)
         self._ensure_schema()
-        try:
+        with contextlib.suppress(PermissionError, OSError):
             os.chmod(self.storage_path, 0o600)
-        except (PermissionError, OSError):
-            pass
 
     def _ensure_schema(self) -> None:
         """Create tables if they don't exist and migrate columns added later."""
@@ -506,7 +505,7 @@ class StatusTracker:
             # tmux_session, then worktree_name as a last resort.
             session_id = wt_status.backend_session_id or wt_status.tmux_session or wt_status.worktree_name
             session = BackendSession(
-                kind=getattr(backend, "kind"),
+                kind=backend.kind,  # type: ignore[attr-defined]
                 id=session_id,
                 worktree_name=wt_status.worktree_name,
                 meta=dict(wt_status.backend_meta),
@@ -637,9 +636,8 @@ class StatusTracker:
             else:
                 summary.unknown_status += 1
 
-            if status.updated_at:
-                if summary.most_recent_activity is None or status.updated_at > summary.most_recent_activity:
-                    summary.most_recent_activity = status.updated_at
+            if status.updated_at and (summary.most_recent_activity is None or status.updated_at > summary.most_recent_activity):
+                summary.most_recent_activity = status.updated_at
 
         return summary
 

@@ -371,7 +371,7 @@ class ControlPlaneApp(App[None]):
         focused_idx = self._focused_global_index(all_rows)
 
         global_cursor = 0
-        for sec_idx, kind in enumerate(SECTION_ORDER):
+        for _sec_idx, kind in enumerate(SECTION_ORDER):
             rows = self._sections.get(kind, [])
             widget = self._section_widgets.get(kind)
             if widget is None:

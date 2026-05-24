@@ -16,7 +16,7 @@ import os
 import sys
 import tempfile
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -169,10 +169,8 @@ def atomic_write_text(path: str | Path, data: str, perms: int = 0o600) -> None:
     finally:
         # Clean up temp file if replace failed
         if tmp_name is not None:
-            try:
+            with suppress(OSError):
                 os.unlink(tmp_name)
-            except OSError:
-                pass
 
 
 def safe_read_json(path: str | Path) -> dict[str, Any] | None:

@@ -147,7 +147,7 @@ def run_picker(stdscr: curses.window) -> dict[str, Any] | None:
             stdscr.addstr(3, count_x, count_str, curses.color_pair(1))
 
         # Agent list
-        for i, (name, abbrev, binary, installed) in enumerate(installed_agents):
+        for i, (name, abbrev, _binary, _installed) in enumerate(installed_agents):
             y = 5 + i
             if y >= max_y - 3:
                 break

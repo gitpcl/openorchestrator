@@ -58,7 +58,7 @@ def _insert_worktree(db_path: Path, name: str, branch: str, **kwargs: str) -> No
             branch,
             kwargs.get("status", "working"),
             kwargs.get("task", "building stuff"),
-            kwargs.get("notes", None),
+            kwargs.get("notes"),
             kwargs.get("modified_files", "[]"),
         ),
     )

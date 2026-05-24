@@ -4,6 +4,7 @@ Handles merging a worktree branch back into its base branch with
 conflict detection and optional auto-cleanup.
 """
 
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -396,10 +397,9 @@ class MergeManager:
         Fetches latest base, then merges or rebases. On conflicts, attempts
         AI-powered resolution before raising MergeConflictError.
         """
-        try:
+        # Fetch failure is non-fatal; we'll try with local refs.
+        with contextlib.suppress(GitCommandError):
             wt_repo.git.fetch("origin", target_branch, kill_after_timeout=30)
-        except GitCommandError:
-            pass  # Fetch failure is non-fatal; we'll try with local refs
 
         # Use remote ref if available, fall back to local branch
         try:
@@ -427,10 +427,8 @@ class MergeManager:
         except GitCommandError:
             conflicts = self._get_conflict_files(wt_repo)
             if not leave_conflicts:
-                try:
+                with contextlib.suppress(GitCommandError):
                     wt_repo.git.rebase("--abort")
-                except GitCommandError:
-                    pass
             raise MergeConflictError(
                 f"Rebase conflicts rebasing '{source_branch}' onto '{target_branch}'"
                 + (" (rebase left in-progress for manual resolution)" if leave_conflicts else ""),
@@ -459,10 +457,8 @@ class MergeManager:
                 resolved = self._try_ai_conflict_resolution(wt_repo, worktree_path, conflicts, source_branch, target_branch)
                 if not resolved:
                     if not leave_conflicts:
-                        try:
+                        with contextlib.suppress(GitCommandError):
                             wt_repo.git.merge("--abort")
-                        except GitCommandError:
-                            pass
                     raise MergeConflictError(
                         f"Merge conflicts detected when merging '{target_branch}' into '{source_branch}'"
                         + (" (merge left in-progress for manual resolution)" if leave_conflicts else ""),
@@ -556,10 +552,8 @@ class MergeManager:
     def _restore_branch_and_stash(self, original_branch: str, main_stashed: bool) -> None:
         """Restore original branch and pop stash after Phase 2."""
         current: str | None = None
-        try:
+        with contextlib.suppress(TypeError):
             current = self.repo.active_branch.name
-        except TypeError:
-            pass
         if current != original_branch:
             try:
                 self.repo.git.checkout(original_branch)

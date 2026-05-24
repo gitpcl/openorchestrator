@@ -5,6 +5,7 @@ This module handles tmux session creation, management, and integration
 with git worktrees for parallel development workflows.
 """
 
+import contextlib
 import logging
 import os
 import re
@@ -265,7 +266,7 @@ class TmuxManager:
 
     def _setup_main_vertical(self, window: libtmux.Window, pane_count: int, working_dir: str) -> None:
         """Create main-vertical layout: large left pane, smaller right panes."""
-        for i in range(pane_count - 1):
+        for _i in range(pane_count - 1):
             window.split(start_directory=working_dir, direction=PaneDirection.Right)
         window.select_layout("main-vertical")
         panes = window.panes
@@ -661,10 +662,8 @@ class TmuxManager:
         except subprocess.CalledProcessError as e:
             raise TmuxError(f"Failed to paste to pane: {e}") from e
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(prompt_path)
-            except OSError:
-                pass
 
     def is_ai_running_in_session(self, session_name: str) -> bool:
         """Check if an AI tool process is still running in the session's pane.

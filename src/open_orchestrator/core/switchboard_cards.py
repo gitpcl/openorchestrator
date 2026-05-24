@@ -487,7 +487,7 @@ async def _build_cards_async(
     pane_results: dict[int, tuple[AIActivityStatus, bool] | None] = {}
     diff_results: dict[int, tuple[list[str], str]] = {}
     stale_sessions: set[int] = set()
-    for (kind, idx), result in zip(task_meta, results):
+    for (kind, idx), result in zip(task_meta, results, strict=False):
         if isinstance(result, BaseException):
             continue
         if kind == "session":

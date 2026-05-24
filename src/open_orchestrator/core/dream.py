@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -167,10 +168,8 @@ class DreamDaemon:
         last_report = None
 
         if running and self._pid_file.exists():
-            try:
+            with contextlib.suppress(ValueError, OSError):
                 pid = int(self._pid_file.read_text().strip())
-            except (ValueError, OSError):
-                pass
 
         if self._heartbeat_file.exists():
             try:
