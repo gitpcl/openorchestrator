@@ -23,6 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from open_orchestrator.utils.logging import log_event
+
 if TYPE_CHECKING:
     from open_orchestrator.models.control_plane import BackgroundEvent
 
@@ -193,9 +195,25 @@ class DreamDaemon:
 
     # ── Heartbeat ───────────────────────────────────────────────────
 
-    def _write_heartbeat(self) -> None:
-        """Update heartbeat timestamp."""
-        self._heartbeat_file.write_text(datetime.now().isoformat())
+    def _write_heartbeat(self, *, idle_age_seconds: float | None = None) -> None:
+        """Update heartbeat timestamp and emit a structured heartbeat event.
+
+        The on-disk timestamp keeps ``DreamDaemon.status()`` cheap (no log
+        scraping). The structured log line is what observability tooling
+        consumes — fields go straight through ``JsonFormatter`` so jq /
+        Loki / Datadog can filter on ``event=dream_heartbeat``.
+        """
+        now = datetime.now()
+        self._heartbeat_file.write_text(now.isoformat())
+        log_event(
+            logger,
+            "dream_heartbeat",
+            pid=os.getpid(),
+            repo_root=str(self._root),
+            timestamp=now.isoformat(),
+            idle_age_seconds=idle_age_seconds,
+            wake_interval_seconds=DEFAULT_WAKE_INTERVAL,
+        )
 
     def _last_activity_age(self) -> float:
         """Seconds since last worktree activity (based on status DB)."""
@@ -220,9 +238,9 @@ class DreamDaemon:
         logger.info("Dream daemon loop started")
 
         while self._running:
-            self._write_heartbeat()
-
             idle_age = self._last_activity_age()
+            self._write_heartbeat(idle_age_seconds=idle_age)
+
             if idle_age >= DEFAULT_IDLE_SECONDS:
                 report = self._consolidate()
                 self._save_report(report)

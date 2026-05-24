@@ -12,6 +12,7 @@ from open_orchestrator.utils.logging import (
     correlation_id,
     current_component,
     current_worktree,
+    log_event,
 )
 
 
@@ -98,6 +99,30 @@ class TestJsonFormatter:
         assert parsed["worktree"] == "feat-auth"
         assert "component" not in parsed
 
+    def test_promotes_extra_fields_to_top_level(self) -> None:
+        """Anything passed via record.__dict__ (extra=) should land as JSON fields."""
+        record = logging.LogRecord("test", logging.INFO, "", 0, "heartbeat", (), None)
+        record.event = "dream_heartbeat"  # type: ignore[attr-defined]
+        record.idle_age_seconds = 42.5  # type: ignore[attr-defined]
+        record.pid = 12345  # type: ignore[attr-defined]
+        fmt = JsonFormatter()
+        parsed = json.loads(fmt.format(record))
+        assert parsed["event"] == "dream_heartbeat"
+        assert parsed["idle_age_seconds"] == 42.5
+        assert parsed["pid"] == 12345
+
+    def test_non_serializable_extras_are_repred(self) -> None:
+        """A non-JSON value passed via extra= falls back to repr() instead of crashing."""
+
+        class _Opaque:
+            def __repr__(self) -> str:
+                return "<Opaque>"
+
+        record = logging.LogRecord("t", logging.INFO, "", 0, "m", (), None)
+        record.weird = _Opaque()  # type: ignore[attr-defined]
+        parsed = json.loads(JsonFormatter().format(record))
+        assert parsed["weird"] == "<Opaque>"
+
     def test_includes_exception_info(self) -> None:
         import sys
 
@@ -141,3 +166,33 @@ class TestConfigureLogging:
         handler = root.handlers[0]
         filter_types = [type(f) for f in handler.filters]
         assert StructuredLogFilter in filter_types
+
+
+class TestLogEvent:
+    """Test the log_event helper used by the dream daemon heartbeat."""
+
+    def test_round_trips_through_json_formatter(self, caplog) -> None:  # noqa: ANN001
+        """log_event(...) fields must reach JsonFormatter and serialize as JSON."""
+        logger = logging.getLogger("test.log_event.round_trip")
+        with caplog.at_level(logging.INFO, logger=logger.name):
+            log_event(
+                logger,
+                "dream_heartbeat",
+                pid=4242,
+                idle_age_seconds=12.0,
+                wake_interval_seconds=30,
+            )
+
+        record = caplog.records[-1]
+        # Direct attribute check — the bridge into LogRecord.__dict__
+        assert record.event == "dream_heartbeat"  # type: ignore[attr-defined]
+        assert record.pid == 4242  # type: ignore[attr-defined]
+        assert record.idle_age_seconds == 12.0  # type: ignore[attr-defined]
+
+        # JSON serialization round-trip — what observability tools consume
+        parsed = json.loads(JsonFormatter().format(record))
+        assert parsed["event"] == "dream_heartbeat"
+        assert parsed["pid"] == 4242
+        assert parsed["idle_age_seconds"] == 12.0
+        assert parsed["wake_interval_seconds"] == 30
+        assert parsed["message"] == "dream_heartbeat"
