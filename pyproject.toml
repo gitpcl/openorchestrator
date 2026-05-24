@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Pedro Lopes"}
+    {name = "Pedro Lopes", email = "pclopes.plus@gmail.com"}
 ]
 keywords = ["git", "worktree", "claude", "tmux", "orchestration"]
 classifiers = [
@@ -28,7 +28,7 @@ dependencies = [
     "click>=8.1.0",
     "pydantic>=2.0.0",
     "rich>=13.0.0",
-    "textual>=1.0.0",
+    "textual>=8.0.0",
     "toml>=0.10.0",
     "gitpython>=3.1.0",
     "libtmux>=0.25.0",
@@ -37,9 +37,11 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/gitpcl/openorchestrator"
 Repository = "https://github.com/gitpcl/openorchestrator"
+Source = "https://github.com/gitpcl/openorchestrator"
 Documentation = "https://github.com/gitpcl/openorchestrator#readme"
-Changelog = "https://github.com/gitpcl/openorchestrator/releases"
+Changelog = "https://github.com/gitpcl/openorchestrator/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/gitpcl/openorchestrator/issues"
+Funding = "https://github.com/sponsors/gitpcl"
 
 [project.optional-dependencies]
 agno = [
