@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import subprocess  # noqa: S404 — argv form only, no shell
 
+from open_orchestrator.core._subprocess import TMUX_TIMEOUT
 from open_orchestrator.core.tmux_manager import TmuxLayout, TmuxManager, TmuxSessionNotFoundError
 from open_orchestrator.models.backend import BackendKind, BackendSession
 
@@ -101,6 +102,7 @@ class TmuxBackend:
         subprocess.run(  # noqa: S603 — argv list, fixed binary
             ["tmux", "send-keys", "-t", f"{session.id}:0.0", keys],
             check=True,
+            timeout=TMUX_TIMEOUT,
         )
 
     def read_recent(self, session: BackendSession, lines: int = 200) -> str:

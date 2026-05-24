@@ -116,7 +116,8 @@ def plan_goal(
         import subprocess
 
         editor = os.environ.get("EDITOR", "vim")
-        subprocess.run([editor, str(plan_path)], check=False)
+        # Interactive editor: blocks until the user saves and exits.
+        subprocess.run([editor, str(plan_path)], check=False, timeout=None)
         config = load_batch_config(str(plan_path))
         console.print(f"\n[green]Reloaded {len(config.tasks)} task(s) after edit[/green]")
 
@@ -181,14 +182,25 @@ def _execute_batch(plan_path: object, auto_ship: bool, max_concurrent: int) -> N
     """Execute plan in batch mode via background tmux session."""
     import subprocess
 
+    from open_orchestrator.core._subprocess import TMUX_TIMEOUT
+
     batch_cmd = ["owt", "batch", str(plan_path)]
     if auto_ship:
         batch_cmd.append("--auto-ship")
     batch_cmd.extend(["--max-concurrent", str(max_concurrent)])
 
     batch_session = "owt-batch"
-    subprocess.run(["tmux", "kill-session", "-t", batch_session], capture_output=True, check=False)
-    subprocess.run(["tmux", "new-session", "-d", "-s", batch_session, *batch_cmd], check=False)
+    subprocess.run(
+        ["tmux", "kill-session", "-t", batch_session],
+        capture_output=True,
+        check=False,
+        timeout=TMUX_TIMEOUT,
+    )
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", batch_session, *batch_cmd],
+        check=False,
+        timeout=TMUX_TIMEOUT,
+    )
     console.print(f"\n[green]Batch launched in tmux session '{batch_session}'[/green]")
     console.print("[dim]Use 'owt' for switchboard, or: tmux attach -t owt-batch[/dim]")
 

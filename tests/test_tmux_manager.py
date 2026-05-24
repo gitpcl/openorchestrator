@@ -258,7 +258,7 @@ class TestTmuxManager:
         with patch.object(manager, "session_exists", return_value=True):
             manager.attach("test-session")
 
-        mock_run.assert_called_once_with(["tmux", "attach-session", "-t", "test-session"], check=True)
+        mock_run.assert_called_once_with(["tmux", "attach-session", "-t", "test-session"], check=True, timeout=None)
 
     @patch.object(TmuxManager, "server", new_callable=PropertyMock)
     def test_kill_session_not_found(self, mock_server_prop):
@@ -1449,7 +1449,7 @@ class TestSwitchClient:
         with patch.object(manager, "session_exists", return_value=True):
             manager.switch_client("test-session")
 
-        mock_run.assert_called_once_with(["tmux", "switch-client", "-t", "test-session"], check=True)
+        mock_run.assert_called_once_with(["tmux", "switch-client", "-t", "test-session"], check=True, timeout=None)
 
     @patch("subprocess.run")
     def test_switch_client_session_not_found(self, mock_run):
@@ -1733,6 +1733,7 @@ class TestRunTmuxCmd:
             check=False,
             capture_output=True,
             text=True,
+            timeout=5,
         )
 
     @patch("subprocess.run")

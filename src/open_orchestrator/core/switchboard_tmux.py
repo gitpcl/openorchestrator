@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 
+from open_orchestrator.core._subprocess import TMUX_TIMEOUT
 from open_orchestrator.core.tmux_manager import TmuxManager
 
 logger = logging.getLogger(__name__)
@@ -101,9 +102,10 @@ def _is_inside_switchboard_session() -> bool:
             capture_output=True,
             text=True,
             check=True,
+            timeout=TMUX_TIMEOUT,
         )
         return result.stdout.strip() == SWITCHBOARD_SESSION
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return False
 
 
@@ -135,6 +137,7 @@ def _install_switchboard_keys() -> None:
         ["tmux", "unbind-key", "-n", "M-b"],
         check=False,
         capture_output=True,
+        timeout=TMUX_TIMEOUT,
     )
 
     # Alt+c: create new worktree via popup (tmux >= 3.2) or new window
@@ -144,12 +147,14 @@ def _install_switchboard_keys() -> None:
             ["tmux", "bind-key", "-n", "M-c", "display-popup", "-E", "-w", "80%", "-h", "50%", "owt new"],
             check=False,
             capture_output=True,
+            timeout=TMUX_TIMEOUT,
         )
     else:
         subprocess.run(
             ["tmux", "bind-key", "-n", "M-c", "new-window", "-n", "new-worktree", "owt new"],
             check=False,
             capture_output=True,
+            timeout=TMUX_TIMEOUT,
         )
 
     # Alt+s: switch back to the switchboard session (s = switchboard)
@@ -157,6 +162,7 @@ def _install_switchboard_keys() -> None:
         ["tmux", "bind-key", "-n", "M-s", "switch-client", "-t", SWITCHBOARD_SESSION],
         check=False,
         capture_output=True,
+        timeout=TMUX_TIMEOUT,
     )
 
     # Alt+m: merge the current worktree
@@ -184,12 +190,14 @@ def _install_switchboard_keys() -> None:
             ],
             check=False,
             capture_output=True,
+            timeout=TMUX_TIMEOUT,
         )
     else:
         subprocess.run(
             ["tmux", "bind-key", "-n", "M-m", "new-window", "-n", "merge", f"bash -c {_shell_quote(merge_script)}"],
             check=False,
             capture_output=True,
+            timeout=TMUX_TIMEOUT,
         )
 
     # Alt+d: delete the current worktree
@@ -217,12 +225,14 @@ def _install_switchboard_keys() -> None:
             ],
             check=False,
             capture_output=True,
+            timeout=TMUX_TIMEOUT,
         )
     else:
         subprocess.run(
             ["tmux", "bind-key", "-n", "M-d", "new-window", "-n", "delete", f"bash -c {_shell_quote(delete_script)}"],
             check=False,
             capture_output=True,
+            timeout=TMUX_TIMEOUT,
         )
 
 
@@ -260,10 +270,12 @@ def launch_switchboard() -> None:
                 ["tmux", "set-environment", "-g", "OWT_BACKGROUND", bg],
                 capture_output=True,
                 check=False,
+                timeout=TMUX_TIMEOUT,
             )
         subprocess.run(
             ["tmux", "new-session", "-d", "-s", SWITCHBOARD_SESSION, "-n", "switchboard", "owt"],
             check=False,
+            timeout=TMUX_TIMEOUT,
         )
 
     # Install global tmux keybindings (Alt+s to return, Alt+c to create, etc.)
@@ -274,10 +286,12 @@ def launch_switchboard() -> None:
         subprocess.run(
             ["tmux", "switch-client", "-t", SWITCHBOARD_SESSION],
             check=False,
+            timeout=TMUX_TIMEOUT,
         )
     else:
-        # Attach to the switchboard session from bare terminal
+        # Attach to the switchboard session from bare terminal: blocks until user detaches.
         subprocess.run(
             ["tmux", "attach-session", "-t", SWITCHBOARD_SESSION],
             check=False,
+            timeout=None,
         )

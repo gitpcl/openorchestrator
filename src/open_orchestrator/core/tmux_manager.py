@@ -18,6 +18,7 @@ from enum import Enum
 import libtmux
 from libtmux.constants import PaneDirection
 
+from open_orchestrator.core._subprocess import TMUX_TIMEOUT
 from open_orchestrator.core.theme import COLORS
 from open_orchestrator.core.tool_registry import get_registry
 from open_orchestrator.models.status import AIActivityStatus
@@ -449,12 +450,14 @@ class TmuxManager:
             check=True,
             capture_output=True,
             text=True,
+            timeout=TMUX_TIMEOUT,
         )
         subprocess.run(
             ["tmux", "send-keys", "-t", target, "Enter"],
             check=True,
             capture_output=True,
             text=True,
+            timeout=TMUX_TIMEOUT,
         )
 
     @staticmethod
@@ -496,13 +499,15 @@ class TmuxManager:
         """Attach to an existing tmux session."""
         if not self.session_exists(session_name):
             raise TmuxSessionNotFoundError(f"Session '{session_name}' not found.")
-        subprocess.run(["tmux", "attach-session", "-t", session_name], check=True)
+        # Interactive: blocks until the user detaches from tmux.
+        subprocess.run(["tmux", "attach-session", "-t", session_name], check=True, timeout=None)
 
     def switch_client(self, session_name: str) -> None:
         """Switch current tmux client to another session."""
         if not self.session_exists(session_name):
             raise TmuxSessionNotFoundError(f"Session '{session_name}' not found.")
-        subprocess.run(["tmux", "switch-client", "-t", session_name], check=True)
+        # Interactive: returns once the new client is attached.
+        subprocess.run(["tmux", "switch-client", "-t", session_name], check=True, timeout=None)
 
     def list_sessions(self, filter_prefix: bool = True) -> list[TmuxSessionInfo]:
         """List all tmux sessions, optionally filtered by prefix."""
@@ -583,7 +588,13 @@ class TmuxManager:
         if not self.is_inside_tmux():
             return None
         try:
-            result = subprocess.run(["tmux", "display-message", "-p", "#S"], capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "#S"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=TMUX_TIMEOUT,
+            )
             return result.stdout.strip()
         except subprocess.CalledProcessError:
             return None
@@ -630,12 +641,14 @@ class TmuxManager:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=TMUX_TIMEOUT,
             )
             subprocess.run(
                 ["tmux", "paste-buffer", "-d", "-t", target],
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=TMUX_TIMEOUT,
             )
             # Submit the pasted text
             subprocess.run(
@@ -643,6 +656,7 @@ class TmuxManager:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=TMUX_TIMEOUT,
             )
         except subprocess.CalledProcessError as e:
             raise TmuxError(f"Failed to paste to pane: {e}") from e
@@ -707,7 +721,13 @@ class TmuxManager:
     def get_tmux_version() -> tuple[int, int]:
         """Get the installed tmux version as (major, minor) tuple."""
         try:
-            result = subprocess.run(["tmux", "-V"], capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["tmux", "-V"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=TMUX_TIMEOUT,
+            )
             version_str = result.stdout.strip().split()[-1].removeprefix("next-")
             match = re.match(r"(\d+)\.(\d+)", version_str)
             if match:
@@ -727,6 +747,7 @@ class TmuxManager:
             check=False,
             capture_output=True,
             text=True,
+            timeout=TMUX_TIMEOUT,
         )
         return result.returncode == 0
 
@@ -740,7 +761,7 @@ class TmuxManager:
             if i > 0:
                 cmd.append(";")
             cmd.extend(args)
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=TMUX_TIMEOUT)
         return result.returncode == 0
 
     def install_status_bar(self, session_name: str) -> None:
