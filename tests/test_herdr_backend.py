@@ -197,14 +197,126 @@ async def test_create_session_falls_back_to_workspace_get_for_pane_id(short_sock
     assert "workspace.create" in seen
     assert "workspace.get" in seen  # probe fired
     assert "pane.send_text" in seen  # agent_command then went through
+    assert "workspace.panes" not in seen  # the timing-out RPC must never be probed
+
+
+@pytest.mark.asyncio
+async def test_session_for_resolves_via_workspace_list_and_pane_list(short_sock: Path) -> None:
+    """session_for uses workspace.list + pane.list, never the timing-out find."""
+    sock = short_sock
+    seen: list[str] = []
+
+    async def handler(payload):  # noqa: ANN001
+        method = payload["method"]
+        seen.append(method)
+        if method == "workspace.list":
+            return {
+                "id": payload["id"],
+                "result": {
+                    "type": "workspace_list",
+                    "workspaces": [
+                        {"workspace_id": "w-aaa", "label": "other"},
+                        {"workspace_id": "w-bbb", "label": "wt-target"},
+                    ],
+                },
+            }
+        if method == "pane.list":
+            return {
+                "id": payload["id"],
+                "result": {
+                    "type": "pane_list",
+                    "panes": [
+                        {"pane_id": "w-bbb-1", "workspace_id": "w-bbb", "focused": True},
+                    ],
+                },
+            }
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        backend = HerdrBackend(socket_path=str(sock))
+        session = await asyncio.to_thread(backend.session_for, "wt-target")
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert session is not None
+    assert session.id == "w-bbb-1"
+    assert session.meta["workspace_id"] == "w-bbb"
+    assert "workspace.find" not in seen  # times out on herdr v0.6.1
+    assert "workspace.panes" not in seen
+
+
+@pytest.mark.asyncio
+async def test_session_for_returns_none_for_unknown_label(short_sock: Path) -> None:
+    """An unmatched label resolves to None without raising or hanging."""
+    sock = short_sock
+
+    async def handler(payload):  # noqa: ANN001
+        if payload["method"] == "workspace.list":
+            return {
+                "id": payload["id"],
+                "result": {"type": "workspace_list", "workspaces": [{"workspace_id": "w-x", "label": "nope"}]},
+            }
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        backend = HerdrBackend(socket_path=str(sock))
+        session = await asyncio.to_thread(backend.session_for, "missing")
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert session is None
+
+
+@pytest.mark.asyncio
+async def test_session_for_prefers_focused_pane(short_sock: Path) -> None:
+    """When a workspace has multiple panes, the focused one is chosen."""
+    sock = short_sock
+
+    async def handler(payload):  # noqa: ANN001
+        method = payload["method"]
+        if method == "workspace.list":
+            return {
+                "id": payload["id"],
+                "result": {"workspaces": [{"workspace_id": "w-1", "label": "wt"}]},
+            }
+        if method == "pane.list":
+            return {
+                "id": payload["id"],
+                "result": {
+                    "panes": [
+                        {"pane_id": "w-1-1", "focused": False},
+                        {"pane_id": "w-1-2", "focused": True},
+                    ]
+                },
+            }
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        backend = HerdrBackend(socket_path=str(sock))
+        session = await asyncio.to_thread(backend.session_for, "wt")
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert session is not None
+    assert session.id == "w-1-2"
 
 
 # ── submit-mode chokepoint (_send_line) ──────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_send_text_default_appends_carriage_return(short_sock: Path) -> None:
-    """Default OWT_HERDR_SUBMIT path sends body + "\\r" via pane.send_text."""
+async def test_send_text_default_sends_body_then_separate_cr(short_sock: Path) -> None:
+    """Default path sends the body, then a STANDALONE "\\r", as two calls.
+
+    Regression guard for the herdr-submit bug: a single "body\\r" blob does
+    not submit in a TUI agent; the terminator must be its own send_text call.
+    """
     sock = short_sock
     seen: list[dict] = []
 
@@ -227,9 +339,8 @@ async def test_send_text_default_appends_carriage_return(short_sock: Path) -> No
         server.close()
         await server.wait_closed()
 
-    submit_calls = [c for c in seen if c["method"] == "pane.send_text"]
-    assert len(submit_calls) == 1
-    assert submit_calls[0]["params"]["text"] == "hello world\r"
+    submit_calls = [c["params"]["text"] for c in seen if c["method"] == "pane.send_text"]
+    assert submit_calls == ["hello world", "\r"]
 
 
 @pytest.mark.asyncio
@@ -254,9 +365,9 @@ async def test_send_text_text_crlf_override(short_sock: Path, monkeypatch: pytes
         server.close()
         await server.wait_closed()
 
-    submit_calls = [c for c in seen if c["method"] == "pane.send_text"]
-    assert len(submit_calls) == 1
-    assert submit_calls[0]["params"]["text"] == "hi\r\n"
+    submit_calls = [c["params"]["text"] for c in seen if c["method"] == "pane.send_text"]
+    # Body and the CRLF terminator are delivered as two separate calls.
+    assert submit_calls == ["hi", "\r\n"]
 
 
 @pytest.mark.asyncio

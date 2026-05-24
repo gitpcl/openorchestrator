@@ -261,37 +261,70 @@ class HerdrBackend:
         )
 
     def _discover_root_pane(self, workspace_id: str) -> str:
-        """Probe for the root pane when workspace.create didn't return one."""
+        """Probe for the root pane when workspace.create didn't return one.
+
+        ``pane.list`` is the reliable path on herdr v0.6.1 and answers
+        instantly; ``workspace.panes`` is intentionally *not* probed because
+        it times out on that build (5s per call). ``workspace.get`` is a
+        last-resort fallback for builds with yet another shape.
+        """
         if not workspace_id:
             return ""
-        for method, params in (
-            ("workspace.get", {"workspace_id": workspace_id}),
-            ("workspace.panes", {"workspace_id": workspace_id}),
-            ("pane.list", {"workspace_id": workspace_id}),
-        ):
-            try:
-                res = self._call(method, params)
-            except HerdrError:
-                continue
-            _, pane = _extract_workspace_pane(res)
-            if pane:
-                return pane
+        pane = self._root_pane_for_workspace(workspace_id)
+        if pane:
+            return pane
+        try:
+            res = self._call("workspace.get", {"workspace_id": workspace_id})
+        except HerdrError:
+            return ""
+        _, pane = _extract_workspace_pane(res)
+        return pane
+
+    def _find_workspace_id(self, label: str) -> str:
+        """Resolve a worktree label to its herdr workspace id via workspace.list.
+
+        ``workspace.find`` times out on herdr v0.6.1, so we scan the
+        ``workspace.list`` payload (which answers instantly) by label.
+        """
+        try:
+            listing = self._call("workspace.list", {})
+        except HerdrError:
+            return ""
+        workspaces = listing.get("workspaces") if isinstance(listing, dict) else listing
+        if not isinstance(workspaces, list):
+            return ""
+        for ws in workspaces:
+            if isinstance(ws, dict) and ws.get("label") == label:
+                return _coerce_id(ws.get("workspace_id") or ws.get("id") or "")
         return ""
 
-    def session_for(self, worktree_name: str) -> BackendSession | None:
+    def _root_pane_for_workspace(self, workspace_id: str) -> str:
+        """Return the root pane id for a workspace via pane.list.
+
+        Prefers the focused pane, else the first. Handles the v0.6.1
+        ``pane.list`` shape whose panes key the id as ``pane_id`` (which the
+        generic ``_extract_workspace_pane`` does not recognize).
+        """
+        if not workspace_id:
+            return ""
         try:
-            result = self._call("workspace.find", {"label": worktree_name})
+            listing = self._call("pane.list", {"workspace_id": workspace_id})
         except HerdrError:
+            return ""
+        panes = listing.get("panes") if isinstance(listing, dict) else listing
+        if not isinstance(panes, list) or not panes:
+            return ""
+        dict_panes = [p for p in panes if isinstance(p, dict)]
+        if not dict_panes:
+            return ""
+        chosen = next((p for p in dict_panes if p.get("focused")), dict_panes[0])
+        return str(chosen.get("pane_id") or chosen.get("paneId") or chosen.get("root_pane_id") or "")
+
+    def session_for(self, worktree_name: str) -> BackendSession | None:
+        workspace_id = self._find_workspace_id(worktree_name)
+        if not workspace_id:
             return None
-        if not result:
-            return None
-        if isinstance(result, list):
-            if not result:
-                return None
-            result = result[0]
-        if not isinstance(result, dict):
-            return None
-        pane_id = str(result.get("root_pane_id") or result.get("pane_id") or "")
+        pane_id = self._root_pane_for_workspace(workspace_id)
         if not pane_id:
             return None
         return BackendSession(
@@ -299,7 +332,7 @@ class HerdrBackend:
             id=pane_id,
             worktree_name=worktree_name,
             meta={
-                "workspace_id": str(result.get("workspace_id", "")),
+                "workspace_id": workspace_id,
                 "socket": self._socket_path,
                 "herdr_session": self._session_name,
             },
@@ -327,12 +360,12 @@ class HerdrBackend:
     # ── I/O ───────────────────────────────────────────────────────────
 
     def send_text(self, session: BackendSession, text: str) -> None:
-        """Type ``text`` into the pane and press Enter so the TUI submits.
+        """Type ``text`` into the pane and submit it.
 
-        ``pane.send_text`` alone leaves a literal newline character in the
-        agent's input box (TUI apps read raw stdin and don't treat ``\\n``
-        as a submit). We split into two calls so the Enter is a real key
-        event, matching what a user pressing Return would deliver.
+        Delegates to :meth:`_send_line`, which delivers the body and a
+        standalone ``\\r`` as two separate ``pane.send_text`` calls — a TUI
+        agent ignores a CR trapped inside one pasted blob but honors a CR
+        sent on its own as Enter.
         """
         self._send_line(session.id, text)
 
@@ -340,23 +373,30 @@ class HerdrBackend:
         self._call("pane.send_keys", {"pane_id": session.id, "keys": keys})
 
     def _send_line(self, pane_id: str, text: str) -> None:
-        """Type ``text`` into the pane and submit with a real Enter event.
+        """Type ``text`` into the pane and submit it with a carriage return.
 
-        We embed ``\\r`` (carriage return) as the terminator because that is
-        what a physical Enter key delivers to stdin in raw mode. ``\\n``
-        alone is a literal line feed character and TUI agents (pi, claude,
-        droid) treat it as "insert newline" rather than "submit".
+        The body and the ``\\r`` terminator are delivered as **two separate**
+        ``pane.send_text`` calls. This matters: empirically (herdr v0.6.1) a
+        single ``"body\\r"`` blob leaves the prompt sitting unsent in the
+        agent's input box — a TUI (pi, claude, droid) does not treat the
+        trailing CR inside one pasted chunk as Enter. A standalone ``"\\r"``
+        delivered *after* the body is processed as a discrete submit.
 
-        Override via ``OWT_HERDR_SUBMIT`` if your herdr build needs a
-        different terminator (e.g. ``OWT_HERDR_SUBMIT=text:\\r\\n`` or
-        ``OWT_HERDR_SUBMIT=keys:Return``).
+        ``pane.send_keys`` is intentionally only used for the ``keys:``
+        override and is not the default: on herdr v0.6.1 it times out, so
+        relying on it would hang every prompt for the RPC timeout.
+
+        Override via ``OWT_HERDR_SUBMIT`` if your herdr build differs
+        (e.g. ``OWT_HERDR_SUBMIT=text:\\r\\n`` or ``OWT_HERDR_SUBMIT=keys:Return``).
         """
         body = text.rstrip("\r\n")
         mode, terminator = _resolve_submit_mode()
 
         if mode == "text":
-            payload = (body + terminator) if body else terminator
-            self._call("pane.send_text", {"pane_id": pane_id, "text": payload})
+            # Two calls, never one combined blob — see docstring.
+            if body:
+                self._call("pane.send_text", {"pane_id": pane_id, "text": body})
+            self._call("pane.send_text", {"pane_id": pane_id, "text": terminator})
             return
 
         # mode == "keys": send body via pane.send_text, then a key event.
@@ -366,7 +406,7 @@ class HerdrBackend:
             self._call("pane.send_keys", {"pane_id": pane_id, "keys": terminator})
         except HerdrError as err:
             logger.debug(
-                "herdr pane.send_keys(%r) failed (%s); falling back to embedded \\r",
+                "herdr pane.send_keys(%r) failed (%s); falling back to a standalone \\r",
                 terminator,
                 err,
             )
