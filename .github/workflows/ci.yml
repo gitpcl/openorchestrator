@@ -30,11 +30,13 @@ jobs:
         run: mypy src/
 
   test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
@@ -46,11 +48,44 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
-      - name: Install tmux
+      - name: Install tmux (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get install -y tmux
+
+      - name: Install tmux (macOS)
+        if: runner.os == 'macOS'
+        run: brew install tmux
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
 
       - name: Run tests
-        run: pytest -v --cov=src/open_orchestrator --cov-report=term-missing --cov-report=xml
+        run: pytest -v --cov=src/open_orchestrator --cov-report=term-missing --cov-report=xml --cov-fail-under=68
+
+      - name: Combine coverage
+        if: always()
+        run: |
+          coverage combine || true
+          coverage report || true
+
+  audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    # Surface vulnerabilities in CI logs without blocking merges until known
+    # transitive CVEs are remediated (tracked separately).
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install project (lock audit target)
+        run: uv pip install -e . --system
+
+      - name: Run pip-audit
+        run: uvx pip-audit --strict --vulnerability-service=osv
