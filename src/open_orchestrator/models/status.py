@@ -22,6 +22,7 @@ class AIActivityStatus(str, Enum):
     WAITING = "waiting"
     COMPLETED = "completed"
     ERROR = "error"
+    STALLED = "stalled"
     UNKNOWN = "unknown"
 
 
@@ -68,6 +69,18 @@ class WorktreeAIStatus(BaseModel):
         """Mark the worktree as idle."""
         self.activity_status = AIActivityStatus.IDLE
         self.current_task = None
+        self.updated_at = datetime.now()
+
+    def mark_stalled(self, reason: str | None = None) -> None:
+        """Mark the worktree as stalled — typically after a subprocess timeout.
+
+        Sets ``activity_status`` to ``STALLED`` and overwrites ``notes`` with
+        the supplied reason so the switchboard surfaces *why* the session
+        stopped progressing.
+        """
+        self.activity_status = AIActivityStatus.STALLED
+        if reason is not None:
+            self.notes = reason
         self.updated_at = datetime.now()
 
 

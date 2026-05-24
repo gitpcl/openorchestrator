@@ -7,14 +7,21 @@ This module provides functionality to:
 - Handle upstream tracking and merge conflicts
 """
 
+import logging
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from subprocess import CompletedProcess
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from open_orchestrator.core.status import StatusTracker
+
+logger = logging.getLogger(__name__)
 
 
 class SyncStatus(str, Enum):
@@ -72,8 +79,28 @@ class SyncService:
     tracking for git worktrees.
     """
 
-    def __init__(self, config: SyncConfig | None = None):
+    def __init__(self, config: SyncConfig | None = None, status_tracker: "StatusTracker | None" = None):
         self.config = config or SyncConfig()
+        # Optional tracker so a git subprocess timeout flips the worktree to
+        # STALLED. Left ``None`` in CLI/test paths where no live switchboard
+        # is observing the result.
+        self.status_tracker = status_tracker
+
+    def _mark_stalled(self, path: Path, branch_name: str, reason: str) -> None:
+        """Record that a worktree stalled on a subprocess timeout.
+
+        Always logs at WARNING; flips the StatusTracker row to ``STALLED``
+        when a tracker is wired up. The worktree name is derived from the
+        path's basename — the same convention create_pane() uses.
+        """
+        worktree_name = path.name
+        logger.warning("sync.stall worktree=%s branch=%s reason=%s", worktree_name, branch_name, reason)
+        if self.status_tracker is None:
+            return
+        try:
+            self.status_tracker.mark_stalled(worktree_name, reason=reason)
+        except Exception:  # noqa: BLE001 — tracker failures must not mask the timeout
+            logger.exception("failed to mark worktree=%s STALLED", worktree_name)
 
     def sync_worktree(self, worktree_path: str) -> WorktreeSyncResult:
         """
@@ -196,6 +223,15 @@ class SyncService:
                 upstream_branch=upstream,
             )
 
+        except subprocess.TimeoutExpired as exc:
+            self._mark_stalled(path, branch_name, f"git timed out after {exc.timeout}s")
+            return WorktreeSyncResult(
+                worktree_path=worktree_path,
+                branch_name=branch_name,
+                status=SyncStatus.ERROR,
+                message=f"git timed out after {exc.timeout}s — worktree marked STALLED",
+                upstream_branch=upstream,
+            )
         except Exception as e:
             return WorktreeSyncResult(
                 worktree_path=worktree_path,
@@ -289,6 +325,15 @@ class SyncService:
                 upstream_branch=upstream,
             )
 
+        except subprocess.TimeoutExpired as exc:
+            self._mark_stalled(path, branch_name, f"git timed out after {exc.timeout}s")
+            return WorktreeSyncResult(
+                worktree_path=worktree_path,
+                branch_name=branch_name,
+                status=SyncStatus.ERROR,
+                message=f"git timed out after {exc.timeout}s — worktree marked STALLED",
+                upstream_branch=upstream,
+            )
         except Exception as e:
             return WorktreeSyncResult(
                 worktree_path=worktree_path,

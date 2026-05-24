@@ -557,6 +557,23 @@ class StatusTracker:
         self._upsert_status(wt_status)
         return wt_status
 
+    def mark_stalled(self, worktree_name: str, reason: str | None = None) -> WorktreeAIStatus | None:
+        """Mark a worktree as stalled.
+
+        Called from subprocess-timeout boundaries (git / gh / tmux / AI CLI)
+        so the switchboard can surface a hung session within the operator's
+        attention span. Returns ``None`` if no status row exists for
+        ``worktree_name`` — timeouts on unknown worktrees are logged by the
+        caller, not persisted here.
+        """
+        wt_status = self.get_status(worktree_name)
+        if not wt_status:
+            return None
+
+        wt_status.mark_stalled(reason=reason)
+        self._upsert_status(wt_status)
+        return wt_status
+
     def set_notes(self, worktree_name: str, notes: str) -> WorktreeAIStatus | None:
         """Set notes for a worktree."""
         wt_status = self.get_status(worktree_name)
