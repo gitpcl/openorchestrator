@@ -19,6 +19,7 @@ from enum import Enum
 import libtmux
 from libtmux.constants import PaneDirection
 
+from open_orchestrator.core._path import try_resolve_binary
 from open_orchestrator.core._subprocess import TMUX_TIMEOUT
 from open_orchestrator.core.theme import COLORS
 from open_orchestrator.core.tool_registry import get_registry
@@ -335,13 +336,16 @@ class TmuxManager:
 
     @staticmethod
     def _resolve_executable(tool: object) -> str | None:
-        """Return an explicit executable path if one of the tool's known paths exists."""
-        import shutil as _shutil
+        """Return an explicit executable path for ``tool`` using the safe PATH.
 
+        Routes through :func:`open_orchestrator.core._path.try_resolve_binary`
+        so a worktree-local binary cannot hijack agent launches; falls back to
+        ``tool.get_known_paths`` for non-PATH installs (Claude.app, etc.).
+        """
         binary = getattr(tool, "binary", None)
         if not binary:
             return None
-        path: str | None = _shutil.which(binary)
+        path = try_resolve_binary(binary)
         if path:
             return path
         for candidate in getattr(tool, "get_known_paths", lambda: [])():

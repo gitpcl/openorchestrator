@@ -34,7 +34,6 @@ from __future__ import annotations
 import logging
 import os
 import shlex
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
@@ -55,6 +54,8 @@ from open_orchestrator.core.worktree import WorktreeAlreadyExistsError, Worktree
 from open_orchestrator.models.backend import BackendKind
 from open_orchestrator.models.status import AIActivityStatus
 from open_orchestrator.models.worktree_info import SessionType
+
+from ._path import try_resolve_binary
 
 if TYPE_CHECKING:
     from open_orchestrator.core.multiplexer import MultiplexerBackend
@@ -419,7 +420,9 @@ class AgentLauncher:
         """Detached subprocess launch; prompt piped via stdin."""
         assert request.prompt is not None  # validated earlier
 
-        executable = shutil.which(tool.binary)
+        # Resolve via the allowlisted PATH so a poisoned binary planted in
+        # the worktree's cwd cannot hijack a headless agent launch.
+        executable = try_resolve_binary(tool.binary)
         if executable is None:
             for candidate in tool.get_known_paths():
                 if candidate.exists() and candidate.is_file():

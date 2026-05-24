@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from open_orchestrator.core._db import open_db
+
 logger = logging.getLogger(__name__)
 
 CONSECUTIVE_THRESHOLD = 3
@@ -68,10 +70,10 @@ class DenialTracker:
         self._ensure_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db_path), timeout=5)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        # Routed through the shared chokepoint so denial DB inherits the
+        # project-wide pragmas (WAL, busy_timeout, synchronous) AND the
+        # 0o600 owner-only permissions applied by ``secure_db_perms``.
+        return open_db(self._db_path)
 
     def _ensure_schema(self) -> None:
         self._conn.executescript(_SCHEMA)

@@ -148,7 +148,8 @@ def _read_file(path: str, max_lines: int = 200) -> str:
         return "\n".join(lines)
     except ValueError as e:
         return f"Error: {e}"
-    except Exception as e:
+    except OSError as e:
+        logger.exception("agno tool _read_file failed for %s: %s", path, e)
         return f"Error reading file: {e}"
 
 
@@ -215,7 +216,8 @@ def _git_log(repo_path: str, count: int = 20) -> str:
             timeout=10,
         )
         return result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr}"
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.exception("agno tool _git_log failed for %s: %s", repo_path, e)
         return f"Error: {e}"
 
 
@@ -239,7 +241,8 @@ def _git_diff_stat(repo_path: str, branch: str, base: str = "main") -> str:
             timeout=10,
         )
         return result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr}"
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.exception("agno tool _git_diff_stat failed for %s: %s", repo_path, e)
         return f"Error: {e}"
 
 

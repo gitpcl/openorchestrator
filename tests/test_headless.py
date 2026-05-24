@@ -74,7 +74,7 @@ def _make_launcher(tmp_path: Path, tool: _FakeTool) -> AgentLauncher:
 
 class TestHeadlessLaunch:
     @patch("open_orchestrator.core.agent_launcher.subprocess.Popen")
-    @patch("open_orchestrator.core.agent_launcher.shutil.which", return_value="/usr/bin/claude")
+    @patch("open_orchestrator.core.agent_launcher.try_resolve_binary", return_value="/usr/bin/claude")
     def test_launches_subprocess_with_env(
         self,
         mock_which: MagicMock,
@@ -156,7 +156,7 @@ class TestHeadlessLaunch:
             assert "prompt" in str(exc.value).lower()
 
     @patch("open_orchestrator.core.agent_launcher.subprocess.Popen")
-    @patch("open_orchestrator.core.agent_launcher.shutil.which", return_value="/usr/bin/claude")
+    @patch("open_orchestrator.core.agent_launcher.try_resolve_binary", return_value="/usr/bin/claude")
     def test_forwards_plan_mode(
         self,
         mock_which: MagicMock,

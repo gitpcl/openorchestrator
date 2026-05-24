@@ -24,6 +24,8 @@ import sqlite3
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import click
+
 from open_orchestrator.core._db import open_db
 from open_orchestrator.core.status import PEER_MESSAGES_SCHEMA, default_status_path
 
@@ -31,6 +33,25 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
+
+# Hosts that are always loopback-only. No override flag exists by design:
+# the MCP peer brokers privileged in-repo coordination between sibling agents
+# and must never be reachable from off-host. See docs/security.md.
+_LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _validate_loopback_bind(host: str) -> None:
+    """Refuse to start the MCP peer if ``host`` is not loopback.
+
+    Raises :class:`click.ClickException` so the failure surfaces as a clean
+    startup error regardless of whether the server is launched via the
+    Click-based CLI or directly via ``python -m``. There is intentionally
+    NO override flag: a non-loopback MCP peer bind is treated as a
+    configuration bug, not an opt-in.
+    """
+    normalized = (host or "").strip().lower()
+    if normalized not in _LOOPBACK_HOSTS:
+        raise click.ClickException(f"MCP peer must bind loopback-only (127.0.0.1 or ::1). Refusing to start (got host={host!r}).")
 
 
 def _get_connection(db_path: str) -> sqlite3.Connection:
@@ -51,6 +72,12 @@ def create_server() -> FastMCP:
     from mcp.server.fastmcp import FastMCP
 
     server = FastMCP("owt-peers")
+
+    # Defensive: FastMCP defaults to 127.0.0.1, but settings.host may have been
+    # overridden by env (FASTMCP_HOST), kwarg, or future config wiring. Validate
+    # at construction so a non-loopback bind fails fast — before any network
+    # transport is opened. No override flag by design.
+    _validate_loopback_bind(server.settings.host)
 
     worktree_name = os.environ.get("OWT_WORKTREE_NAME", "unknown")
     db_path = os.environ.get(
@@ -147,4 +174,9 @@ def create_server() -> FastMCP:
 
 if __name__ == "__main__":
     server = create_server()
+    # Re-validate immediately before opening any transport. The stdio default
+    # never opens a port, but the second check guards against future edits
+    # that flip the transport to sse/streamable-http without also auditing
+    # the bind host.
+    _validate_loopback_bind(server.settings.host)
     server.run(transport="stdio")

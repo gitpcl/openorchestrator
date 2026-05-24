@@ -67,18 +67,18 @@ class TestCustomTool:
         assert cmd == "opencode"
         assert "Fix the bug" not in cmd
 
-    @patch("shutil.which", return_value="/usr/bin/test-tool")
-    def test_is_installed_found_in_path(self, _mock_which: object) -> None:
+    @patch("open_orchestrator.core.tool_registry.try_resolve_binary", return_value="/usr/bin/test-tool")
+    def test_is_installed_found_in_path(self, _mock_resolve: object) -> None:
         tool = CustomTool(name="test", binary="test-tool")
         assert tool.is_installed() is True
 
-    @patch("shutil.which", return_value=None)
-    def test_is_installed_not_in_path_or_known(self, _mock_which: object) -> None:
+    @patch("open_orchestrator.core.tool_registry.try_resolve_binary", return_value=None)
+    def test_is_installed_not_in_path_or_known(self, _mock_resolve: object) -> None:
         tool = CustomTool(name="test", binary="test-tool")
         assert tool.is_installed() is False
 
-    @patch("shutil.which", return_value=None)
-    def test_is_installed_found_in_known_paths(self, _mock_which: object, tmp_path: Path) -> None:
+    @patch("open_orchestrator.core.tool_registry.try_resolve_binary", return_value=None)
+    def test_is_installed_found_in_known_paths(self, _mock_resolve: object, tmp_path: Path) -> None:
         known = tmp_path / "test-tool"
         known.touch()
         tool = CustomTool(name="test", binary="test-tool", known_paths=[str(known)])
@@ -149,10 +149,10 @@ class TestToolRegistry:
         reg.register(CustomTool(name="mid", binary="mid"))
         assert reg.list_names() == ["alpha", "mid", "zed"]
 
-    @patch("shutil.which")
-    def test_list_installed_filters(self, mock_which: object) -> None:
+    @patch("open_orchestrator.core.tool_registry.try_resolve_binary")
+    def test_list_installed_filters(self, mock_resolve: object) -> None:
         reg = ToolRegistry()
-        mock_which.side_effect = lambda b: "/usr/bin/found" if b == "found-tool" else None  # type: ignore[assignment]
+        mock_resolve.side_effect = lambda b: "/usr/bin/found" if b == "found-tool" else None  # type: ignore[assignment]
         reg.register(CustomTool(name="found", binary="found-tool"))
         reg.register(CustomTool(name="missing", binary="missing-tool"))
         installed = reg.list_installed()

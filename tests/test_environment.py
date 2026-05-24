@@ -76,10 +76,10 @@ class TestInstallDependencies:
     """Test dependency installation."""
 
     @patch("subprocess.run")
-    @patch("open_orchestrator.core.environment.EnvironmentSetup._command_exists")
+    @patch("open_orchestrator.core.environment.resolve_binary")
     def test_install_dependencies_success(
         self,
-        mock_command_exists: MagicMock,
+        mock_resolve: MagicMock,
         mock_run: MagicMock,
         python_project_config: ProjectConfig,
         temp_directory: Path,
@@ -87,7 +87,7 @@ class TestInstallDependencies:
         """Test successful dependency installation."""
         # Arrange
         env_setup = EnvironmentSetup(python_project_config)
-        mock_command_exists.return_value = True
+        mock_resolve.return_value = "/usr/bin/uv"
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "Dependencies installed"
@@ -102,13 +102,14 @@ class TestInstallDependencies:
         mock_run.assert_called_once()
         call_args = mock_run.call_args
         assert call_args.kwargs["cwd"] == temp_directory
-        assert call_args.args[0] == ["uv", "sync"]
+        # First arg is the resolved absolute path, second is the subcommand.
+        assert call_args.args[0] == ["/usr/bin/uv", "sync"]
 
     @patch("subprocess.run")
-    @patch("open_orchestrator.core.environment.EnvironmentSetup._command_exists")
+    @patch("open_orchestrator.core.environment.resolve_binary")
     def test_install_dependencies_command_failure(
         self,
-        mock_command_exists: MagicMock,
+        mock_resolve: MagicMock,
         mock_run: MagicMock,
         python_project_config: ProjectConfig,
         temp_directory: Path,
@@ -116,7 +117,7 @@ class TestInstallDependencies:
         """Test dependency installation failure due to command error."""
         # Arrange
         env_setup = EnvironmentSetup(python_project_config)
-        mock_command_exists.return_value = True
+        mock_resolve.return_value = "/usr/bin/uv"
         mock_result = MagicMock()
         mock_result.returncode = 1
         mock_result.stderr = "Installation failed: package not found"
@@ -126,17 +127,19 @@ class TestInstallDependencies:
         with pytest.raises(DependencyInstallError, match="Installation failed"):
             env_setup.install_dependencies(temp_directory)
 
-    @patch("open_orchestrator.core.environment.EnvironmentSetup._command_exists")
+    @patch("open_orchestrator.core.environment.resolve_binary")
     def test_install_dependencies_command_not_found(
         self,
-        mock_command_exists: MagicMock,
+        mock_resolve: MagicMock,
         python_project_config: ProjectConfig,
         temp_directory: Path,
     ) -> None:
         """Test dependency installation failure when package manager not installed."""
         # Arrange
+        from open_orchestrator.core._path import BinaryNotFoundError as _Bnf
+
         env_setup = EnvironmentSetup(python_project_config)
-        mock_command_exists.return_value = False
+        mock_resolve.side_effect = _Bnf("uv", ())
 
         # Act & Assert
         with pytest.raises(DependencyInstallError, match="Command not found: uv"):
@@ -157,10 +160,10 @@ class TestInstallDependencies:
             env_setup.install_dependencies(nonexistent_path)
 
     @patch("subprocess.run")
-    @patch("open_orchestrator.core.environment.EnvironmentSetup._command_exists")
+    @patch("open_orchestrator.core.environment.resolve_binary")
     def test_install_dependencies_timeout(
         self,
-        mock_command_exists: MagicMock,
+        mock_resolve: MagicMock,
         mock_run: MagicMock,
         python_project_config: ProjectConfig,
         temp_directory: Path,
@@ -168,7 +171,7 @@ class TestInstallDependencies:
         """Test dependency installation failure due to timeout."""
         # Arrange
         env_setup = EnvironmentSetup(python_project_config)
-        mock_command_exists.return_value = True
+        mock_resolve.return_value = "/usr/bin/uv"
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="uv sync", timeout=1)
 
         # Act & Assert
@@ -176,10 +179,10 @@ class TestInstallDependencies:
             env_setup.install_dependencies(temp_directory, timeout=1)
 
     @patch("subprocess.run")
-    @patch("open_orchestrator.core.environment.EnvironmentSetup._command_exists")
+    @patch("open_orchestrator.core.environment.resolve_binary")
     def test_install_dependencies_with_npm(
         self,
-        mock_command_exists: MagicMock,
+        mock_resolve: MagicMock,
         mock_run: MagicMock,
         node_project_config: ProjectConfig,
         temp_directory: Path,
@@ -187,7 +190,7 @@ class TestInstallDependencies:
         """Test dependency installation with npm package manager."""
         # Arrange
         env_setup = EnvironmentSetup(node_project_config)
-        mock_command_exists.return_value = True
+        mock_resolve.return_value = "/usr/bin/npm"
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_run.return_value = mock_result
@@ -198,7 +201,7 @@ class TestInstallDependencies:
         # Assert
         mock_run.assert_called_once()
         call_args = mock_run.call_args
-        assert call_args.args[0] == ["npm", "install"]
+        assert call_args.args[0] == ["/usr/bin/npm", "install"]
 
 
 class TestSetupEnvFile:
@@ -425,34 +428,34 @@ class TestSetupWorktree:
 class TestCommandExists:
     """Test command existence checking."""
 
-    @patch("shutil.which")
+    @patch("open_orchestrator.core.environment.try_resolve_binary")
     def test_command_exists_found(
         self,
-        mock_which: MagicMock,
+        mock_try_resolve: MagicMock,
         python_project_config: ProjectConfig,
     ) -> None:
         """Test command existence check when command is found."""
         # Arrange
         env_setup = EnvironmentSetup(python_project_config)
-        mock_which.return_value = "/usr/bin/uv"
+        mock_try_resolve.return_value = "/usr/bin/uv"
 
         # Act
         result = env_setup._command_exists("uv")
 
         # Assert
         assert result is True
-        mock_which.assert_called_once_with("uv")
+        mock_try_resolve.assert_called_once_with("uv")
 
-    @patch("shutil.which")
+    @patch("open_orchestrator.core.environment.try_resolve_binary")
     def test_command_exists_not_found(
         self,
-        mock_which: MagicMock,
+        mock_try_resolve: MagicMock,
         python_project_config: ProjectConfig,
     ) -> None:
         """Test command existence check when command is not found."""
         # Arrange
         env_setup = EnvironmentSetup(python_project_config)
-        mock_which.return_value = None
+        mock_try_resolve.return_value = None
 
         # Act
         result = env_setup._command_exists("nonexistent-command")

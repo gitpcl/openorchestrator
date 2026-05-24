@@ -14,6 +14,7 @@ from pathlib import Path
 from subprocess import CompletedProcess
 
 from ..models.project_config import PackageManager, ProjectConfig
+from ._path import BinaryNotFoundError, resolve_binary, try_resolve_binary
 
 logger = logging.getLogger(__name__)
 
@@ -161,20 +162,25 @@ class EnvironmentSetup:
             logger.warning("No install command for package manager: %s", self.config.package_manager)
             raise DependencyInstallError(f"Unknown package manager: {self.config.package_manager}")
 
-        # Check if the command is available
+        # Resolve the install command against the safe PATH so a worktree
+        # cannot plant a poisoned ``npm`` / ``uv`` / ``pip`` in its tree and
+        # intercept dependency installation.
         executable = install_cmd[0]
-        if not self._command_exists(executable):
+        try:
+            resolved_executable = resolve_binary(executable)
+        except BinaryNotFoundError as e:
             raise DependencyInstallError(
-                f"Command not found: {executable}. Please ensure {self.config.package_manager.value} is installed."
-            )
+                f"Command not found: {executable}. Please ensure {self.config.package_manager.value} is installed. ({e})"
+            ) from e
+        safe_install_cmd = [resolved_executable, *install_cmd[1:]]
 
-        logger.info("Installing dependencies with %s: %s", self.config.package_manager.value, " ".join(install_cmd))
+        logger.info("Installing dependencies with %s: %s", self.config.package_manager.value, " ".join(safe_install_cmd))
 
         try:
             # Stream output to temporary file instead of memory to prevent 3GB+ spikes
             with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as output_file:
                 result = subprocess.run(
-                    install_cmd,
+                    safe_install_cmd,
                     cwd=worktree_path,
                     stdout=output_file,
                     stderr=subprocess.STDOUT,
@@ -376,15 +382,12 @@ class EnvironmentSetup:
         return copied_files
 
     def _command_exists(self, command: str) -> bool:
-        """Check if a command exists in the system PATH.
+        """Check if a command exists on the allowlisted safe PATH.
 
-        Args:
-            command: Command name to check.
-
-        Returns:
-            True if command exists, False otherwise.
+        Routes through :func:`open_orchestrator.core._path.try_resolve_binary`
+        so worktree-local poisoned binaries are not treated as installed.
         """
-        return shutil.which(command) is not None
+        return try_resolve_binary(command) is not None
 
     def _get_install_environment(self) -> dict[str, str]:
         """Get environment variables for the install process.

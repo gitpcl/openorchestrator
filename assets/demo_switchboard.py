@@ -82,13 +82,15 @@ def _render_card(card: dict, tick: int) -> str:
     tool_pad = w - len(tool) - len(diff)
     tool_line = tool + " " * max(1, tool_pad) + f"[dim]{diff}[/dim]"
 
-    return "\n".join([
-        f"[bold]{name}[/bold]",
-        status_line,
-        f"[dim]{branch}[/dim]",
-        tool_line,
-        f"[dim]{task}[/dim]",
-    ])
+    return "\n".join(
+        [
+            f"[bold]{name}[/bold]",
+            status_line,
+            f"[dim]{branch}[/dim]",
+            tool_line,
+            f"[dim]{task}[/dim]",
+        ]
+    )
 
 
 class CardGrid(Static):
@@ -141,8 +143,7 @@ class MockSwitchboard(App[None]):
     ]
 
     _footer_text = (
-        " \\[arrows] nav  \\[Enter] patch  \\[s] send  \\[a] all  "
-        "\\[n] new  \\[S] ship  \\[f] files  \\[i] info  \\[q] quit"
+        " \\[arrows] nav  \\[Enter] patch  \\[s] send  \\[a] all  \\[n] new  \\[S] ship  \\[f] files  \\[i] info  \\[q] quit"
     )
 
     def __init__(self) -> None:

@@ -3,6 +3,7 @@
 import sqlite3
 from pathlib import Path
 
+import click
 import pytest
 
 mcp = pytest.importorskip("mcp", reason="MCP SDK not installed")
@@ -237,3 +238,75 @@ class TestGetPeerFiles:
     def test_peer_with_no_files(self, server) -> None:
         files = _call_tool(server, "get_peer_files", peer_name="agent-alpha")
         assert files == []
+
+
+class TestLoopbackBind:
+    """The MCP peer must refuse any bind host that is not loopback."""
+
+    @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "LOCALHOST"])
+    def test_loopback_hosts_accepted(self, host: str) -> None:
+        from open_orchestrator.core.mcp_peer import _validate_loopback_bind
+
+        # Must not raise for any loopback alias (case-insensitive).
+        _validate_loopback_bind(host)
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "0.0.0.0",  # noqa: S104 — test fixture asserting this host is rejected
+            "192.168.1.10",
+            "10.0.0.5",
+            "203.0.113.42",
+            "::",
+            "",
+            "example.com",
+        ],
+    )
+    def test_non_loopback_hosts_rejected(self, host: str) -> None:
+        from open_orchestrator.core.mcp_peer import _validate_loopback_bind
+
+        with pytest.raises(click.ClickException) as exc:
+            _validate_loopback_bind(host)
+        assert "loopback-only" in str(exc.value.message)
+        assert "Refusing to start" in str(exc.value.message)
+
+    def test_create_server_rejects_non_loopback_host(
+        self,
+        peer_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """If FastMCP.settings.host is overridden to a public address, create_server must fail."""
+        monkeypatch.setenv("OWT_WORKTREE_NAME", "agent-self")
+        monkeypatch.setenv("OWT_DB_PATH", str(peer_db))
+
+        # Patch FastMCP so the constructed server reports a non-loopback host.
+        from mcp.server.fastmcp import FastMCP
+
+        original_init = FastMCP.__init__
+
+        def patched_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            original_init(self, *args, **kwargs)
+            self.settings.host = "0.0.0.0"  # noqa: S104 — testing rejection of non-loopback bind
+
+        monkeypatch.setattr(FastMCP, "__init__", patched_init)
+
+        from open_orchestrator.core.mcp_peer import create_server
+
+        with pytest.raises(click.ClickException) as exc:
+            create_server()
+        assert "loopback-only" in str(exc.value.message)
+
+    def test_create_server_accepts_default_loopback(
+        self,
+        peer_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Default FastMCP host (127.0.0.1) passes validation."""
+        monkeypatch.setenv("OWT_WORKTREE_NAME", "agent-self")
+        monkeypatch.setenv("OWT_DB_PATH", str(peer_db))
+        _insert_worktree(peer_db, "agent-self", "feat/self")
+
+        from open_orchestrator.core.mcp_peer import create_server
+
+        server = create_server()
+        assert server.settings.host in {"127.0.0.1", "::1", "localhost"}

@@ -43,8 +43,8 @@ class TestStatusConfig:
         config = StatusConfig()
         assert config.storage_path is None
 
-    @patch("open_orchestrator.core.status._resolve_repo_root")
-    @patch("open_orchestrator.core.status._is_writable_sqlite_target")
+    @patch("open_orchestrator.core.status_schema._resolve_repo_root")
+    @patch("open_orchestrator.core.status_schema._is_writable_sqlite_target")
     def test_runtime_status_config_falls_back_to_repo_root(
         self,
         mock_writable: MagicMock,

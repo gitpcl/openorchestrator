@@ -7,7 +7,7 @@ Thanks for your interest in contributing! Here's how to get started.
 ```bash
 git clone https://github.com/gitpcl/openorchestrator.git
 cd openorchestrator
-uv pip install -e ".[dev]"
+uv pip install --group dev -e .
 ```
 
 You'll also need **tmux** and **Git** installed.

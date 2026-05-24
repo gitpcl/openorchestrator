@@ -4,6 +4,10 @@ Implements Karpathy-style autonomous loops: define a batch of tasks,
 OWT creates worktrees, starts agents, monitors status, and auto-ships
 completed work before starting the next task.
 
+DAG scheduling and state persistence live in
+:mod:`open_orchestrator.core.batch_scheduler`. This module owns the
+autopilot loop and the AI planner.
+
 Usage:
     owt batch tasks.toml
     owt batch tasks.toml --auto-ship
@@ -13,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,6 +24,7 @@ import toml
 
 from open_orchestrator.core import status_policy
 from open_orchestrator.core.batch_models import (
+    PLAN_PROMPT_TEMPLATE,
     BatchConfig,
     BatchFileModel,
     BatchResult,
@@ -28,6 +32,13 @@ from open_orchestrator.core.batch_models import (
     BatchTask,
     _batch_file_to_config,
     _parse_tasks,
+)
+from open_orchestrator.core.batch_scheduler import (
+    BatchScheduler,
+    BatchStateStore,
+    build_task_index,
+    resolve_base_ref,
+    validate_dag,
 )
 from open_orchestrator.core.merge import MergeManager
 from open_orchestrator.core.pane_actions import PaneActionError, build_agent_prompt, create_pane
@@ -39,6 +50,13 @@ from open_orchestrator.models.status import AIActivityStatus
 
 logger = logging.getLogger(__name__)
 
+# Backward-compat aliases — the leading underscore names are the
+# pre-Phase-8 public surface used by ``intelligence.py``, ``orchestrator.py``
+# and ``tests/test_batch_dag.py``. New code should import from
+# ``batch_scheduler`` directly.
+_build_task_index = build_task_index
+_validate_dag = validate_dag
+
 # Re-export model types for backward compatibility
 __all__ = [
     "BatchConfig",
@@ -48,8 +66,8 @@ __all__ = [
     "BatchStatus",
     "BatchTask",
     "_batch_file_to_config",
-    "_parse_tasks",
     "_build_task_index",
+    "_parse_tasks",
     "_validate_dag",
     "load_batch_config",
     "plan_tasks",
@@ -86,7 +104,6 @@ def _extract_toml(text: str) -> str:
     match = re.search(r"```toml\s*\n(.*?)```", text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    # Fallback: try unfenced TOML (starts with [batch] or [[tasks]])
     match = re.search(r"(\[batch\].*)", text, re.DOTALL)
     if match:
         return match.group(1).strip()
@@ -106,19 +123,6 @@ def plan_tasks(
 
     Tries Agno-powered planner first (if installed and enabled), then falls
     back to subprocess-based AI tool invocation.
-
-    Args:
-        goal: The feature/goal description to decompose.
-        repo_path: Path to the repository for context.
-        ai_tool: AI tool to use for planning (default: claude).
-        output_path: Where to write the TOML file. Defaults to plan.toml in repo.
-
-    Returns:
-        Path to the generated TOML file.
-
-    Raises:
-        ValueError: If the AI output cannot be parsed as valid TOML.
-        RuntimeError: If the AI tool fails to run.
     """
     import subprocess
 
@@ -132,46 +136,12 @@ def plan_tasks(
             return AgnoPlanner(config.agno, repo_path=repo_path).plan(goal, repo_path, output_path, ai_tool)
     except ImportError:
         logger.debug("Agno not installed, falling back to subprocess planner")
-    except Exception as e:
-        logger.warning("Agno planner failed, falling back: %s", e)
+    except Exception as e:  # noqa: BLE001 — Agno is an external optional dep; any failure must fall through to subprocess planner
+        logger.warning("Agno planner failed, falling back to subprocess: %s", e, exc_info=True)
 
     output_path = Path(output_path) if output_path else Path(repo_path) / "plan.toml"
 
-    prompt = f"""You are a software architect. Decompose this goal into parallel tasks for AI coding agents.
-
-GOAL: {goal}
-
-Output ONLY a valid TOML file with this exact format. Each task gets its own worktree and AI agent.
-Tasks with no dependencies run in parallel. Use `depends_on` to specify ordering.
-
-```toml
-[batch]
-max_concurrent = 3
-auto_ship = true
-
-[[tasks]]
-id = "unique-id"
-description = "Clear, actionable task description for an AI coding agent"
-ai_tool = "{ai_tool}"
-depends_on = []
-
-[[tasks]]
-id = "another-id"
-description = "Another task"
-ai_tool = "{ai_tool}"
-depends_on = ["unique-id"]
-```
-
-Rules:
-- Each task should be completable independently in its own git branch
-- Keep tasks focused (1-3 files each)
-- Maximize parallelism — only add depends_on when truly needed
-- Use short, descriptive IDs (lowercase, hyphens)
-- 3-8 tasks is ideal
-- Description should be a complete instruction an AI agent can act on
-- Every task MUST have ai_tool = "{ai_tool}"
-"""
-
+    prompt = PLAN_PROMPT_TEMPLATE.format(goal=goal, ai_tool=ai_tool)
     cmd = [ai_tool, "--print", "-p", prompt]
 
     try:
@@ -195,64 +165,16 @@ Rules:
 
     toml_text = _extract_toml(stdout)
 
-    # Validate in-memory before writing
     try:
         data = toml.loads(toml_text)
         tasks = _parse_tasks(data)
-        index = _build_task_index(list(tasks))
-        _validate_dag(list(tasks), index)
-    except Exception as e:
+        index = build_task_index(list(tasks))
+        validate_dag(list(tasks), index)
+    except (toml.TomlDecodeError, ValueError, KeyError, TypeError) as e:
         raise ValueError(f"AI generated invalid task plan: {e}") from e
 
     output_path.write_text(toml_text)
     return output_path
-
-
-def _build_task_index(tasks: list[BatchTask]) -> dict[str, int]:
-    """Map task IDs to indices, auto-assigning IDs where missing."""
-    index: dict[str, int] = {}
-    for i, task in enumerate(tasks):
-        if task.id is None:
-            task.id = f"task-{i}"
-        if task.id in index:
-            raise ValueError(f"Duplicate task ID: {task.id!r}")
-        index[task.id] = i
-    return index
-
-
-def _validate_dag(tasks: list[BatchTask], index: dict[str, int]) -> list[int]:
-    """Validate DAG has no cycles using Kahn's algorithm.
-
-    Returns topological order as list of task indices.
-    Raises ValueError on cycles or missing dependency references.
-    """
-    n = len(tasks)
-    in_degree = [0] * n
-    children: list[list[int]] = [[] for _ in range(n)]
-
-    for i, task in enumerate(tasks):
-        for dep_id in task.depends_on:
-            if dep_id not in index:
-                raise ValueError(f"Task {task.id!r} depends on unknown ID {dep_id!r}")
-            parent_idx = index[dep_id]
-            children[parent_idx].append(i)
-            in_degree[i] += 1
-
-    # Kahn's algorithm
-    queue = deque(i for i in range(n) if in_degree[i] == 0)
-    order: list[int] = []
-    while queue:
-        node = queue.popleft()
-        order.append(node)
-        for child in children[node]:
-            in_degree[child] -= 1
-            if in_degree[child] == 0:
-                queue.append(child)
-
-    if len(order) != n:
-        cycle_ids = [tasks[i].id for i in range(n) if i not in set(order)]
-        raise ValueError(f"Circular dependency detected among tasks: {cycle_ids}")
-    return order
 
 
 class BatchRunner:
@@ -277,143 +199,26 @@ class BatchRunner:
             tmux=self._tmux,
             merge_manager_factory=self._merge_manager_factory,
         )
-        self._task_index = _build_task_index(config.tasks)
-        self._topo_order = _validate_dag(config.tasks, self._task_index)
-        self._has_deps = any(t.depends_on for t in config.tasks)
-        self._last_dag_progress = ""
+        self._scheduler = BatchScheduler(config.tasks, self.results, self.tracker)
+
+    # ─── state persistence ─────────────────────────────────────────────
 
     @staticmethod
     def _state_path(repo_path: str) -> Path:
-        return Path(repo_path) / ".owt-batch-state.json"
+        return BatchStateStore.state_path(repo_path)
 
     def _save_state(self) -> None:
-        """Persist current batch results to JSON for resume."""
-        import json
-
-        state = {
-            "repo_path": self.repo_path,
-            "config": {
-                "max_concurrent": self.config.max_concurrent,
-                "auto_ship": self.config.auto_ship,
-                "poll_interval": self.config.poll_interval,
-                "min_agent_runtime": self.config.min_agent_runtime,
-            },
-            "results": [
-                {
-                    "task": {
-                        "description": r.task.description,
-                        "id": r.task.id,
-                        "depends_on": r.task.depends_on,
-                        "branch": r.task.branch,
-                        "ai_tool": r.task.ai_tool,
-                        "plan_mode": r.task.plan_mode,
-                        "auto_ship": r.task.auto_ship,
-                    },
-                    "worktree_name": r.worktree_name,
-                    "status": r.status.value,
-                    "error": r.error,
-                    "retry_count": r.retry_count,
-                    "started_at": r.started_at,
-                    "ship_failed": r.ship_failed,
-                }
-                for r in self.results
-            ],
-        }
-        self._state_path(self.repo_path).write_text(json.dumps(state, indent=2))
+        BatchStateStore.save(self.repo_path, self.config, self.results)
 
     @classmethod
     def resume(cls, repo_path: str) -> BatchRunner:
         """Resume a batch run from saved state."""
-        import json
-
-        state_path = cls._state_path(repo_path)
-        if not state_path.exists():
-            raise FileNotFoundError(f"No batch state found at {state_path}")
-
-        data = json.loads(state_path.read_text())
-        config = BatchConfig(
-            tasks=[],
-            max_concurrent=data["config"]["max_concurrent"],
-            auto_ship=data["config"]["auto_ship"],
-            poll_interval=data["config"]["poll_interval"],
-            min_agent_runtime=data["config"]["min_agent_runtime"],
-        )
-
-        results: list[BatchResult] = []
-        tasks: list[BatchTask] = []
-        for r in data["results"]:
-            task = BatchTask(**r["task"])
-            tasks.append(task)
-            results.append(
-                BatchResult(
-                    task=task,
-                    worktree_name=r.get("worktree_name"),
-                    status=BatchStatus(r["status"]),
-                    error=r.get("error"),
-                    retry_count=r.get("retry_count", 0),
-                    started_at=r.get("started_at"),
-                    ship_failed=r.get("ship_failed", False),
-                )
-            )
-
-        config.tasks = tasks
+        config, results = BatchStateStore.load(repo_path)
         runner = cls(config, repo_path, results=results)
-
-        # Clean up state file
-        state_path.unlink(missing_ok=True)
+        BatchStateStore.clear(repo_path)
         return runner
 
-    def _deps_satisfied(self, idx: int) -> bool:
-        """Check if all dependencies of a task are completed/shipped.
-
-        Ship-failed tasks (work done, merge failed) also satisfy deps
-        since the work exists in the branch.
-        """
-        task = self.results[idx].task
-        for dep_id in task.depends_on:
-            dep_idx = self._task_index[dep_id]
-            dep_result = self.results[dep_idx]
-            if dep_result.status in (BatchStatus.COMPLETED, BatchStatus.SHIPPED):
-                continue
-            if dep_result.status == BatchStatus.FAILED and dep_result.ship_failed:
-                continue
-            return False
-        return True
-
-    def _deps_failed(self, idx: int) -> bool:
-        """Check if any dependency's WORK failed (not just ship).
-
-        Ship failures (work complete but merge failed) don't cascade — the
-        work exists in the branch and dependents can still proceed.
-        """
-        task = self.results[idx].task
-        for dep_id in task.depends_on:
-            dep_idx = self._task_index[dep_id]
-            dep_result = self.results[dep_idx]
-            if dep_result.status == BatchStatus.FAILED and not dep_result.ship_failed:
-                return True
-        return False
-
-    def _select_ready(self, pending: list[int]) -> int | None:
-        """Select next pending task whose deps are satisfied."""
-        for i, idx in enumerate(pending):
-            if self._deps_satisfied(idx):
-                return pending.pop(i)
-        return None
-
-    def _update_dag_progress(self, completed: int, total: int) -> None:
-        """Write DAG progress to SQLite metadata table (only on change)."""
-        if not self._has_deps:
-            return
-        progress = f"{completed}/{total}"
-        if progress != self._last_dag_progress:
-            self.tracker.set_metadata("dag_progress", progress)
-            self._last_dag_progress = progress
-
-    def _clear_dag_progress(self) -> None:
-        """Remove DAG progress from metadata."""
-        self.tracker.delete_metadata("dag_progress")
-        self._last_dag_progress = ""
+    # ─── autopilot loop ────────────────────────────────────────────────
 
     def run(self, on_status: Callable[[list[BatchResult]], None] | None = None) -> list[BatchResult]:
         """Execute all tasks with concurrency control and dependency ordering.
@@ -424,7 +229,7 @@ class BatchRunner:
         Returns:
             List of BatchResult with final statuses.
         """
-        pending = list(self._topo_order)
+        pending = list(self._scheduler.topo_order)
         running: list[int] = []
         total = len(self.results)
 
@@ -432,7 +237,7 @@ class BatchRunner:
             # Cascade failures: mark tasks with failed parents
             still_pending: list[int] = []
             for idx in pending:
-                if self._deps_failed(idx):
+                if self._scheduler.deps_failed(idx):
                     self.results[idx].status = BatchStatus.FAILED
                     self.results[idx].error = "Parent task failed"
                 else:
@@ -441,12 +246,11 @@ class BatchRunner:
 
             # Start new tasks up to max_concurrent (only if deps satisfied)
             while pending and len(running) < self.config.max_concurrent:
-                next_idx = self._select_ready(pending)
+                next_idx = self._scheduler.select_ready(pending)
                 if next_idx is None:
-                    break  # No task has deps satisfied yet
-                # Inject parent context before starting
-                if self._has_deps:
-                    self._inject_parent_context(next_idx)
+                    break
+                if self._scheduler.has_deps:
+                    self._scheduler.collect_parent_summaries(next_idx)
                 self._start_task(next_idx)
                 running.append(next_idx)
 
@@ -461,9 +265,8 @@ class BatchRunner:
             self.tracker.reload()
             running = self._poll_running_tasks(running)
 
-            # Update DAG progress
             done = sum(1 for r in self.results if r.status in (BatchStatus.COMPLETED, BatchStatus.SHIPPED, BatchStatus.FAILED))
-            self._update_dag_progress(done, total)
+            self._scheduler.update_progress(done, total)
 
             self._save_state()
 
@@ -473,78 +276,11 @@ class BatchRunner:
             if running:
                 time.sleep(self.config.poll_interval)
 
-        self._clear_dag_progress()
-        # Clean up state file on successful completion
-        self._state_path(self.repo_path).unlink(missing_ok=True)
+        self._scheduler.clear_progress()
+        BatchStateStore.clear(self.repo_path)
         return self.results
 
-    def _capture_summary(self, worktree_name: str) -> str | None:
-        """Capture a task-aware summary from a completed worktree for DAG context.
-
-        Includes task description, key file changes (diff stat), and commit count
-        instead of raw git log output.
-        """
-        import subprocess
-
-        status = self.tracker.get_status(worktree_name)
-        if not status:
-            return None
-
-        # Find the matching task for the description
-        task_desc = status.current_task or "completed"
-        for r in self.results:
-            if r.worktree_name == worktree_name:
-                task_desc = r.task.description
-                break
-
-        try:
-            base_ref = self._resolve_task_base_ref(worktree_name)
-            cwd = status.worktree_path
-
-            # Get commit count
-            log_result = subprocess.run(
-                ["git", "rev-list", "--count", f"{base_ref}..{status.branch}"],
-                capture_output=True,
-                text=True,
-                cwd=cwd,
-                timeout=5,
-            )
-            commit_count = log_result.stdout.strip() if log_result.returncode == 0 else "?"
-
-            # Get diff stat (file changes summary)
-            diff_result = subprocess.run(
-                ["git", "diff", "--stat", "--stat-width=60", f"{base_ref}..{status.branch}"],
-                capture_output=True,
-                text=True,
-                cwd=cwd,
-                timeout=5,
-            )
-            diff_stat = diff_result.stdout.strip() if diff_result.returncode == 0 else ""
-
-            parts = [
-                f"## Completed Parent Task: {worktree_name}",
-                f"**Branch:** {status.branch}",
-                f"**Task:** {task_desc}",
-            ]
-            if diff_stat:
-                parts.append(f"**Key changes:**\n{diff_stat}")
-            parts.append(f"**Status:** {commit_count} commit(s)")
-            return "\n".join(parts)
-
-        except (subprocess.TimeoutExpired, OSError):
-            logger.debug("Failed to capture summary for %s", worktree_name, exc_info=True)
-        return f"## Completed Parent Task: {worktree_name}\n**Task:** {task_desc}"
-
-    def _inject_parent_context(self, idx: int) -> None:
-        """Collect parent summaries and prepare them for injection after pane creation."""
-        task = self.results[idx].task
-        summaries: list[str] = []
-        for dep_id in task.depends_on:
-            dep_idx = self._task_index[dep_id]
-            dep_result = self.results[dep_idx]
-            if dep_result.completion_summary:
-                summaries.append(dep_result.completion_summary)
-        self.results[idx].parent_summaries = summaries
+    # ─── per-task lifecycle ────────────────────────────────────────────
 
     def _poll_running_tasks(self, running: list[int]) -> list[int]:
         """Poll running tasks and return those still running."""
@@ -570,8 +306,8 @@ class BatchRunner:
     def _complete_task(self, idx: int, result: BatchResult) -> None:
         """Handle task completion: capture summary, ship or mark completed."""
         wt_name = result.worktree_name or ""
-        if self._has_deps:
-            result.completion_summary = self._capture_summary(wt_name)
+        if self._scheduler.has_deps:
+            result.completion_summary = self._scheduler.capture_summary(wt_name, self._merge_manager_factory)
         if result.task.auto_ship or self.config.auto_ship:
             self._ship_task(idx)
         else:
@@ -586,11 +322,15 @@ class BatchRunner:
         still_running: list[int],
     ) -> None:
         """Evaluate a still-running task using the runtime coordinator."""
+        from open_orchestrator.core.merge import MergeError
+        from open_orchestrator.core.worktree import WorktreeError
+
         wt_name = result.worktree_name or ""
         task_elapsed = time.monotonic() - result.started_at if result.started_at else 0
         try:
-            base_ref = self._resolve_task_base_ref(wt_name)
-        except Exception as e:
+            base_ref = resolve_base_ref(wt_name, self._merge_manager_factory)
+        except (MergeError, WorktreeError, OSError, ValueError) as e:
+            logger.exception("Base ref resolution failed for %s: %s", wt_name, e)
             self._handle_batch_failure(idx, f"Base ref resolution failed: {e}")
             return
         decision = self._runtime.evaluate_completion(
@@ -647,15 +387,14 @@ class BatchRunner:
             result.status = BatchStatus.RUNNING
             result.started_at = time.monotonic()
 
-            # Inject parent context into the worktree's CLAUDE.md
             parent_summaries = result.parent_summaries
             if parent_summaries:
                 from open_orchestrator.core.environment import inject_dag_context
 
                 try:
                     inject_dag_context(pane.worktree_path, parent_summaries)
-                except Exception as e:
-                    logger.warning("DAG context injection failed: %s", e)
+                except OSError as e:
+                    logger.exception("DAG context injection failed: %s", e)
         except PaneActionError as e:
             result.status = BatchStatus.FAILED
             result.error = str(e)
@@ -686,21 +425,23 @@ class BatchRunner:
 
     def _ship_task(self, idx: int) -> None:
         """Ship a completed batch task."""
+        from open_orchestrator.core.merge import MergeError
+        from open_orchestrator.core.tmux_manager import TmuxError, TmuxManager
+        from open_orchestrator.core.worktree import WorktreeError
+
         result = self.results[idx]
         if not result.worktree_name:
             return
 
         try:
-            from open_orchestrator.core.tmux_manager import TmuxManager
-
             # Kill tmux session BEFORE merge (agent may hold locks)
             tmux = TmuxManager()
             session_name = tmux.generate_session_name(result.worktree_name)
             try:
                 if tmux.session_exists(session_name):
                     tmux.kill_session(session_name)
-            except Exception:
-                logger.debug("Failed to kill tmux session %s", session_name, exc_info=True)
+            except (TmuxError, OSError):
+                logger.exception("Failed to kill tmux session %s", session_name)
 
             # Auto-commit any uncommitted work (safety net for agents
             # that create files but exit before committing)
@@ -721,19 +462,13 @@ class BatchRunner:
             )
             self.tracker.remove_status(result.worktree_name)
             result.status = BatchStatus.SHIPPED
-        except Exception as e:
+        except (MergeError, WorktreeError, TmuxError, PaneActionError, OSError, ValueError) as e:
             # Mark as ship-failed (work done, merge failed) — don't cascade
             result.status = BatchStatus.FAILED
             result.ship_failed = True
             result.error = f"Ship failed: {e}"
-            logger.warning(
+            logger.exception(
                 "Task %s completed but merge failed — manual merge needed: owt merge %s",
                 result.task.id or idx,
                 result.worktree_name,
             )
-
-    def _resolve_task_base_ref(self, worktree_name: str) -> str:
-        """Resolve the base ref used for runtime commit detection."""
-        merge_mgr = self._merge_manager_factory()
-        wt = merge_mgr.wt_manager.get(worktree_name)
-        return merge_mgr.get_base_branch(wt.branch)

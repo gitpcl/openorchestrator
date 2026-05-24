@@ -9,12 +9,44 @@ dream-daemon contention.
 
 from __future__ import annotations
 
+import contextlib
+import os
 import sqlite3
+import sys
 from pathlib import Path
 
-__all__ = ["open_db"]
+__all__ = ["open_db", "secure_db_perms"]
 
 _BUSY_TIMEOUT_MS = 5000
+_DB_FILE_MODE = 0o600
+
+
+def secure_db_perms(path: Path | str) -> None:
+    """Apply ``0o600`` (owner read/write only) to a SQLite DB and siblings.
+
+    SQLite in WAL mode creates ``<db>-wal`` and ``<db>-shm`` companion files
+    alongside the main database. All three may contain in-flight rows that
+    haven't yet been checkpointed back, so they need the same restrictive
+    permissions as the primary file.
+
+    Idempotent — re-applying ``0o600`` to a file already at ``0o600`` is a
+    no-op. Missing sibling files are skipped silently because WAL/SHM only
+    appear after the first write.
+
+    No-op on Windows where POSIX permission bits are not meaningful and
+    :func:`os.chmod` does not enforce owner-only semantics.
+    """
+
+    if sys.platform == "win32":
+        return
+
+    db_path = Path(path)
+    for candidate in (db_path, db_path.with_name(db_path.name + "-wal"), db_path.with_name(db_path.name + "-shm")):
+        if candidate.exists():
+            # Best-effort: refusing perms (e.g. read-only mount, NFS) must
+            # not crash long-lived daemons like the switchboard.
+            with contextlib.suppress(OSError):
+                os.chmod(candidate, _DB_FILE_MODE)
 
 
 def open_db(path: Path | str, *, check_same_thread: bool = False) -> sqlite3.Connection:
@@ -47,4 +79,5 @@ def open_db(path: Path | str, *, check_same_thread: bool = False) -> sqlite3.Con
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA synchronous=NORMAL")
+    secure_db_perms(path)
     return conn

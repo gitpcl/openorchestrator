@@ -13,6 +13,41 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+PLAN_PROMPT_TEMPLATE = """You are a software architect. Decompose this goal into parallel tasks for AI coding agents.
+
+GOAL: {goal}
+
+Output ONLY a valid TOML file with this exact format. Each task gets its own worktree and AI agent.
+Tasks with no dependencies run in parallel. Use `depends_on` to specify ordering.
+
+```toml
+[batch]
+max_concurrent = 3
+auto_ship = true
+
+[[tasks]]
+id = "unique-id"
+description = "Clear, actionable task description for an AI coding agent"
+ai_tool = "{ai_tool}"
+depends_on = []
+
+[[tasks]]
+id = "another-id"
+description = "Another task"
+ai_tool = "{ai_tool}"
+depends_on = ["unique-id"]
+```
+
+Rules:
+- Each task should be completable independently in its own git branch
+- Keep tasks focused (1-3 files each)
+- Maximize parallelism — only add depends_on when truly needed
+- Use short, descriptive IDs (lowercase, hyphens)
+- 3-8 tasks is ideal
+- Description should be a complete instruction an AI agent can act on
+- Every task MUST have ai_tool = "{ai_tool}"
+"""
+
 
 class BatchStatus(str, Enum):
     """Status of a batch task."""

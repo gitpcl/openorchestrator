@@ -2,6 +2,8 @@
 Tests for switchboard pane status detection, regex patterns, and hook trust logic.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +20,7 @@ from open_orchestrator.core.switchboard import (
     HOOK_TRUST_MAX_SECONDS,
     _detect_pane_status,
 )
+from open_orchestrator.core.switchboard_cards import Card
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
 # ---------------------------------------------------------------------------
@@ -581,3 +584,1012 @@ class TestHookCapableToolsConstant:
 
     def test_trust_max_is_positive(self) -> None:
         assert HOOK_TRUST_MAX_SECONDS > 0
+
+
+# ---------------------------------------------------------------------------
+# Sprint 027 Phase 2: Pilot-driven SwitchboardApp tests
+# ---------------------------------------------------------------------------
+#
+# These tests mount the (legacy) ``SwitchboardApp`` via Textual's
+# ``App.run_test()`` harness with a stubbed ``StatusTracker``, ``TmuxManager``,
+# and ``WorktreeManager``. No real tmux, git, or subprocess calls are made.
+#
+# Approach: patch the heavy collaborators at the ``open_orchestrator.core.switchboard``
+# module level *before* constructing the app so ``__init__`` picks up the stubs.
+# Then drive keypresses via the Pilot to exercise navigation, modal flows,
+# delete-confirm, ship/merge confirmations, and broadcast.
+
+
+def _make_card(name: str = "wt-a", session: str | None = "owt-wt-a") -> Card:
+    return Card(
+        name=name,
+        status=AIActivityStatus.WORKING,
+        branch=f"feat/{name}",
+        ai_tool="claude",
+        task="implement thing",
+        elapsed="3s",
+        tmux_session=session,
+        overlap_count=0,
+        overlap_names=[],
+        diff_stat="+10 -2",
+    )
+
+
+@contextmanager
+def _patched_switchboard_world(cards: list[Card] | None = None) -> Iterator[dict[str, MagicMock]]:
+    """Patch the heavy collaborators used by SwitchboardApp.__init__.
+
+    Yields a dict of the mocks so tests can assert against them.
+    """
+    cards = cards if cards is not None else [_make_card()]
+    file_map = {c.name: [] for c in cards}
+
+    tracker = MagicMock()
+    tracker.get_all_statuses.return_value = []
+    tracker.has_changed_since.return_value = False
+    tracker.get_generation.return_value = "gen-0"
+    tracker.cleanup_orphans.return_value = []
+    tracker.record_command = MagicMock()
+    tracker.close = MagicMock()
+
+    tmux = MagicMock()
+    tmux.session_exists.return_value = True
+    tmux.switch_client = MagicMock()
+    tmux.send_keys_to_pane = MagicMock()
+
+    wt_manager = MagicMock()
+    wt_manager.git_root = "/tmp/fake-root"
+    wt_manager.list_all.return_value = []
+
+    with (
+        patch("open_orchestrator.core.switchboard.StatusTracker", return_value=tracker),
+        patch("open_orchestrator.core.switchboard.TmuxManager", return_value=tmux),
+        patch("open_orchestrator.core.switchboard.WorktreeManager", return_value=wt_manager),
+        patch("open_orchestrator.core.switchboard._build_cards", return_value=(list(cards), dict(file_map))),
+        patch("open_orchestrator.core.switchboard._build_cards_async", return_value=(list(cards), dict(file_map))),
+    ):
+        yield {
+            "tracker": tracker,
+            "tmux": tmux,
+            "wt_manager": wt_manager,
+            "cards": cards,
+            "file_map": file_map,
+        }
+
+
+@pytest.mark.asyncio
+async def test_switchboard_mounts_with_cards() -> None:
+    """SwitchboardApp can be constructed + mounted with stubbed collaborators."""
+    from open_orchestrator.core.switchboard import CardGrid, SwitchboardApp
+
+    with _patched_switchboard_world([_make_card("wt-a"), _make_card("wt-b")]) as world:
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._cards == world["cards"]
+            assert app._selected == 0
+            grid = app.query_one("#card-grid", CardGrid)
+            rendered = grid.render()
+            assert rendered is not None
+
+
+@pytest.mark.asyncio
+async def test_switchboard_mounts_with_no_cards_renders_empty_state() -> None:
+    """CardGrid renders the empty 'No active worktrees' panel when no cards."""
+    from open_orchestrator.core.switchboard import CardGrid, SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            grid = app.query_one("#card-grid", CardGrid)
+            rendered = grid.render()
+            assert "No active worktrees" in rendered.plain  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_switchboard_navigate_left_right_changes_selection() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    cards = [_make_card(f"wt-{i}") for i in range(4)]
+    with _patched_switchboard_world(cards):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app._selected == 0
+            await pilot.press("right")
+            await pilot.pause()
+            assert app._selected == 1
+            await pilot.press("right")
+            await pilot.press("right")
+            await pilot.pause()
+            assert app._selected == 3
+            await pilot.press("right")
+            await pilot.pause()
+            assert app._selected == 3
+            await pilot.press("left")
+            await pilot.pause()
+            assert app._selected == 2
+            for _ in range(10):
+                await pilot.press("left")
+            await pilot.pause()
+            assert app._selected == 0
+
+
+@pytest.mark.asyncio
+async def test_switchboard_navigate_up_down_uses_columns() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    cards = [_make_card(f"wt-{i}") for i in range(6)]
+    with _patched_switchboard_world(cards):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._cols = 2
+            await pilot.press("down")
+            await pilot.pause()
+            assert app._selected == 2
+            await pilot.press("down")
+            await pilot.pause()
+            assert app._selected == 4
+            await pilot.press("up")
+            await pilot.pause()
+            assert app._selected == 2
+            for _ in range(10):
+                await pilot.press("down")
+            await pilot.pause()
+            assert app._selected == len(cards) - 1
+
+
+@pytest.mark.asyncio
+async def test_switchboard_navigate_noop_when_no_cards() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("down")
+            await pilot.press("right")
+            await pilot.pause()
+            assert app._selected == 0
+
+
+@pytest.mark.asyncio
+async def test_switchboard_patch_in_switches_tmux_client() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world() as world:
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_patch_in()
+            await pilot.pause()
+            world["tmux"].switch_client.assert_called_once_with("owt-wt-a")
+
+
+@pytest.mark.asyncio
+async def test_switchboard_patch_in_no_session_shows_toast() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world([_make_card("wt-a", session=None)]) as world:
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_patch_in()
+            await pilot.pause()
+            world["tmux"].switch_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_patch_in_dead_session_shows_toast() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world() as world:
+        world["tmux"].session_exists.return_value = False
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_patch_in()
+            await pilot.pause()
+            world["tmux"].switch_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_patch_in_noop_when_no_cards() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]) as world:
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_patch_in()
+            await pilot.pause()
+            world["tmux"].switch_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_send_message_pushes_input_modal() -> None:
+    from open_orchestrator.core.switchboard import InputModal, SwitchboardApp
+
+    with _patched_switchboard_world() as world:
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_send_message()
+            await pilot.pause()
+            assert isinstance(app.screen, InputModal)
+            from textual.widgets import Input
+
+            app.screen.query_one("#modal-input", Input).value = "hello"
+            await pilot.press("enter")
+            await pilot.pause()
+            world["tmux"].send_keys_to_pane.assert_called_once_with("owt-wt-a", "hello")
+
+
+@pytest.mark.asyncio
+async def test_switchboard_send_message_handles_send_error() -> None:
+    from open_orchestrator.core.switchboard import InputModal, SwitchboardApp
+
+    with _patched_switchboard_world() as world:
+        world["tmux"].send_keys_to_pane.side_effect = RuntimeError("nope")
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_send_message()
+            await pilot.pause()
+            assert isinstance(app.screen, InputModal)
+            from textual.widgets import Input
+
+            app.screen.query_one("#modal-input", Input).value = "ignored"
+            await pilot.press("enter")
+            await pilot.pause()
+            world["tmux"].send_keys_to_pane.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_send_message_no_cards_noop() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_send_message()
+            await pilot.pause()
+            assert app.screen.id != "input-dialog"
+
+
+@pytest.mark.asyncio
+async def test_switchboard_delete_confirm_yes_runs_command() -> None:
+    from open_orchestrator.core.switchboard import ConfirmModal, SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        called: list[list[str]] = []
+
+        async def _fake_bg(cmd: list[str], _toast: str, *, clamp: bool = False) -> None:
+            called.append(list(cmd))
+
+        app._run_shell_bg = _fake_bg  # type: ignore[assignment, method-assign]
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_delete_worktree()
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            await pilot.press("y")
+            await pilot.pause()
+            await pilot.pause()
+            assert called and called[0][:3] == ["owt", "delete", "wt-a"]
+
+
+@pytest.mark.asyncio
+async def test_switchboard_delete_confirm_no_does_nothing() -> None:
+    from open_orchestrator.core.switchboard import ConfirmModal, SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        called: list[list[str]] = []
+
+        async def _fake_bg(cmd: list[str], _toast: str, *, clamp: bool = False) -> None:
+            called.append(list(cmd))
+
+        app._run_shell_bg = _fake_bg  # type: ignore[assignment, method-assign]
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_delete_worktree()
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            await pilot.press("n")
+            await pilot.pause()
+            assert called == []
+
+
+@pytest.mark.asyncio
+async def test_switchboard_delete_noop_when_no_cards() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_delete_worktree()
+            await pilot.pause()
+            assert "Confirm" not in type(app.screen).__name__
+
+
+@pytest.mark.asyncio
+async def test_switchboard_ship_pushes_confirm_modal() -> None:
+    from open_orchestrator.core.switchboard import ConfirmModal, SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+
+        async def _noop(_cmd: list[str], _toast: str, *, clamp: bool = False) -> None:
+            return None
+
+        app._run_shell_bg = _noop  # type: ignore[assignment, method-assign]
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_ship()
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            await pilot.press("y")
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_merge_pushes_confirm_modal() -> None:
+    from open_orchestrator.core.switchboard import ConfirmModal, SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+
+        async def _noop(_cmd: list[str], _toast: str, *, clamp: bool = False) -> None:
+            return None
+
+        app._run_shell_bg = _noop  # type: ignore[assignment, method-assign]
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_merge()
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            await pilot.press("y")
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_ship_noop_when_no_cards() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_ship()
+            app.action_merge()
+            await pilot.pause()
+            assert "Confirm" not in type(app.screen).__name__
+
+
+@pytest.mark.asyncio
+async def test_switchboard_show_files_with_overlap_shows_toast() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    card = _make_card("wt-a")
+    card.overlap_count = 2
+    card.overlap_names = ["wt-b", "wt-c"]
+    with _patched_switchboard_world([card]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_show_files()
+            await pilot.pause()
+            from textual.widgets import Static
+
+            toast = app.query_one("#toast", Static)
+            rendered = toast.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert "Overlap" in text
+
+
+@pytest.mark.asyncio
+async def test_switchboard_show_files_no_overlap_does_nothing() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_show_files()
+            await pilot.pause()
+            from textual.widgets import Static
+
+            toast = app.query_one("#toast", Static)
+            rendered = toast.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert "Overlap" not in text
+
+
+@pytest.mark.asyncio
+async def test_switchboard_show_files_noop_when_no_cards() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_show_files()
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_show_info_shows_toast() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_show_info()
+            await pilot.pause()
+            from textual.widgets import Static
+
+            toast = app.query_one("#toast", Static)
+            rendered = toast.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert "wt-a" in text
+
+
+@pytest.mark.asyncio
+async def test_switchboard_show_info_noop_when_no_cards() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_show_info()
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_broadcast_sends_to_all() -> None:
+    from open_orchestrator.core.switchboard import InputModal, SwitchboardApp
+
+    cards = [_make_card("wt-a"), _make_card("wt-b", session="owt-wt-b")]
+    with _patched_switchboard_world(cards) as world:
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_broadcast()
+            await pilot.pause()
+            assert isinstance(app.screen, InputModal)
+            from textual.widgets import Input
+
+            app.screen.query_one("#modal-input", Input).value = "ping all"
+            await pilot.press("enter")
+            await pilot.pause()
+            sessions = [c.args[0] for c in world["tmux"].send_keys_to_pane.call_args_list]
+            assert sessions == ["owt-wt-a", "owt-wt-b"]
+            assert world["tracker"].record_command.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_switchboard_broadcast_handles_send_error() -> None:
+    from open_orchestrator.core.switchboard import InputModal, SwitchboardApp
+
+    with _patched_switchboard_world() as world:
+        world["tmux"].send_keys_to_pane.side_effect = RuntimeError("boom")
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_broadcast()
+            await pilot.pause()
+            assert isinstance(app.screen, InputModal)
+            from textual.widgets import Input
+
+            app.screen.query_one("#modal-input", Input).value = "fail-me"
+            await pilot.press("enter")
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_broadcast_noop_when_no_cards() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world(cards=[]):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_broadcast()
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_new_worktree_full_flow() -> None:
+    """Exercises action_new_worktree -> InputModal -> ConfirmModal -> _do_create_worktree."""
+    from open_orchestrator.core.switchboard import ConfirmModal, InputModal, SwitchboardApp
+
+    with (
+        _patched_switchboard_world(),
+        patch(
+            "open_orchestrator.core.branch_namer.generate_branch_name",
+            return_value="feat/auto-named",
+        ),
+        patch(
+            "open_orchestrator.core.agent_detector.detect_installed_agents",
+            return_value=["claude"],
+        ),
+    ):
+        app = SwitchboardApp()
+        spawned: list[list[str]] = []
+
+        async def _fake_bg(cmd: list[str], _toast: str, *, clamp: bool = False) -> None:
+            spawned.append(list(cmd))
+
+        app._run_shell_bg = _fake_bg  # type: ignore[assignment, method-assign]
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_new_worktree()
+            await pilot.pause()
+            assert isinstance(app.screen, InputModal)
+            from textual.widgets import Input
+
+            app.screen.query_one("#modal-input", Input).value = "make a thing"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            await pilot.press("y")
+            await pilot.pause()
+            await pilot.pause()
+            assert spawned and spawned[0][:2] == ["owt", "new"]
+            assert "make a thing" in spawned[0]
+            assert "--ai-tool" in spawned[0]
+
+
+@pytest.mark.asyncio
+async def test_switchboard_new_worktree_cancel_at_input_returns() -> None:
+    from open_orchestrator.core.switchboard import InputModal, SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_new_worktree()
+            await pilot.pause()
+            assert isinstance(app.screen, InputModal)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, InputModal)
+
+
+@pytest.mark.asyncio
+async def test_switchboard_new_worktree_cancel_at_confirm_aborts() -> None:
+    from open_orchestrator.core.switchboard import ConfirmModal, InputModal, SwitchboardApp
+
+    with (
+        _patched_switchboard_world(),
+        patch(
+            "open_orchestrator.core.branch_namer.generate_branch_name",
+            return_value="feat/x",
+        ),
+    ):
+        app = SwitchboardApp()
+        spawned: list[list[str]] = []
+
+        async def _fake_bg(cmd: list[str], _toast: str, *, clamp: bool = False) -> None:
+            spawned.append(list(cmd))
+
+        app._run_shell_bg = _fake_bg  # type: ignore[assignment, method-assign]
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_new_worktree()
+            await pilot.pause()
+            assert isinstance(app.screen, InputModal)
+            from textual.widgets import Input
+
+            app.screen.query_one("#modal-input", Input).value = "task"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            await pilot.press("n")
+            await pilot.pause()
+            assert spawned == []
+
+
+@pytest.mark.asyncio
+async def test_switchboard_new_worktree_branch_namer_fallback() -> None:
+    """ValueError from generate_branch_name triggers fallback slug."""
+    from open_orchestrator.core.switchboard import ConfirmModal, SwitchboardApp
+
+    with (
+        _patched_switchboard_world(),
+        patch(
+            "open_orchestrator.core.branch_namer.generate_branch_name",
+            side_effect=ValueError("bad task"),
+        ),
+    ):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_new_worktree()
+            await pilot.pause()
+            from textual.widgets import Input
+
+            app.screen.query_one("#modal-input", Input).value = "Some Task With Spaces"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            assert app._new_wt_branch == "some-task-with-spaces"
+
+
+@pytest.mark.asyncio
+async def test_switchboard_new_worktree_no_ai_tool_installed_shows_error() -> None:
+    from open_orchestrator.core.switchboard import ConfirmModal, SwitchboardApp
+
+    with (
+        _patched_switchboard_world(),
+        patch(
+            "open_orchestrator.core.branch_namer.generate_branch_name",
+            return_value="feat/y",
+        ),
+        patch(
+            "open_orchestrator.core.agent_detector.detect_installed_agents",
+            return_value=[],
+        ),
+    ):
+        app = SwitchboardApp()
+        spawned: list[list[str]] = []
+
+        async def _fake_bg(cmd: list[str], _toast: str, *, clamp: bool = False) -> None:
+            spawned.append(list(cmd))
+
+        app._run_shell_bg = _fake_bg  # type: ignore[assignment, method-assign]
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_new_worktree()
+            await pilot.pause()
+            from textual.widgets import Input
+
+            app.screen.query_one("#modal-input", Input).value = "task"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            await pilot.press("y")
+            await pilot.pause()
+            assert spawned == []
+
+
+@pytest.mark.asyncio
+async def test_switchboard_do_create_branch_session_passes_in_place_flag() -> None:
+    """When session_type=='branch', the spawned owt cmd includes --in-place."""
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        spawned: list[list[str]] = []
+
+        async def _fake_bg(cmd: list[str], _toast: str, *, clamp: bool = False) -> None:
+            spawned.append(list(cmd))
+
+        app._run_shell_bg = _fake_bg  # type: ignore[assignment, method-assign]
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._new_wt_task = "implement x"
+            app._new_wt_tool = "claude"
+            app._new_wt_session_type = "branch"
+            app._do_create_worktree()
+            await pilot.pause()
+            await pilot.pause()
+            assert spawned and "--in-place" in spawned[0]
+
+
+@pytest.mark.asyncio
+async def test_switchboard_heavy_refresh_updates_cards_and_header() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    cards = [_make_card("wt-a")]
+    with _patched_switchboard_world(cards) as world:
+        world["tracker"].has_changed_since.return_value = True
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app._heavy_refresh()
+            await pilot.pause()
+            assert app._heavy_refresh_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_switchboard_heavy_refresh_skips_when_no_changes() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    cards = [_make_card("wt-a")]
+    with _patched_switchboard_world(cards) as world:
+        world["tracker"].has_changed_since.return_value = False
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            before = app._heavy_refresh_count
+            await app._heavy_refresh()
+            await app._heavy_refresh()
+            await pilot.pause()
+            assert app._heavy_refresh_count == before + 2
+
+
+@pytest.mark.asyncio
+async def test_switchboard_on_tick_updates_elapsed_for_cached_status() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    cards = [_make_card("wt-a")]
+    with _patched_switchboard_world(cards) as world:
+        status = WorktreeAIStatus(
+            worktree_name="wt-a",
+            worktree_path="/tmp/wt-a",
+            branch="feat/wt-a",
+            tmux_session="owt-wt-a",
+            activity_status=AIActivityStatus.WORKING,
+            updated_at=datetime.now(),
+        )
+        world["tracker"].get_all_statuses.return_value = [status]
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._cached_statuses = {"wt-a": status}
+            before_tick = app._tick
+            app._on_tick()
+            assert app._tick == before_tick + 1
+
+
+@pytest.mark.asyncio
+async def test_switchboard_on_resize_recalculates_columns() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_resize()
+            assert app._cols >= 1
+
+
+@pytest.mark.asyncio
+async def test_switchboard_update_header_counts_buckets() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    cards = [
+        _make_card("wt-a"),
+        _make_card("wt-b"),
+    ]
+    cards[1].status = AIActivityStatus.WAITING
+    with _patched_switchboard_world(cards):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._update_header()
+            from textual.widgets import Static
+
+            stats = app.query_one("#header-stats", Static)
+            rendered = stats.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert "2" in text
+
+
+@pytest.mark.asyncio
+async def test_switchboard_show_toast_error_variant_renders() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._show_toast("uh oh", variant="error")
+            await pilot.pause()
+            from textual.widgets import Static
+
+            toast = app.query_one("#toast", Static)
+            rendered = toast.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert "uh oh" in text
+
+
+@pytest.mark.asyncio
+async def test_switchboard_on_unmount_closes_tracker() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world() as world:
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+        world["tracker"].close.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_wt_manager_init_failure_sets_none() -> None:
+    """If WorktreeManager() raises, app continues with _wt_manager = None."""
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    tracker = MagicMock()
+    tracker.get_all_statuses.return_value = []
+    tracker.has_changed_since.return_value = False
+    tracker.get_generation.return_value = "gen-0"
+    tracker.close = MagicMock()
+
+    with (
+        patch("open_orchestrator.core.switchboard.StatusTracker", return_value=tracker),
+        patch("open_orchestrator.core.switchboard.TmuxManager"),
+        patch(
+            "open_orchestrator.core.switchboard.WorktreeManager",
+            side_effect=RuntimeError("no git root"),
+        ),
+        patch("open_orchestrator.core.switchboard._build_cards", return_value=([], {})),
+        patch("open_orchestrator.core.switchboard._build_cards_async", return_value=([], {})),
+    ):
+        app = SwitchboardApp()
+        assert app._wt_manager is None
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_build_cards_init_failure_starts_empty() -> None:
+    """If _build_cards raises during __init__, app starts with empty cards."""
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    tracker = MagicMock()
+    tracker.get_all_statuses.return_value = []
+    tracker.has_changed_since.return_value = False
+    tracker.get_generation.return_value = "gen-0"
+    tracker.close = MagicMock()
+
+    with (
+        patch("open_orchestrator.core.switchboard.StatusTracker", return_value=tracker),
+        patch("open_orchestrator.core.switchboard.TmuxManager"),
+        patch("open_orchestrator.core.switchboard.WorktreeManager"),
+        patch("open_orchestrator.core.switchboard._build_cards", side_effect=RuntimeError("boom")),
+        patch("open_orchestrator.core.switchboard._build_cards_async", return_value=([], {})),
+    ):
+        app = SwitchboardApp()
+        assert app._cards == []
+        assert app._file_map == {}
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_apply_theme_swallows_errors() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with (
+        _patched_switchboard_world(),
+        patch(
+            "open_orchestrator.core.theme.get_active_palette",
+            side_effect=RuntimeError("palette boom"),
+        ),
+    ):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._apply_theme()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_footer_string_is_built() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    with _patched_switchboard_world():
+        app = SwitchboardApp()
+        footer = app._build_footer()
+        assert "nav" in footer or "patch" in footer
+
+
+# ---------------------------------------------------------------------------
+# Sprint 027 Phase 2: ``_run_shell_bg`` paths
+# ---------------------------------------------------------------------------
+#
+# These exercise the success / failure / timeout / generic-error branches of
+# the helper that shells out to ``owt`` subcommands.  We stub
+# ``asyncio.create_subprocess`` and ``asyncio.wait_for`` so no real process
+# is launched and no real sleeps happen.
+
+_SUBPROC_TARGET = "open_orchestrator.core.switchboard.asyncio.create_subprocess_exec"
+_WAITFOR_TARGET = "open_orchestrator.core.switchboard.asyncio.wait_for"
+
+
+def _make_fake_proc(returncode: int, stderr: bytes = b"") -> MagicMock:
+    async def _communicate() -> tuple[bytes, bytes]:
+        return (b"", stderr)
+
+    proc = MagicMock()
+    proc.returncode = returncode
+    proc.communicate = _communicate
+    return proc
+
+
+@pytest.mark.asyncio
+async def test_switchboard_run_shell_bg_success_path() -> None:
+    """Run _run_shell_bg with a stubbed subprocess that exits cleanly."""
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    proc = _make_fake_proc(returncode=0)
+
+    async def _spawn(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return proc
+
+    with _patched_switchboard_world(), patch(_SUBPROC_TARGET, new=_spawn):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app._run_shell_bg(["echo", "hi"], "running", clamp=False)
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_run_shell_bg_failure_shows_error_toast() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    proc = _make_fake_proc(returncode=1, stderr=b"oh dear\n")
+
+    async def _spawn(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return proc
+
+    with _patched_switchboard_world(), patch(_SUBPROC_TARGET, new=_spawn):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app._run_shell_bg(["false"], "running", clamp=True)
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_run_shell_bg_timeout_shows_error_toast() -> None:
+    import asyncio as _asyncio
+
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    # Use a proc whose communicate() returns an already-awaited stub so it
+    # doesn't trigger "coroutine was never awaited" warnings when wait_for
+    # bypasses the actual await.
+    proc = MagicMock()
+    proc.returncode = 0
+    proc.communicate = MagicMock(return_value=None)
+
+    async def _spawn(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return proc
+
+    async def _raise_timeout(*_a, **_kw):  # type: ignore[no-untyped-def]
+        raise _asyncio.TimeoutError()
+
+    with (
+        _patched_switchboard_world(),
+        patch(_SUBPROC_TARGET, new=_spawn),
+        patch(_WAITFOR_TARGET, new=_raise_timeout),
+    ):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app._run_shell_bg(["sleep", "9999"], "running")
+            await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_switchboard_run_shell_bg_generic_error_shows_error_toast() -> None:
+    from open_orchestrator.core.switchboard import SwitchboardApp
+
+    async def _spawn(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise OSError("nope")
+
+    with _patched_switchboard_world(), patch(_SUBPROC_TARGET, new=_spawn):
+        app = SwitchboardApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app._run_shell_bg(["x"], "running")
+            await pilot.pause()

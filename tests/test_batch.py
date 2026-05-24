@@ -46,25 +46,25 @@ class TestBatchRunnerInit:
 
     def test_builds_task_index(self, simple_config: BatchConfig) -> None:
         runner = BatchRunner(simple_config, "/tmp/fake")
-        assert runner._task_index == {"a": 0, "b": 1}
+        assert runner._scheduler.task_index == {"a": 0, "b": 1}
 
 
 class TestBatchRunnerDeps:
     def test_deps_satisfied_no_deps(self, simple_config: BatchConfig) -> None:
         runner = BatchRunner(simple_config, "/tmp/fake")
-        assert runner._deps_satisfied(0)
-        assert runner._deps_satisfied(1)
+        assert runner._scheduler.deps_satisfied(0)
+        assert runner._scheduler.deps_satisfied(1)
 
     def test_deps_satisfied_with_deps(self, dag_config: BatchConfig) -> None:
         runner = BatchRunner(dag_config, "/tmp/fake")
-        assert not runner._deps_satisfied(1)  # b depends on a
+        assert not runner._scheduler.deps_satisfied(1)  # b depends on a
         runner.results[0].status = BatchStatus.COMPLETED
-        assert runner._deps_satisfied(1)
+        assert runner._scheduler.deps_satisfied(1)
 
     def test_deps_failed_detection(self, dag_config: BatchConfig) -> None:
         runner = BatchRunner(dag_config, "/tmp/fake")
         runner.results[0].status = BatchStatus.FAILED
-        assert runner._deps_failed(1)
+        assert runner._scheduler.deps_failed(1)
 
 
 class TestBatchStateResume:

@@ -232,12 +232,14 @@ class SyncService:
                 message=f"git timed out after {exc.timeout}s — worktree marked STALLED",
                 upstream_branch=upstream,
             )
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
+            # IPC boundary: convert OS/subprocess failures to a typed result, but log so they're traceable
+            logger.exception("sync_worktree failed for %s: %s", worktree_path, e)
             return WorktreeSyncResult(
                 worktree_path=worktree_path,
                 branch_name=branch_name,
                 status=SyncStatus.ERROR,
-                message=f"Sync failed: {str(e)}",
+                message=f"Sync failed: {e!s}",
                 upstream_branch=upstream,
             )
 
@@ -334,12 +336,14 @@ class SyncService:
                 message=f"git timed out after {exc.timeout}s — worktree marked STALLED",
                 upstream_branch=upstream,
             )
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
+            # IPC boundary: convert OS/subprocess failures to a typed result, but log so they're traceable
+            logger.exception("get_sync_status failed for %s: %s", worktree_path, e)
             return WorktreeSyncResult(
                 worktree_path=worktree_path,
                 branch_name=branch_name,
                 status=SyncStatus.ERROR,
-                message=f"Failed to get status: {str(e)}",
+                message=f"Failed to get status: {e!s}",
                 upstream_branch=upstream,
             )
 

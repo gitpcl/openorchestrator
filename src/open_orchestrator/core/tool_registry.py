@@ -10,18 +10,23 @@ from __future__ import annotations
 
 import logging
 import shlex
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from open_orchestrator.core._path import try_resolve_binary
 from open_orchestrator.core.tool_protocol import AIToolProtocol
 
 logger = logging.getLogger(__name__)
 
 
 def _resolve_binary(binary: str, known_paths: list[Path]) -> str | None:
-    """Return the resolved executable path, or None if not installed."""
-    path = shutil.which(binary)
+    """Return the resolved executable path, or None if not installed.
+
+    Uses the allowlisted safe PATH (see :mod:`open_orchestrator.core._path`)
+    so a worktree-local poisoned binary cannot register itself as the
+    canonical AI tool.
+    """
+    path = try_resolve_binary(binary)
     if path:
         return path
     for candidate in known_paths:

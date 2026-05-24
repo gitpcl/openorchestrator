@@ -291,7 +291,7 @@ class TestAutomatedLaunch:
 
 class TestHeadlessLaunch:
     @patch("open_orchestrator.core.agent_launcher.subprocess.Popen")
-    @patch("open_orchestrator.core.agent_launcher.shutil.which", return_value="/usr/bin/claude")
+    @patch("open_orchestrator.core.agent_launcher.try_resolve_binary", return_value="/usr/bin/claude")
     def test_headless_launches_subprocess(
         self,
         mock_which: MagicMock,

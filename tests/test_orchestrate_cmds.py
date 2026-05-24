@@ -35,7 +35,7 @@ def cli() -> click.Group:
 
 def _toml_plan(tmp_path: Path, n_tasks: int = 2) -> Path:
     """Write a minimal valid plan TOML to ``tmp_path/plan.toml``."""
-    lines = ['[batch]\nmax_concurrent = 3\n']
+    lines = ["[batch]\nmax_concurrent = 3\n"]
     for i in range(n_tasks):
         lines.append(f'\n[[tasks]]\nid = "t{i}"\ndescription = "Task {i}"\n')
         if i > 0:

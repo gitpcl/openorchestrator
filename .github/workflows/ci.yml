@@ -21,7 +21,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: uv pip install -e ".[dev]" --system
+        run: uv pip install --group dev --system -e .
 
       - name: Ruff check
         run: ruff check src/ tests/
@@ -57,10 +57,10 @@ jobs:
         run: brew install tmux
 
       - name: Install dependencies
-        run: uv pip install -e ".[dev]" --system
+        run: uv pip install --group dev --system -e .
 
       - name: Run tests
-        run: pytest -v --cov=src/open_orchestrator --cov-report=term-missing --cov-report=xml --cov-fail-under=68
+        run: pytest -v --cov=src/open_orchestrator --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
       - name: Combine coverage
         if: always()

@@ -10,7 +10,7 @@ authors = [
 ]
 keywords = ["git", "worktree", "claude", "tmux", "orchestration"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
@@ -48,22 +48,6 @@ agno = [
     "agno>=1.0.0",
 ]
 mcp = [
-    "mcp>=1.0.0",
-]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-asyncio>=0.21.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-    "tomli>=2.0.0; python_version < '3.11'",
-    "pyyaml>=6.0.0",
-    "types-pyyaml>=6.0.0",
-    "types-toml>=0.10.0",
-    "build>=1.0.0",
-    "twine>=5.0.0",
-    # Optional runtime extras installed in dev so mypy can type-check the
-    # optional code paths (mcp_peer.py imports mcp.server.fastmcp).
     "mcp>=1.0.0",
 ]
 
@@ -110,7 +94,6 @@ ignore = [
     "S108",  # insecure temp file usage - acceptable in test fixtures with mocks
     "S603",  # subprocess call - false positive when using list arguments
     "S607",  # partial executable path - acceptable for well-known system commands (git, tmux)
-    "S110",  # try-except-pass - acceptable for best-effort cleanup operations
     "B008",  # function-call-in-default-argument — Click typer/pydantic Field idioms
     "B904",  # raise-without-from-inside-except — acceptable in CLI/UX layers
     "SIM108",# if-else-block-instead-of-ternary — ternaries hurt readability in some places
@@ -187,10 +170,23 @@ source = [
 ]
 
 [dependency-groups]
+# PEP 735 dev group — modern uv idiom. Install via `uv sync --group dev` or
+# `uv pip install --group dev .` (replaces the legacy `.[dev]` extra).
 dev = [
     "pytest>=9.0.2",
+    "pytest-cov>=4.0.0",
     "pytest-asyncio>=1.3.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+    "pyyaml>=6.0.0",
+    "types-pyyaml>=6.0.0",
     "types-toml>=0.10.8.20240310",
+    "build>=1.0.0",
+    "twine>=5.0.0",
+    # Optional runtime extras installed in dev so mypy can type-check the
+    # optional code paths (mcp_peer.py imports mcp.server.fastmcp).
+    "mcp>=1.0.0",
 ]
 
 [tool.uv]

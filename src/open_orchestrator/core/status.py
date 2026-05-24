@@ -3,21 +3,28 @@ Status tracking service for worktree AI tool sessions.
 
 SQLite backend — replaces the previous JSON + file-locking approach.
 WAL mode allows concurrent reads/writes from the switchboard and hooks.
+
+Schema, migrations, path resolution, and the persistence repository live
+in :mod:`open_orchestrator.core.status_schema`; this module focuses on the
+runtime :class:`StatusTracker` behavior.
 """
 
-import contextlib
-import json
 import logging
-import os
-import sqlite3
-import tempfile
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from open_orchestrator.core import status_policy
-from open_orchestrator.core._db import open_db
+from open_orchestrator.core import status_schema as _schema
+from open_orchestrator.core.status_schema import (
+    DEFAULT_STATUS_FILENAME,
+    PEER_MESSAGES_SCHEMA,
+    STATUS_DB_ENV_VAR,
+    SQLiteStatusRepository,
+    StatusConfig,
+    default_status_path,
+    runtime_status_config,
+)
 from open_orchestrator.models.status import (
     AIActivityStatus,
     StatusSummary,
@@ -27,244 +34,24 @@ from open_orchestrator.models.status import (
 if TYPE_CHECKING:
     from open_orchestrator.models.backend import BackendSession
 
+# Aliased re-exports kept as module-level bindings to avoid 5x ruff-split imports.
+_insert_shared_note = _schema.insert_shared_note
+_migrate_legacy_json = _schema.migrate_legacy_json
+_row_to_status = _schema.row_to_status
+_upsert_status_row = _schema.upsert_status_row
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_STATUS_FILENAME = "status.db"
-STATUS_DB_ENV_VAR = "OWT_DB_PATH"
-
-_SCHEMA_SQL = """\
-CREATE TABLE IF NOT EXISTS worktree_status (
-    worktree_name TEXT PRIMARY KEY,
-    worktree_path TEXT NOT NULL,
-    branch TEXT NOT NULL,
-    tmux_session TEXT,
-    ai_tool TEXT DEFAULT 'claude',
-    activity_status TEXT DEFAULT 'idle',
-    current_task TEXT,
-    last_task_update TEXT,
-    notes TEXT,
-    modified_files TEXT DEFAULT '[]',
-    backend_kind TEXT DEFAULT 'tmux',
-    backend_session_id TEXT,
-    backend_meta TEXT DEFAULT '{}',
-    session_type TEXT DEFAULT 'worktree',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS shared_notes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    note TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS metadata (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS peer_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_peer TEXT NOT NULL,
-    to_peer TEXT NOT NULL,
-    message TEXT NOT NULL,
-    read INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_peer_messages_to_peer_read
-    ON peer_messages(to_peer, read);
-"""
-
-# Exported for mcp_peer.py to avoid duplicate schema definitions
-PEER_MESSAGES_SCHEMA = """\
-CREATE TABLE IF NOT EXISTS peer_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_peer TEXT NOT NULL,
-    to_peer TEXT NOT NULL,
-    message TEXT NOT NULL,
-    read INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_peer_messages_to_peer_read
-    ON peer_messages(to_peer, read);
-"""
-
-
-def _dt_to_str(dt: datetime | None) -> str | None:
-    if dt is None:
-        return None
-    return dt.isoformat()
-
-
-def _str_to_dt(s: str | None) -> datetime | None:
-    if s is None:
-        return None
-    return datetime.fromisoformat(s)
-
-
-def _row_to_status(row: sqlite3.Row) -> WorktreeAIStatus:
-    # sqlite3.Row.keys() is the safe portable way to introspect columns;
-    # older DBs created before Sprint 025 P7 may not have backend_* columns.
-    columns = set(row.keys())
-    return WorktreeAIStatus(
-        worktree_name=row["worktree_name"],
-        worktree_path=row["worktree_path"],
-        branch=row["branch"],
-        tmux_session=row["tmux_session"],
-        ai_tool=row["ai_tool"] or "claude",
-        activity_status=AIActivityStatus(row["activity_status"] or "unknown"),
-        current_task=row["current_task"],
-        last_task_update=_str_to_dt(row["last_task_update"]),
-        notes=row["notes"],
-        modified_files=json.loads(row["modified_files"] or "[]"),
-        backend_kind=(row["backend_kind"] if "backend_kind" in columns else None) or "tmux",
-        backend_session_id=row["backend_session_id"] if "backend_session_id" in columns else None,
-        backend_meta=json.loads((row["backend_meta"] if "backend_meta" in columns else None) or "{}"),
-        session_type=(row["session_type"] if "session_type" in columns else None) or "worktree",
-        created_at=_str_to_dt(row["created_at"]) or datetime.now(),
-        updated_at=_str_to_dt(row["updated_at"]) or datetime.now(),
-    )
-
-
-@dataclass
-class StatusConfig:
-    """Configuration for status tracking."""
-
-    storage_path: Path | None = None
-
-
-def default_status_path() -> Path:
-    """Resolve the default status DB path.
-
-    ``OWT_DB_PATH`` takes precedence so hook-driven subprocesses, MCP peers,
-    and in-process callers can be pointed at the same DB explicitly.
-    """
-    env_path = os.environ.get(STATUS_DB_ENV_VAR)
-    if env_path:
-        return Path(env_path).expanduser()
-    return Path.home() / ".open-orchestrator" / DEFAULT_STATUS_FILENAME
-
-
-def _is_writable_sqlite_target(path: Path) -> bool:
-    """Check whether a SQLite file target appears writable."""
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return False
-    if path.exists():
-        return os.access(path, os.W_OK)
-    return os.access(path.parent, os.W_OK)
-
-
-def _temp_status_path(repo_name: str | None = None) -> Path:
-    """Create a user-scoped temp location for fallback status storage."""
-    user_tmp = Path(tempfile.gettempdir()) / f"owt-{os.getuid()}"
-    user_tmp.mkdir(mode=0o700, exist_ok=True)
-    if repo_name:
-        return user_tmp / repo_name / DEFAULT_STATUS_FILENAME
-    return user_tmp / DEFAULT_STATUS_FILENAME
-
-
-def _resolve_repo_root(repo_path: str | Path | None = None) -> Path | None:
-    """Resolve the common git root for a repo or worktree path."""
-    from open_orchestrator.core.worktree import WorktreeManager
-
-    candidate = Path(repo_path) if repo_path is not None else Path.cwd()
-    try:
-        return WorktreeManager(candidate).git_root
-    except Exception:
-        logger.debug("Could not resolve repo root from %s", candidate, exc_info=True)
-        return None
-
-
-def runtime_status_config(repo_path: str | Path | None = None) -> StatusConfig:
-    """Build a status config suitable for orchestrator/batch runtime use.
-
-    Production flows keep using the shared default DB path so hooks, MCP,
-    and other CLI surfaces stay in sync. When the shared home-directory DB
-    is unavailable, repo-bound commands fall back to a repo-local DB rooted
-    at the common git dir so worktrees, hooks, switchboard, and orchestration
-    keep reading the same state.
-    """
-    shared_path = default_status_path()
-    if _is_writable_sqlite_target(shared_path):
-        return StatusConfig(storage_path=shared_path)
-
-    repo_root = _resolve_repo_root(repo_path)
-    if repo_root is not None:
-        repo_local = repo_root / ".open-orchestrator" / DEFAULT_STATUS_FILENAME
-        if _is_writable_sqlite_target(repo_local):
-            return StatusConfig(storage_path=repo_local)
-        return StatusConfig(storage_path=_temp_status_path(repo_root.name))
-
-    if repo_path is None:
-        return StatusConfig(storage_path=_temp_status_path())
-
-    repo = Path(repo_path)
-    safe_name = repo.name or "repo"
-    return StatusConfig(storage_path=_temp_status_path(safe_name))
-
-
-class SQLiteStatusRepository:
-    """SQLite-backed persistence for status tracking."""
-
-    def __init__(self, config: StatusConfig | None = None):
-        self.config = config or StatusConfig()
-        self.storage_path = self.config.storage_path or default_status_path()
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = open_db(self.storage_path)
-        self._ensure_schema()
-        with contextlib.suppress(PermissionError, OSError):
-            os.chmod(self.storage_path, 0o600)
-
-    def _ensure_schema(self) -> None:
-        """Create tables if they don't exist and migrate columns added later."""
-        self.conn.executescript(_SCHEMA_SQL)
-        self._migrate_columns()
-        self.conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('version', '3.2')")
-        self.conn.commit()
-
-    def _migrate_columns(self) -> None:
-        """Add columns introduced in later sprints to pre-existing DBs.
-
-        Sprint 025 P7 added the ``backend_*`` columns; Sprint 026 P1 adds
-        ``session_type`` so doctor can tell worktree-mode and branch-mode
-        rows apart without crossing the git layer.
-        """
-        existing_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(worktree_status)").fetchall()}
-        if "backend_kind" not in existing_cols:
-            self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_kind TEXT DEFAULT 'tmux'")
-        if "backend_session_id" not in existing_cols:
-            self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_session_id TEXT")
-        if "backend_meta" not in existing_cols:
-            self.conn.execute("ALTER TABLE worktree_status ADD COLUMN backend_meta TEXT DEFAULT '{}'")
-        if "session_type" not in existing_cols:
-            self.conn.execute("ALTER TABLE worktree_status ADD COLUMN session_type TEXT DEFAULT 'worktree'")
-
-    def load_legacy_json(self) -> tuple[Path | None, dict[str, object] | None]:
-        """Load legacy ai_status.json if present."""
-        from open_orchestrator.utils.io import safe_read_json
-
-        json_path = self.storage_path.parent / "ai_status.json"
-        if not json_path.exists():
-            return None, None
-        try:
-            data = safe_read_json(json_path)
-            return json_path, data
-        except (OSError, ValueError) as e:
-            logger.warning("Failed to migrate %s: %s", json_path, e)
-            return None, None
-
-    def backup_legacy_json(self, json_path: Path) -> None:
-        """Rename a migrated legacy JSON status file to a backup."""
-        bak_path = json_path.with_suffix(".json.bak")
-        json_path.rename(bak_path)
-        logger.info("Migrated %s → SQLite, backup at %s", json_path, bak_path)
-
-    def close(self) -> None:
-        """Close the underlying SQLite connection."""
-        self.conn.close()
+__all__ = [
+    "DEFAULT_STATUS_FILENAME",
+    "PEER_MESSAGES_SCHEMA",
+    "STATUS_DB_ENV_VAR",
+    "SQLiteStatusRepository",
+    "StatusConfig",
+    "StatusTracker",
+    "default_status_path",
+    "runtime_status_config",
+]
 
 
 class StatusTracker:
@@ -288,41 +75,9 @@ class StatusTracker:
         self._conn = self._repository.conn
         self._migrate_json()
 
-    def _get_default_path(self) -> Path:
-        """Get default path for status storage in user's home directory."""
-        return default_status_path()
-
-    def _ensure_schema(self) -> None:
-        """Create tables if they don't exist."""
-        self._repository._ensure_schema()
-
     def _migrate_json(self) -> None:
         """Import data from legacy ai_status.json if it exists."""
-        json_path, data = self._repository.load_legacy_json()
-        if not json_path or data is None:
-            return
-        try:
-            for name, s in data.get("statuses", {}).items():  # type: ignore[attr-defined]
-                status = WorktreeAIStatus(
-                    worktree_name=s.get("worktree_name", name),
-                    worktree_path=s.get("worktree_path", ""),
-                    branch=s.get("branch", ""),
-                    tmux_session=s.get("tmux_session"),
-                    ai_tool=s.get("ai_tool", "claude"),
-                    activity_status=AIActivityStatus(s.get("activity_status", "unknown")),
-                    current_task=s.get("current_task"),
-                    last_task_update=_str_to_dt(s.get("last_task_update")),
-                    notes=s.get("notes"),
-                    modified_files=s.get("modified_files", []),
-                    created_at=_str_to_dt(s.get("created_at")) or datetime.now(),
-                    updated_at=_str_to_dt(s.get("updated_at")) or datetime.now(),
-                )
-                self._upsert_status(status)
-            for note in data.get("shared_notes", []):  # type: ignore[attr-defined]
-                self.add_shared_note(note)
-            self._repository.backup_legacy_json(json_path)
-        except (OSError, ValueError) as e:
-            logger.warning("Failed to migrate %s: %s", json_path, e)
+        _migrate_legacy_json(self._conn, self._storage_path)
 
     def close(self) -> None:
         """Close the database connection."""
@@ -363,34 +118,8 @@ class StatusTracker:
         return [_row_to_status(r) for r in rows]
 
     def _upsert_status(self, s: WorktreeAIStatus) -> None:
-        """Insert or replace a status row."""
-        self._conn.execute(
-            """INSERT OR REPLACE INTO worktree_status
-               (worktree_name, worktree_path, branch, tmux_session, ai_tool,
-                activity_status, current_task, last_task_update, notes,
-                modified_files, backend_kind, backend_session_id, backend_meta,
-                session_type, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                s.worktree_name,
-                s.worktree_path,
-                s.branch,
-                s.tmux_session,
-                s.ai_tool,
-                s.activity_status.value,
-                s.current_task,
-                _dt_to_str(s.last_task_update),
-                s.notes,
-                json.dumps(s.modified_files),
-                s.backend_kind,
-                s.backend_session_id,
-                json.dumps(s.backend_meta),
-                s.session_type,
-                _dt_to_str(s.created_at),
-                _dt_to_str(s.updated_at),
-            ),
-        )
-        self._conn.commit()
+        """Insert or replace a status row (delegates to schema module)."""
+        _upsert_status_row(self._conn, s)
 
     def set_status(self, status: WorktreeAIStatus) -> None:
         """Public API to persist a WorktreeAIStatus update."""
@@ -411,14 +140,9 @@ class StatusTracker:
     ) -> WorktreeAIStatus:
         """Initialize status tracking for a new worktree.
 
-        ``backend_kind`` records which multiplexer hosts the session so
-        ``owt attach``/``owt send``/``owt delete`` can pick the right
-        backend later without a CLI flag.
-
-        ``session_type`` records whether the session is a git worktree
-        (default) or an in-place branch — Sprint 026 P1 added this so
-        ``owt doctor`` can reconcile branch rows against the branch list
-        instead of mis-flagging them as orphaned worktrees.
+        ``backend_kind`` records which multiplexer hosts the session.
+        ``session_type`` distinguishes worktree-mode from in-place branch
+        rows (Sprint 026 P1) so ``owt doctor`` reconciles them correctly.
         """
         st = session_type if session_type in {"worktree", "branch"} else "worktree"
         status = WorktreeAIStatus(
@@ -475,10 +199,8 @@ class StatusTracker:
     ) -> WorktreeAIStatus | None:
         """Update the current task for a worktree.
 
-        ``backend`` is an optional :class:`MultiplexerBackend` (Sprint 025).
-        When provided, the new state is forwarded to its sidebar via
-        ``backend.report_agent_state``. SQLite remains source of truth —
-        backend forwarding is best-effort and non-fatal.
+        When ``backend`` is provided, the state is forwarded to its sidebar
+        via ``backend.report_agent_state`` (best-effort, non-fatal).
         """
         wt_status = self.get_status(worktree_name)
         if not wt_status:
@@ -501,8 +223,7 @@ class StatusTracker:
         try:
             from open_orchestrator.models.backend import BackendSession  # local import to avoid cycle
 
-            # Prefer the backend-native session id; fall back to legacy
-            # tmux_session, then worktree_name as a last resort.
+            # Prefer backend-native session id, fall back to tmux/worktree name.
             session_id = wt_status.backend_session_id or wt_status.tmux_session or wt_status.worktree_name
             session = BackendSession(
                 kind=backend.kind,  # type: ignore[attr-defined]
@@ -557,13 +278,10 @@ class StatusTracker:
         return wt_status
 
     def mark_stalled(self, worktree_name: str, reason: str | None = None) -> WorktreeAIStatus | None:
-        """Mark a worktree as stalled.
+        """Mark a worktree as stalled (called from subprocess-timeout boundaries).
 
-        Called from subprocess-timeout boundaries (git / gh / tmux / AI CLI)
-        so the switchboard can surface a hung session within the operator's
-        attention span. Returns ``None`` if no status row exists for
-        ``worktree_name`` — timeouts on unknown worktrees are logged by the
-        caller, not persisted here.
+        Returns ``None`` when no status row exists — unknown worktrees are
+        logged by the caller, not persisted here.
         """
         wt_status = self.get_status(worktree_name)
         if not wt_status:
@@ -600,11 +318,7 @@ class StatusTracker:
 
     def add_shared_note(self, note: str) -> None:
         """Add a shared note."""
-        self._conn.execute(
-            "INSERT INTO shared_notes (note, created_at) VALUES (?, ?)",
-            (note, datetime.now().isoformat()),
-        )
-        self._conn.commit()
+        _insert_shared_note(self._conn, note)
 
     def clear_shared_notes(self) -> None:
         """Clear all shared notes."""

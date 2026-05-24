@@ -233,10 +233,10 @@ class TestBatchRunnerDag:
         )
         runner = BatchRunner(config, "/tmp/fake")
         # Before A completes, B's deps are not satisfied
-        assert not runner._deps_satisfied(1)
+        assert not runner._scheduler.deps_satisfied(1)
         # After A completes, B's deps are satisfied
         runner.results[0].status = BatchStatus.COMPLETED
-        assert runner._deps_satisfied(1)
+        assert runner._scheduler.deps_satisfied(1)
 
     def test_deps_satisfied_shipped(self):
         from open_orchestrator.core.batch import BatchRunner
@@ -249,7 +249,7 @@ class TestBatchRunnerDag:
         )
         runner = BatchRunner(config, "/tmp/fake")
         runner.results[0].status = BatchStatus.SHIPPED
-        assert runner._deps_satisfied(1)
+        assert runner._scheduler.deps_satisfied(1)
 
     def test_deps_failed_detection(self):
         from open_orchestrator.core.batch import BatchRunner
@@ -262,7 +262,7 @@ class TestBatchRunnerDag:
         )
         runner = BatchRunner(config, "/tmp/fake")
         runner.results[0].status = BatchStatus.FAILED
-        assert runner._deps_failed(1)
+        assert runner._scheduler.deps_failed(1)
 
     def test_select_ready_respects_deps(self):
         from open_orchestrator.core.batch import BatchRunner
@@ -277,8 +277,8 @@ class TestBatchRunnerDag:
         runner = BatchRunner(config, "/tmp/fake")
 
         # Both A and C have no deps; B depends on A
-        pending = list(runner._topo_order)
-        idx = runner._select_ready(pending)
+        pending = list(runner._scheduler.topo_order)
+        idx = runner._scheduler.select_ready(pending)
         assert idx is not None
         # The selected task should be one without unsatisfied deps
         selected_task = runner.results[idx].task
@@ -296,8 +296,8 @@ class TestBatchRunnerDag:
             ]
         )
         runner = BatchRunner(config, "/tmp/fake")
-        assert set(runner._topo_order) == {0, 1, 2}
-        assert not runner._has_deps
+        assert set(runner._scheduler.topo_order) == {0, 1, 2}
+        assert not runner._scheduler.has_deps
 
     def test_dag_progress_metadata(self):
         from open_orchestrator.core.batch import BatchRunner
@@ -309,13 +309,13 @@ class TestBatchRunnerDag:
             ]
         )
         runner = BatchRunner(config, "/tmp/fake")
-        runner._update_dag_progress(1, 2)
+        runner._scheduler.update_progress(1, 2)
 
         row = runner.tracker._conn.execute("SELECT value FROM metadata WHERE key = 'dag_progress'").fetchone()
         assert row is not None
         assert row["value"] == "1/2"
 
-        runner._clear_dag_progress()
+        runner._scheduler.clear_progress()
         row = runner.tracker._conn.execute("SELECT value FROM metadata WHERE key = 'dag_progress'").fetchone()
         assert row is None
 

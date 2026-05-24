@@ -250,8 +250,9 @@ class Orchestrator:
             try:
                 inspection = self._runtime.inspect_worktree_commits(task.worktree_name, self.state.feature_branch)
                 has_commits = inspection.has_commits
-            except Exception:
-                logger.debug("Failed to inspect commits for task '%s'", task.id, exc_info=True)
+            except (OSError, RuntimeError) as e:
+                # RuntimeEvaluationError (RuntimeError subclass) wraps git/subprocess failures
+                logger.exception("Failed to inspect commits for task '%s': %s", task.id, e)
                 has_commits = False
 
             if has_commits:
@@ -449,8 +450,9 @@ class Orchestrator:
                 self.state.feature_branch,
             )
             return inspection.has_commits
-        except Exception as e:
-            logger.warning(
+        except (OSError, RuntimeError) as e:
+            # RuntimeEvaluationError (RuntimeError subclass) wraps git/subprocess failures
+            logger.exception(
                 "Commit check failed for '%s': %s",
                 task.worktree_name,
                 e,
@@ -462,14 +464,17 @@ class Orchestrator:
         if not task.worktree_name:
             return
 
+        from open_orchestrator.core.merge import MergeError
+        from open_orchestrator.core.tmux_manager import TmuxError
+
         try:
             # Kill tmux session before merge
             session_name = self.tmux.generate_session_name(task.worktree_name)
             try:
                 if self.tmux.session_exists(session_name):
                     self.tmux.kill_session(session_name)
-            except Exception:
-                logger.debug("Failed to kill tmux session for task %s", task.id, exc_info=True)
+            except (TmuxError, OSError):
+                logger.exception("Failed to kill tmux session for task %s", task.id)
 
             # Auto-commit uncommitted work (safety net for agents that
             # create files but exit before committing)
@@ -500,8 +505,8 @@ class Orchestrator:
                             return
                 except ImportError:
                     pass
-                except Exception as e:
-                    logger.debug("Quality gate skipped: %s", e)
+                except Exception as e:  # noqa: BLE001 — Agno is an external optional dep; any failure must fall through to ship
+                    logger.warning("Quality gate skipped due to unexpected error: %s", e, exc_info=True)
 
             # Guard: refuse to ship if branch has no new commits
             wt = merge_mgr.wt_manager.get(task.worktree_name)
@@ -518,7 +523,9 @@ class Orchestrator:
             self.tracker.remove_status(task.worktree_name)
             task.status = TaskPhase.SHIPPED
             logger.info("Shipped task '%s' (%d commits) into '%s'", task.id, commits, self.state.feature_branch)
-        except Exception as e:
+        except (MergeError, OSError, ValueError) as e:
+            # MergeError covers git/merge conflicts; OSError/ValueError cover filesystem + bad refs
+            logger.exception("Merge failed for task '%s': %s", task.id, e)
             self._handle_task_failure(task, f"Merge failed: {e}")
 
     # ─── Progress ──────────────────────────────────────────────────────
@@ -527,9 +534,12 @@ class Orchestrator:
         """Poll git log for running tasks and push latest commit to status tracker."""
         import subprocess
 
+        from open_orchestrator.core.worktree import WorktreeError
+
         try:
             merge_mgr = self._merge_manager_factory()
-        except Exception:
+        except (OSError, ValueError) as e:
+            logger.debug("MergeManager construction failed in progress poll: %s", e, exc_info=True)
             return
 
         for task in self.state.tasks:
@@ -549,8 +559,9 @@ class Orchestrator:
                         task.worktree_name,
                         result.stdout.strip()[:100],
                     )
-            except Exception:
-                logger.debug("Task description extraction failed for %s", task.id, exc_info=True)
+            except (WorktreeError, subprocess.SubprocessError, OSError):
+                # Progress polling is best-effort — the agent's real status is tracked elsewhere
+                logger.exception("Task description extraction failed for %s", task.id)
 
     # ─── User Presence ─────────────────────────────────────────────────
 
@@ -581,14 +592,17 @@ class Orchestrator:
                 continue
             try:
                 inject_coordination_context(status.worktree_path, wt_messages)
-            except Exception as e:
-                logger.debug("Coordination injection failed for %s: %s", wt_name, e)
+            except OSError as e:
+                logger.exception("Coordination injection failed for %s: %s", wt_name, e)
 
         for event_key, _, _ in events:
             self._set_cooldown(event_key)
 
     def _detect_overlap_events(self, running_tasks: list[TaskState]) -> list[tuple[str, str, list[str]]]:
         """Detect file overlaps between running worktrees. Returns (event_key, message, targets)."""
+        from open_orchestrator.core.merge import MergeError
+        from open_orchestrator.core.worktree import WorktreeError
+
         events: list[tuple[str, str, list[str]]] = []
         merge_mgr = MergeManager(repo_path=Path(self.state.repo_path))
 
@@ -609,8 +623,8 @@ class Orchestrator:
                         f"Limit your changes to sections the other agents aren't touching."
                     )
                     events.append((event_key, msg, targets))
-            except Exception as e:
-                logger.debug("File overlap check failed for %s: %s", task.worktree_name, e)
+            except (MergeError, WorktreeError, OSError) as e:
+                logger.exception("File overlap check failed for %s: %s", task.worktree_name, e)
         return events
 
     def _build_coordination_messages(
@@ -638,8 +652,8 @@ class Orchestrator:
                         messages.setdefault(wt_name, []).append(f"[{action.urgency.upper()}] {action.message}")
             except ImportError:
                 logger.debug("Agno not available, using template coordination")
-            except Exception as e:
-                logger.warning("Agno coordinator failed: %s", e)
+            except Exception as e:  # noqa: BLE001 — Agno is an external optional dep; any failure must fall through to templates
+                logger.warning("Agno coordinator failed, falling back to templates: %s", e, exc_info=True)
 
         if not messages:
             for _event_key, msg, targets in events:

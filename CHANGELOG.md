@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `mcp_peer.py` is now fully type-checked (mypy override removed).
 - Textual floor in `pyproject.toml` reconciled to `>=8.0.0` to match the
   ship lockfile.
+- PyPI classifier: Alpha → Beta (`Development Status :: 4 - Beta`).
+- Dependency bumps: `click` 8.3.1 → 8.3.2, `pytest` 9.0.2 → 9.0.3, `textual` 8.1.1 → 8.2.3, `pydantic` 2.12.2 → 2.12.5 (pydantic-core pinned at 2.41.5).
 
 ### Fixed
 - Subprocess timeouts surface as `TimeoutExpired` with a logged class +
