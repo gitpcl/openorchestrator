@@ -307,6 +307,77 @@ async def test_session_for_prefers_focused_pane(short_sock: Path) -> None:
     assert session.id == "w-1-2"
 
 
+# ── readiness gate (wait_for_ready) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_wait_for_ready_returns_true_when_agent_becomes_idle(short_sock: Path) -> None:
+    """Polls pane.list until the pane reports agent set + status idle."""
+    sock = short_sock
+    calls = {"n": 0}
+
+    async def handler(payload):  # noqa: ANN001
+        if payload["method"] == "pane.list":
+            calls["n"] += 1
+            # Boot: unknown for the first poll, ready on the second.
+            if calls["n"] < 2:
+                panes = [{"pane_id": "p-1", "agent": None, "agent_status": "unknown"}]
+            else:
+                panes = [{"pane_id": "p-1", "agent": "pi", "agent_status": "idle"}]
+            return {"id": payload["id"], "result": {"panes": panes}}
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        backend = HerdrBackend(socket_path=str(sock))
+        sess = BackendSession(kind=BackendKind.HERDR, id="p-1", worktree_name="wt", meta={"workspace_id": "w-1"})
+        ok = await asyncio.to_thread(backend.wait_for_ready, sess, timeout=5.0, poll_interval=0.02)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert ok is True
+    assert calls["n"] >= 2  # waited through the boot poll
+
+
+@pytest.mark.asyncio
+async def test_wait_for_ready_times_out_when_never_idle(short_sock: Path) -> None:
+    """A pane stuck on 'unknown' returns False after the timeout (best-effort)."""
+    sock = short_sock
+
+    async def handler(payload):  # noqa: ANN001
+        if payload["method"] == "pane.list":
+            return {
+                "id": payload["id"],
+                "result": {"panes": [{"pane_id": "p-1", "agent": None, "agent_status": "unknown"}]},
+            }
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        backend = HerdrBackend(socket_path=str(sock))
+        sess = BackendSession(kind=BackendKind.HERDR, id="p-1", worktree_name="wt", meta={"workspace_id": "w-1"})
+        ok = await asyncio.to_thread(backend.wait_for_ready, sess, timeout=0.25, poll_interval=0.05)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert ok is False
+
+
+def test_wait_for_ready_returns_false_without_workspace_id() -> None:
+    """No workspace id in session meta → cannot poll, return False immediately."""
+    from open_orchestrator.models.backend import BackendKind, BackendSession
+
+    backend = HerdrBackend(socket_path="/nonexistent.sock")
+    sess = BackendSession(kind=BackendKind.HERDR, id="p-1", worktree_name="wt", meta={})
+    assert backend.wait_for_ready(sess, timeout=1.0) is False
+
+
 # ── submit-mode chokepoint (_send_line) ──────────────────────────
 
 

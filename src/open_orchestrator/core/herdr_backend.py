@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 import shlex
+import time
 from typing import Any
 
 from open_orchestrator.core.herdr_client import HerdrClient, HerdrError, default_socket_path
@@ -319,6 +320,49 @@ class HerdrBackend:
             return ""
         chosen = next((p for p in dict_panes if p.get("focused")), dict_panes[0])
         return str(chosen.get("pane_id") or chosen.get("paneId") or chosen.get("root_pane_id") or "")
+
+    def _pane_agent_status(self, workspace_id: str, pane_id: str) -> tuple[str | None, str | None]:
+        """Return ``(agent, agent_status)`` for a pane, or ``(None, None)``."""
+        try:
+            listing = self._call("pane.list", {"workspace_id": workspace_id})
+        except HerdrError:
+            return None, None
+        panes = listing.get("panes") if isinstance(listing, dict) else None
+        if not isinstance(panes, list):
+            return None, None
+        for p in panes:
+            if isinstance(p, dict) and p.get("pane_id") == pane_id:
+                return p.get("agent"), p.get("agent_status")
+        return None, None
+
+    def wait_for_ready(self, session: BackendSession, *, timeout: float = 20.0, poll_interval: float = 0.4) -> bool:
+        """Block until the pane's agent has booted and is idle (ready for input).
+
+        A freshly-created pane reports ``agent=None, agent_status="unknown"``
+        while the TUI is still starting, then flips to ``agent=<tool>,
+        agent_status="idle"`` once it is waiting for input. Delivering a
+        prompt before that races the boot — the submit keystroke lands during
+        startup and is lost, leaving the prompt sitting unsent. Mirrors the
+        tmux backend's ``wait_for_ai_ready`` gate.
+
+        Returns ``True`` if readiness was observed, ``False`` on timeout
+        (caller should still attempt delivery — best effort).
+        """
+        workspace_id = str(session.meta.get("workspace_id", ""))
+        if not workspace_id:
+            return False
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            agent, status = self._pane_agent_status(workspace_id, session.id)
+            if agent and status == "idle":
+                return True
+            time.sleep(poll_interval)
+        logger.debug(
+            "herdr pane %s not ready after %.1fs (agent boot slow?); delivering prompt anyway",
+            session.id,
+            timeout,
+        )
+        return False
 
     def session_for(self, worktree_name: str) -> BackendSession | None:
         workspace_id = self._find_workspace_id(worktree_name)

@@ -349,13 +349,17 @@ class AgentLauncher:
     def _deliver_prompt(self, backend: MultiplexerBackend, session: BackendSession, prompt: str) -> None:
         """Deliver the prompt via the backend.
 
-        Tmux requires a wait-for-ready dance because the AI process spawns
-        in the pane shell; herdr's ``pane.send_text`` is one-shot and the
-        prompt is already part of the agent_command (passed in
-        :meth:`HerdrBackend.create_session`). Calling ``send_text`` again
-        for herdr would inject the prompt a second time — skip it.
+        Both backends must wait for the agent TUI to finish booting before
+        typing: the prompt + submit keystroke race the startup otherwise and
+        the prompt is left unsent. Tmux waits via ``wait_and_paste``; herdr
+        waits via ``wait_for_ready`` (polling the pane's ``agent_status``
+        until it is idle) before ``send_text``.
         """
         if backend.kind == BackendKind.HERDR:
+            from open_orchestrator.core.herdr_backend import HerdrBackend
+
+            if isinstance(backend, HerdrBackend):
+                backend.wait_for_ready(session)
             backend.send_text(session, prompt)
             return
         # tmux: tap into the adapter's wait+paste helper so the
