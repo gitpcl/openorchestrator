@@ -364,6 +364,51 @@ class HerdrBackend:
         )
         return False
 
+    def submit_prompt(
+        self,
+        session: BackendSession,
+        prompt: str,
+        *,
+        ready_timeout: float = 20.0,
+        confirm_window: float = 12.0,
+        nudge_interval: float = 1.5,
+    ) -> bool:
+        """Deliver ``prompt`` to the agent and confirm it actually submitted.
+
+        herdr reports ``agent_status="idle"`` while a TUI agent is still
+        finishing its startup splash (loading skills/project context), so a
+        single send can race the boot: the body text lands in the input box
+        but the submit CR is consumed during render and lost, leaving the
+        prompt sitting unsent.
+
+        Strategy: wait for first readiness, type body + CR, then poll
+        ``agent_status``. While the pane is still ``idle`` the body is sitting
+        unsent in the input — nudge it with a standalone CR (the body is
+        already there, so this only re-submits, never duplicates text) until
+        the pane leaves ``idle`` (= the agent accepted the prompt) or the
+        confirm window elapses.
+
+        Returns ``True`` if submission was confirmed, ``False`` otherwise.
+        """
+        self.wait_for_ready(session, timeout=ready_timeout)
+        workspace_id = str(session.meta.get("workspace_id", ""))
+        self._send_line(session.id, prompt)
+        if not workspace_id:
+            return False
+        deadline = time.monotonic() + confirm_window
+        while time.monotonic() < deadline:
+            time.sleep(nudge_interval)
+            _, status = self._pane_agent_status(workspace_id, session.id)
+            if status and status != "idle":
+                return True  # agent picked up the prompt
+            # Still idle: the body is in the input but unsent — nudge submit.
+            try:
+                self._call("pane.send_text", {"pane_id": session.id, "text": "\r"})
+            except HerdrError as err:
+                logger.debug("herdr submit nudge failed: %s", err)
+        logger.debug("herdr prompt for pane %s never left idle within confirm window", session.id)
+        return False
+
     def session_for(self, worktree_name: str) -> BackendSession | None:
         workspace_id = self._find_workspace_id(worktree_name)
         if not workspace_id:

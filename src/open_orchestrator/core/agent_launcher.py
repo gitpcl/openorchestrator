@@ -359,8 +359,12 @@ class AgentLauncher:
             from open_orchestrator.core.herdr_backend import HerdrBackend
 
             if isinstance(backend, HerdrBackend):
-                backend.wait_for_ready(session)
-            backend.send_text(session, prompt)
+                # Confirm submission: herdr can report idle mid-boot, so a
+                # single send may race the agent's startup. submit_prompt
+                # nudges the CR until the pane leaves idle.
+                backend.submit_prompt(session, prompt)
+            else:
+                backend.send_text(session, prompt)
             return
         # tmux: tap into the adapter's wait+paste helper so the
         # heavy-prompt path is preserved.

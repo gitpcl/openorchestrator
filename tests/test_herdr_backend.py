@@ -378,6 +378,95 @@ def test_wait_for_ready_returns_false_without_workspace_id() -> None:
     assert backend.wait_for_ready(sess, timeout=1.0) is False
 
 
+@pytest.mark.asyncio
+async def test_submit_prompt_nudges_cr_until_pane_leaves_idle(short_sock: Path) -> None:
+    """When the pane stays idle after the first send, submit_prompt re-sends
+    a standalone CR (and never re-sends the body) until it leaves idle."""
+    sock = short_sock
+    sends: list[str] = []
+    polls = {"n": 0}
+
+    async def handler(payload):  # noqa: ANN001
+        method = payload["method"]
+        if method == "pane.send_text":
+            sends.append(payload["params"]["text"])
+            return {"id": payload["id"], "result": {"type": "ok"}}
+        if method == "pane.list":
+            polls["n"] += 1
+            # Premature idle for the first two confirm polls, then submitted.
+            status = "idle" if polls["n"] < 3 else "working"
+            return {
+                "id": payload["id"],
+                "result": {"panes": [{"pane_id": "p-1", "agent": "pi", "agent_status": status}]},
+            }
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        backend = HerdrBackend(socket_path=str(sock))
+        sess = BackendSession(kind=BackendKind.HERDR, id="p-1", worktree_name="wt", meta={"workspace_id": "w-1"})
+        ok = await asyncio.to_thread(
+            backend.submit_prompt,
+            sess,
+            "do the thing",
+            ready_timeout=2.0,
+            confirm_window=5.0,
+            nudge_interval=0.05,
+        )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert ok is True
+    # Body delivered exactly once; remaining sends are bare CR nudges.
+    assert sends[0] == "do the thing"
+    assert sends[1] == "\r"  # the CR paired with the body by _send_line
+    assert all(s == "\r" for s in sends[1:]), f"body must not be re-sent: {sends!r}"
+
+
+@pytest.mark.asyncio
+async def test_submit_prompt_stops_nudging_once_working(short_sock: Path) -> None:
+    """If the pane reports working immediately, no extra CR nudges are sent."""
+    sock = short_sock
+    cr_after_body = {"count": 0}
+    body_seen = {"ok": False}
+
+    async def handler(payload):  # noqa: ANN001
+        method = payload["method"]
+        if method == "pane.send_text":
+            text = payload["params"]["text"]
+            if text == "go":
+                body_seen["ok"] = True
+            elif body_seen["ok"]:
+                cr_after_body["count"] += 1
+            return {"id": payload["id"], "result": {"type": "ok"}}
+        if method == "pane.list":
+            return {
+                "id": payload["id"],
+                "result": {"panes": [{"pane_id": "p-1", "agent": "pi", "agent_status": "working"}]},
+            }
+        return {"id": payload["id"], "result": True}
+
+    server = await _fake_server(sock, handler=handler)
+    try:
+        from open_orchestrator.models.backend import BackendKind, BackendSession
+
+        backend = HerdrBackend(socket_path=str(sock))
+        sess = BackendSession(kind=BackendKind.HERDR, id="p-1", worktree_name="wt", meta={"workspace_id": "w-1"})
+        ok = await asyncio.to_thread(
+            backend.submit_prompt, sess, "go", ready_timeout=2.0, confirm_window=5.0, nudge_interval=0.05
+        )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert ok is True
+    # One CR from _send_line's body+CR pair; zero extra nudges since working.
+    assert cr_after_body["count"] == 1
+
+
 # ── submit-mode chokepoint (_send_line) ──────────────────────────
 
 
