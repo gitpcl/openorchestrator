@@ -22,9 +22,13 @@ import logging
 import os
 import sqlite3
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from open_orchestrator.core._db import open_db
 from open_orchestrator.core.status import PEER_MESSAGES_SCHEMA, default_status_path
+
+if TYPE_CHECKING:
+    from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +41,7 @@ def _get_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def create_server():  # type: ignore[no-untyped-def]
+def create_server() -> FastMCP:
     """Create and return the FastMCP server instance.
 
     The server reads its identity from environment variables:
@@ -142,5 +146,5 @@ def create_server():  # type: ignore[no-untyped-def]
 
 
 if __name__ == "__main__":
-    server = create_server()  # type: ignore[no-untyped-call]
+    server = create_server()
     server.run(transport="stdio")

@@ -60,6 +60,9 @@ dev = [
     "types-toml>=0.10.0",
     "build>=1.0.0",
     "twine>=5.0.0",
+    # Optional runtime extras installed in dev so mypy can type-check the
+    # optional code paths (mcp_peer.py imports mcp.server.fastmcp).
+    "mcp>=1.0.0",
 ]
 
 [project.scripts]
@@ -113,10 +116,6 @@ python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
-
-[[tool.mypy.overrides]]
-module = ["mcp.*"]
-ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["open_orchestrator.core.mcp_peer"]

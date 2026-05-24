@@ -1054,6 +1054,7 @@ agno = [
 ]
 dev = [
     { name = "build" },
+    { name = "mcp" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1083,6 +1084,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.1.0" },
     { name = "gitpython", specifier = ">=3.1.0" },
     { name = "libtmux", specifier = ">=0.25.0" },
+    { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
