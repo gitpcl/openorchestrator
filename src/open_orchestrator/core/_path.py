@@ -115,12 +115,22 @@ def configure_excluded_dirs(dirs: list[str] | tuple[str, ...] | None) -> None:
 
 
 def _safe_path() -> str:
-    """Build the colon-joined allowlisted PATH used for binary resolution.
+    """Build the colon-joined PATH used for binary resolution.
 
-    Combines system defaults + user-configured extras, drops any directory
-    that resolves to (or under) an excluded worktree path or to the current
-    working directory. Non-existent directories are kept out so
-    ``shutil.which`` never wastes a syscall on them.
+    Starts from the operator's inherited ``PATH`` so the real toolchain —
+    nvm / fnm / volta / pyenv / cargo, etc., which all live under ``$HOME`` —
+    stays discoverable, then drops only the entries that make resolution
+    dangerous from inside a foreign worktree:
+
+    - empty entries (an empty ``PATH`` element means "cwd"),
+    - relative entries (``.``, ``bin`` — resolved against cwd),
+    - the current working directory itself,
+    - any directory at or under an excluded worktree path.
+
+    User-configured extras and the conservative system defaults are appended
+    last so resolution still works in a sparse ``PATH`` (cron, CI). Order is
+    preserved so an earlier real entry wins over a later default. Non-existent
+    directories are dropped so ``shutil.which`` never wastes a syscall.
     """
     candidates: list[str] = []
     seen: set[str] = set()
@@ -131,11 +141,18 @@ def _safe_path() -> str:
     except OSError:
         cwd_resolved = None
 
-    for raw in (*_SYSTEM_DEFAULT_DIRS, *_extra_dirs):
+    inherited = os.environ.get("PATH", "").split(os.pathsep)
+
+    for raw in (*inherited, *_extra_dirs, *_SYSTEM_DEFAULT_DIRS):
         if not raw:
+            # An empty PATH element resolves to cwd — never trust it.
+            continue
+        expanded = os.path.expanduser(raw)
+        if not os.path.isabs(expanded):
+            # Relative entries ('.', 'bin', ...) resolve against cwd. Drop.
             continue
         try:
-            resolved = str(Path(raw).resolve())
+            resolved = str(Path(expanded).resolve())
         except OSError:
             continue
         if resolved in seen:

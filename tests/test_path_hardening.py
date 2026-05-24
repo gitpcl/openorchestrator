@@ -158,3 +158,35 @@ def test_safe_path_excludes_cwd(tmp_path, monkeypatch):
     # Resolve cwd the same way the helper does.
     cwd_resolved = str(Path.cwd().resolve())
     assert cwd_resolved not in safe.split(os.pathsep)
+
+
+def test_resolve_binary_finds_tool_in_home_toolchain_dir(tmp_path, monkeypatch):
+    """A binary in a $HOME toolchain dir on PATH (nvm/fnm/volta) is found.
+
+    Regression guard: the original allowlist dropped every $HOME directory,
+    which made nvm/fnm/volta-installed agents (pi, codex, ...) undetectable
+    even though they were plainly on the operator's PATH.
+    """
+    # Simulate ~/.nvm/versions/node/vX/bin on PATH, well outside any system
+    # default dir, and NOT the cwd.
+    nvm_bin = tmp_path / "home" / ".nvm" / "versions" / "node" / "v22" / "bin"
+    nvm_bin.mkdir(parents=True)
+    fake = _plant_fake_binary(nvm_bin, "owt-fake-agent")
+    monkeypatch.setenv("PATH", f"{nvm_bin}{os.pathsep}{os.environ.get('PATH', '')}")
+    # cwd is somewhere else entirely so the nvm dir is not excluded.
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+
+    assert resolve_binary("owt-fake-agent") == str(fake)
+
+
+def test_resolve_binary_drops_relative_and_empty_path_entries(tmp_path, monkeypatch):
+    """Relative ('.') and empty PATH entries never enter the safe PATH."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", f".{os.pathsep}{os.pathsep}bin{os.pathsep}/usr/bin")
+    safe = _path._safe_path().split(os.pathsep)
+    cwd_resolved = str(Path.cwd().resolve())
+    assert cwd_resolved not in safe
+    # No relative fragment should survive as an absolute-resolved cwd child.
+    assert str(tmp_path / "bin") not in safe
