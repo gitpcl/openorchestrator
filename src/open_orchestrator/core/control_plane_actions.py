@@ -1,9 +1,11 @@
 """Action dispatcher for control-plane rows.
 
 Maps ``(SectionKind, RowAction)`` (or just ``key``) to a callable that
-performs the action against the supplied runtime. The dispatcher is the
-single place where the UI hands off to subprocess / tmux / herdr — the
-view layer only knows about rows and key presses.
+performs the action against the supplied runtime. The dispatcher is where the
+UI hands off *row-triggered* actions to subprocess / tmux / herdr — the view
+layer only knows about rows and key presses. Free-form, non-row entry points
+(e.g. ``start_work`` for the ``n`` key) live in this module too but are called
+directly rather than through the row dispatch table.
 """
 
 from __future__ import annotations
@@ -131,6 +133,37 @@ async def action_fix(row: ControlPlaneRow, runtime: ControlPlaneRuntime) -> Acti
 async def action_dismiss(row: ControlPlaneRow, runtime: ControlPlaneRuntime) -> ActionResult:
     """No-op acknowledgement — the view removes the row from its list."""
     return ActionResult(ok=True, message=f"dismissed {row.name}")
+
+
+# ── start work (not a row action — invoked from the control-plane "n" key) ──
+
+
+def build_start_args(task: str, mode: str, plan_file: str = "") -> list[str] | None:
+    """Map a (task, mode) pick to the ``owt`` argv that starts it.
+
+    Modes (``single`` / ``plan`` / ``batch``) each map to an existing ``owt``
+    verb. Returns ``None`` for an unknown mode or a ``batch`` request with no
+    file. Pure and side-effect-free so it can be unit-tested and reused to
+    render a command preview before execution. Lives here (not in the view) so
+    the view stays dumb.
+    """
+    if mode == "single":
+        return ["new", task, "--yes"]
+    if mode == "plan":
+        return ["plan", task, "--start"]
+    if mode == "batch":
+        return ["batch", plan_file] if plan_file else None
+    return None
+
+
+async def start_work(task: str, mode: str, repo_root: str, *, plan_file: str = "") -> ActionResult:
+    """Start new work from the control plane by invoking the matching ``owt`` verb."""
+    args = build_start_args(task, mode, plan_file)
+    if args is None:
+        return ActionResult(ok=False, message=f"cannot start mode '{mode}'")
+    # Decomposition/orchestration modes can run longer than a plain worktree create.
+    timeout = 120.0 if mode == "single" else 600.0
+    return await _run_owt(args, repo_root, timeout=timeout)
 
 
 _DEFAULT_TABLE: dict[tuple[SectionKind, RowAction], ActionCallable] = {

@@ -5,11 +5,13 @@ description: "Git worktree + AI agent orchestration with a prioritized Textual c
 
 # Open Orchestrator - Git Worktree + AI Orchestration
 
-Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **Textual-based control plane UI**. The simplest way to start: `owt new "add user authentication"` — it auto-generates a branch name, creates the worktree, installs deps, and starts the AI tool in a tmux session. Run `owt` with no arguments to launch the **control plane** — a sectioned decision surface (NEEDS YOU / READY TO SHIP / IN FLIGHT / BACKGROUND) where every row carries a verb action (`[s]hip`, `[r]eview`, `[a]ttach`, `[f]ix`). The legacy card-grid switchboard is still available behind `owt --legacy-cards` for one release.
+Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **Textual-based control plane UI**. **The primary interface is one command: `owt`** — it launches the **control plane**, a sectioned decision surface (NEEDS YOU / READY TO SHIP / IN FLIGHT / BACKGROUND) where you run the whole loop from the keyboard: press **`n`** to start work (type a task, pick one worktree or a multi-step plan, confirm), **`a`** to attach, **`s`** to ship. Every row carries verb actions (`[s]hip`, `[r]eview`, `[a]ttach`, `[f]ix`) and the footer shows only the keys that apply to the focused row. The legacy card-grid switchboard is still available behind `owt --legacy-cards` for one release.
 
 Sprint 025 added an optional **herdr multiplexer backend** so owt becomes the orchestration brain and herdr (when installed) becomes the rendering surface — opt in via `--herdr` or `[backend] mode = "herdr" | "auto"`. tmux remains the default.
 
-## Commands (40+ total)
+## Commands (scripting / CI reference)
+
+Humans drive the [control plane](#the-control-plane-default--sprint-024) with `owt` and the keys above; the verbs below are the same actions exposed for scripts, pipelines, and automation.
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -84,8 +86,10 @@ Run `owt` to launch the **control plane** — a prioritized decision surface. Fo
   ▸ BACKGROUND     (1)
     14:20 dream     consolidated · memory=3 stale=0            [x]
 
-  ↑↓ nav | s ship | r review | a attach | f fix | m merge | x dismiss | q quit
+  ↑↓ nav | n new | s ship | r review | a attach | q quit
 ```
+
+**Starting work (`n`):** press `n` to start a task without leaving the UI — type the task, pick the run mode (**One worktree + agent** → `owt new`, or **Multi-step plan** → `owt plan --start`), confirm the resolved command, and it runs in the background. The mode picker is explicit (no keyword guessing); the `owt new` / `owt plan` verbs remain for scripts.
 
 **Control plane sections:**
 - **NEEDS YOU** — conflicts, critic-blocking verdicts, BLOCKED/ERROR status (priority section)
@@ -94,12 +98,15 @@ Run `owt` to launch the **control plane** — a prioritized decision surface. Fo
 - **BACKGROUND** — dream / memory / critic events (≤10, newest first), `[x]` to dismiss
 
 **Row verbs:**
+- `n` — new (start work: task → mode pick → confirm); always available
 - `s` — ship (commit + merge + delete via confirm modal)
 - `r` — review (expand critic verdict in inline panel)
 - `a` — attach (hand off via active multiplexer backend, see below)
 - `f` — fix (open conflicted files in `$EDITOR`)
 - `m` — merge (without delete/cleanup)
 - `x` — dismiss (acknowledge a background event)
+
+**Context-sensitive footer:** always shows `↑↓ nav`, `n new`, `q quit`; between them it lists only the verbs that apply to the focused row, so the UI teaches itself.
 
 **Navigation:** `↑/↓` or `j/k` for previous/next row across sections; `q` to quit; `Esc` closes the inline review panel.
 

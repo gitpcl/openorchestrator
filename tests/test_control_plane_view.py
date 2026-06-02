@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from open_orchestrator.core.control_plane_view import ControlPlaneApp, SectionWidget
+from open_orchestrator.core.control_plane_view import (
+    SECTION_ORDER,
+    ControlPlaneApp,
+    SectionWidget,
+)
 from open_orchestrator.models.control_plane import ControlPlaneRow, RowAction, SectionKind
 
 
@@ -68,3 +72,41 @@ async def test_navigation_keys(tmp_path) -> None:  # noqa: ANN001
         await pilot.press("down")
         await pilot.press("up")
         # No assertion needed — absence of exception is the test
+
+
+@pytest.mark.asyncio
+async def test_footer_shows_nav_new_quit_when_no_rows(tmp_path) -> None:  # noqa: ANN001
+    """With nothing focused, the footer always offers nav / new / quit."""
+    app = ControlPlaneApp(repo_root=tmp_path, refresh_seconds=999)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        footer = app._build_footer()
+        assert "nav" in footer
+        assert "new" in footer
+        assert "quit" in footer
+        # No row focused → no row-action verbs.
+        assert "ship" not in footer
+
+
+@pytest.mark.asyncio
+async def test_footer_reflects_focused_row_actions(tmp_path) -> None:  # noqa: ANN001
+    """The footer lists exactly the focused row's actions, and nothing else."""
+    app = ControlPlaneApp(repo_root=tmp_path, refresh_seconds=999)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        row = ControlPlaneRow(
+            id="x",
+            section=SectionKind.READY_TO_SHIP,
+            name="wt",
+            summary="+2 commits",
+            actions=(RowAction.SHIP, RowAction.MERGE),
+        )
+        app._sections[SectionKind.READY_TO_SHIP] = [row]
+        app._focus.section = SECTION_ORDER.index(SectionKind.READY_TO_SHIP)
+        app._focus.row = 0
+        footer = app._build_footer()
+        assert "ship" in footer
+        assert "merge" in footer
+        # Actions not on the row must not appear.
+        assert "fix" not in footer
+        assert "dismiss" not in footer

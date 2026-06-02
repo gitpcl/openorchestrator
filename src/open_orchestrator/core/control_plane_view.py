@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shlex
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -43,12 +44,20 @@ from open_orchestrator.core.control_plane_actions import (
     ActionResult,
     ControlPlaneActions,
     ControlPlaneRuntime,
+    build_start_args,
+    start_work,
 )
 from open_orchestrator.core.control_plane_sections import (
     build_all_sections,
     compute_orchestration_header,
 )
 from open_orchestrator.core.status import StatusTracker, runtime_status_config
+from open_orchestrator.core.switchboard_modals import (
+    ConfirmModal,
+    InputModal,
+    SearchableSelectModal,
+    SelectOption,
+)
 from open_orchestrator.models.control_plane import (
     ControlPlaneRow,
     RowAction,
@@ -177,6 +186,7 @@ class ControlPlaneApp(App[None]):
         Binding("down", "focus_next", "Next", show=False),
         Binding("j", "focus_next", "Next", show=False),
         Binding("k", "focus_prev", "Prev", show=False),
+        Binding("n", "new", "New", show=False),
         Binding("s", "dispatch('s')", "Ship", show=False),
         Binding("r", "dispatch('r')", "Review", show=False),
         Binding("a", "dispatch('a')", "Attach", show=False),
@@ -186,17 +196,6 @@ class ControlPlaneApp(App[None]):
         Binding("q", "quit", "Quit", show=False),
         Binding("escape", "close_review", "Close panel", show=False),
     ]
-
-    FOOTER = (
-        "[bold]↑↓[/bold] [dim]nav[/dim] | "
-        "[bold]s[/bold] [dim]ship[/dim] | "
-        "[bold]r[/bold] [dim]review[/dim] | "
-        "[bold]a[/bold] [dim]attach[/dim] | "
-        "[bold]f[/bold] [dim]fix[/dim] | "
-        "[bold]m[/bold] [dim]merge[/dim] | "
-        "[bold]x[/bold] [dim]dismiss[/dim] | "
-        "[bold]q[/bold] [dim]quit[/dim]"
-    )
 
     def __init__(
         self,
@@ -218,6 +217,9 @@ class ControlPlaneApp(App[None]):
             )
         )
         self._critic_cache: dict[str, object] = {}
+        # Transient state for the multi-step "start work" (n) flow.
+        self._new_task: str = ""
+        self._new_mode: str = ""
 
     # ── lifecycle ─────────────────────────────────────────────────────
 
@@ -232,7 +234,7 @@ class ControlPlaneApp(App[None]):
         with Container():
             yield Static("", id="toast")
             yield Static("", id="review")
-            yield Static(self.FOOTER, id="footer")
+            yield Static(self._build_footer(), id="footer")
 
     def on_mount(self) -> None:
         self.set_interval(self._refresh_seconds, self._tick)
@@ -381,6 +383,27 @@ class ControlPlaneApp(App[None]):
                 inner_focus = focused_idx - global_cursor
             widget.update_rows(rows, focused_row=inner_focus)
             global_cursor += len(rows)
+        self._update_footer()
+
+    def _build_footer(self) -> str:
+        """Footer hotkeys, tailored to the currently-focused row's actions.
+
+        Always shows nav / new / quit; between them it lists only the verbs
+        that actually apply to the focused row, so the UI teaches itself.
+        """
+        parts = ["[bold]↑↓[/bold] [dim]nav[/dim]", "[bold]n[/bold] [dim]new[/dim]"]
+        row = self._current_row()
+        if row is not None:
+            for action in row.actions:
+                parts.append(f"[bold]{action.value}[/bold] [dim]{action.label}[/dim]")
+        parts.append("[bold]q[/bold] [dim]quit[/dim]")
+        return "  |  ".join(parts)
+
+    def _update_footer(self) -> None:
+        try:
+            self.query_one("#footer", Static).update(self._build_footer())
+        except Exception:  # noqa: BLE001
+            logger.debug("footer update skipped", exc_info=True)
 
     def _iter_rows(self) -> list[ControlPlaneRow]:
         result: list[ControlPlaneRow] = []
@@ -461,6 +484,56 @@ class ControlPlaneApp(App[None]):
         variant = "info" if result.ok else "warn"
         self._show_toast(result.message, variant=variant)
         if result.ok and action in (RowAction.SHIP, RowAction.MERGE, RowAction.DISMISS):
+            self.call_after_refresh(self._tick)
+
+    # ── start work (n) ────────────────────────────────────────────────
+
+    def action_new(self) -> None:
+        """Start new work: collect a task, let the user pick the mode, confirm."""
+        self.push_screen(InputModal("What do you want to work on?"), self._on_new_task)
+
+    def _on_new_task(self, task: str | None) -> None:
+        if not task:
+            return
+        self._new_task = task
+        options = [
+            SelectOption(
+                value="single",
+                label="One worktree + agent",
+                description="owt new — a single task",
+            ),
+            SelectOption(
+                value="plan",
+                label="Multi-step plan",
+                description="owt plan --start — decompose into a DAG and run it",
+            ),
+        ]
+        self.push_screen(SearchableSelectModal("How should I run this?", options), self._on_new_mode)
+
+    def _on_new_mode(self, mode: str | None) -> None:
+        if not mode:
+            return
+        self._new_mode = mode
+        args = build_start_args(self._new_task, mode)
+        if args is None:
+            self._show_toast(f"Cannot start mode '{mode}'", variant="warn")
+            return
+        preview = "owt " + " ".join(shlex.quote(a) for a in args)
+        self.push_screen(
+            ConfirmModal(f"Task: {self._new_task}\nRun:  {preview}\n\nStart?"),
+            self._on_new_confirm,
+        )
+
+    def _on_new_confirm(self, yes: bool | None) -> None:
+        if not yes:
+            return
+        self._show_toast("Starting…", variant="info")
+        self.run_worker(self._do_start_work())
+
+    async def _do_start_work(self) -> None:
+        result = await start_work(self._new_task, self._new_mode, str(self._repo_root))
+        self._show_toast(result.message, variant="info" if result.ok else "warn")
+        if result.ok:
             self.call_after_refresh(self._tick)
 
     def action_close_review(self) -> None:

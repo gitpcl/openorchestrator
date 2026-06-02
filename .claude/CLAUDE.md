@@ -1,12 +1,16 @@
 # Open Orchestrator
 
-Git Worktree + AI agent orchestration tool for parallel development workflows with Textual switchboard UI.
+Git Worktree + AI agent orchestration tool for parallel development workflows with a Textual **control plane** UI.
 
-## Commands (38 total)
+## Primary interface
+
+The front door for humans is one command: **`owt`**, which launches the control plane (NEEDS YOU / READY TO SHIP / IN FLIGHT / BACKGROUND). The whole loop runs from the keyboard — `n` start work (task → pick mode → confirm), `a` attach, `s` ship — and the footer shows only the keys that apply to the focused row. The command table below is the **CLI reference for scripting / CI**; it's the same set of actions, exposed for automation.
+
+## Commands (CLI reference — scripting / CI)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `owt` | | **Launch the Switchboard** — the default experience |
+| `owt` | | **Launch the Control Plane** — the default experience (press `n` to start work) |
 | `owt new "task"` | `owt n` | Create worktree + tmux session + deps + AI agent. One command. |
 | `owt new "task" --headless` | | Create worktree without tmux (CI/script use) |
 | `owt list` | `owt ls` | Quick text list of worktrees (non-interactive, for scripts/pipes) |

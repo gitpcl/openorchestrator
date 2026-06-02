@@ -136,3 +136,47 @@ async def test_resolve_accepts_string_key() -> None:
     handler = actions.resolve(row, "s")
     assert handler is not None
     assert handler is cpa.action_ship
+
+
+# ── start work (n) ─────────────────────────────────────────────────────
+
+
+def test_build_start_args_single() -> None:
+    assert cpa.build_start_args("add auth", "single") == ["new", "add auth", "--yes"]
+
+
+def test_build_start_args_plan() -> None:
+    assert cpa.build_start_args("ship the dashboard", "plan") == ["plan", "ship the dashboard", "--start"]
+
+
+def test_build_start_args_batch_requires_file() -> None:
+    assert cpa.build_start_args("x", "batch") is None
+    assert cpa.build_start_args("x", "batch", "plan.toml") == ["batch", "plan.toml"]
+
+
+def test_build_start_args_unknown_mode() -> None:
+    assert cpa.build_start_args("x", "nope") is None
+
+
+@pytest.mark.asyncio
+async def test_start_work_unknown_mode_returns_error() -> None:
+    result = await cpa.start_work("x", "nope", "/tmp")
+    assert result.ok is False
+    assert "nope" in result.message
+
+
+@pytest.mark.asyncio
+async def test_start_work_single_invokes_owt_new(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, list[str]] = {}
+
+    async def fake_launch(*cmd, **kwargs):  # noqa: ANN001, ANN003
+        captured["cmd"] = list(cmd)
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(return_value=(b"created\n", b""))
+        proc.returncode = 0
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_launch)
+    result = await cpa.start_work("add auth flow", "single", "/tmp")
+    assert result.ok
+    assert captured["cmd"][:4] == ["owt", "new", "add auth flow", "--yes"]

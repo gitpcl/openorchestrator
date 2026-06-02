@@ -6,7 +6,12 @@ A lean Git Worktree + AI agent orchestration tool for parallel development workf
 
 ## Overview
 
-Open Orchestrator enables developers to work on multiple tasks simultaneously by creating isolated worktrees, each with its own AI coding session and tmux session. Start with `owt new "task description"` — it auto-generates a branch name, creates the worktree, installs dependencies, copies `.env`, and starts the AI tool. Run `owt` to launch the **control plane** — four prioritized sections, verb-per-row actions, empty sections hidden so you always see the most important thing first. The legacy card grid is still available behind `owt --legacy-cards` for one release.
+**The primary interface is one command: `owt`.** It launches the **control plane** — a Textual decision surface with four prioritized sections (empty sections hidden, so the most important thing is always on top) where you run the whole loop without memorizing CLI verbs:
+
+- **`n`** — start work: type a task, pick how to run it (one worktree, or a multi-step plan), confirm.
+- **`a`** — jump into the agent's session. **`s`** — ship a finished worktree. The footer shows exactly the keys that apply to the row you're on.
+
+The 40+ subcommands below (`owt new`, `owt plan`, `owt ship`, …) are the same actions exposed for scripting and CI — you rarely need to type them by hand. Each `owt new` auto-generates a branch name, creates the worktree, installs dependencies, copies `.env`, and starts the AI tool. The legacy card grid is still available behind `owt --legacy-cards` for one release.
 
 ![Open Orchestrator demo](assets/demo.gif)
 
@@ -14,8 +19,8 @@ Open Orchestrator enables developers to work on multiple tasks simultaneously by
 
 ## Highlights
 
-- **40+ commands** — focused CLI surface, no bloat (see [docs/commands.md](docs/commands.md))
-- **Control Plane UI** — Textual sectioned decision surface; each row exposes verb actions (`[s]hip`, `[r]eview`, `[a]ttach`, `[f]ix`, `[m]erge`, `[x] dismiss`); empty sections hidden
+- **Control Plane UI** — the front door. Press `[n]ew` to start work (pick one worktree or a multi-step plan); each row exposes verb actions (`[s]hip`, `[r]eview`, `[a]ttach`, `[f]ix`, `[m]erge`, `[x] dismiss`); the footer is context-sensitive — it shows only the keys that apply to the focused row; empty sections hidden
+- **40+ commands for scripting/CI** — the full verb surface behind the UI, for pipelines and automation (see [docs/commands.md](docs/commands.md))
 - **Pluggable multiplexer backends** — tmux by default, **[herdr](https://herdr.dev)** opt-in via `--herdr` or `[backend] mode = "herdr" | "auto"` (see [docs/multiplexer-backends.md](docs/multiplexer-backends.md))
 - **Conflict Guard** — real-time file overlap detection between parallel agents; warns before merge when two branches touch the same files
 - **AI-Powered Planning** — `owt plan "Build auth system"` decomposes a goal into a dependency-aware DAG, spawns agents in parallel, auto-injects parent context into child tasks
@@ -78,25 +83,31 @@ uv pip install -e ".[agno,mcp]"    # Both
 
 ## Quick Start
 
+The whole loop happens inside one command. Launch the control plane and drive it from the keyboard:
+
 ```bash
-# Launch the control plane (default) — sectioned decision surface
 owt
-
-# Create a worktree with AI agent (one command does everything)
-owt new "Add user authentication with JWT"
-
-# Hand off to the agent's session (via the active backend — tmux or herdr)
-owt attach auth-jwt
-# Or press 'a' on the row in the control plane
-
-# Interact from the CLI
-owt send auth-jwt "Fix the failing tests"
-owt switch auth-jwt    # Jump to that tmux session
-
-# Ship when done (commit + merge + delete in one shot)
-owt ship auth-jwt
-# Or press 's' on the READY TO SHIP row in the control plane
 ```
+
+| Key | What it does |
+|-----|--------------|
+| `n` | **Start work** — type a task, pick how to run it (one worktree, or a multi-step plan), confirm |
+| `↑ ↓` | Move between rows; the footer updates to show that row's available actions |
+| `a` | Jump into the focused worktree's agent session |
+| `s` | Ship the focused READY TO SHIP worktree (commit + merge + delete) |
+| `r` / `f` / `m` / `x` | Review · fix conflicts · merge · dismiss |
+| `q` | Quit |
+
+That's the daily workflow — you never have to remember a subcommand. The equivalent CLI verbs exist for scripts and CI:
+
+```bash
+owt new "Add user authentication with JWT"   # what 'n' → one worktree runs
+owt plan "Build the billing system" --start  # what 'n' → multi-step plan runs
+owt send auth-jwt "Fix the failing tests"     # message an agent
+owt ship auth-jwt                             # what 's' runs
+```
+
+See [docs/commands.md](docs/commands.md) for the full reference.
 
 ## Documentation
 

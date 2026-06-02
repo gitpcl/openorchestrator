@@ -1,8 +1,23 @@
 # Commands
 
-Full CLI reference for Open Orchestrator. For an overview and quickstart, see the [README](../README.md).
+For an overview and quickstart, see the [README](../README.md).
 
-## Command Reference
+## Daily use — the control plane
+
+You don't need this page for everyday work. Run `owt` and drive the [control plane](#the-control-plane) from the keyboard:
+
+| Key | What it does |
+|-----|--------------|
+| `n` | **Start work** — type a task, pick how to run it (one worktree, or a multi-step plan), confirm |
+| `↑ ↓` / `j k` | Move between rows; the footer shows the focused row's actions |
+| `a` | Attach to the focused worktree's agent session |
+| `s` | Ship the focused worktree (commit + merge + delete) |
+| `r` / `f` / `m` / `x` | Review · fix conflicts · merge · dismiss |
+| `q` | Quit |
+
+The full verb list below is the same set of actions exposed for **scripting and CI** — reach for it when automating pipelines, not for day-to-day driving.
+
+## Full command reference (scripting / CI)
 
 | Command | Alias | Description |
 |---------|-------|-------------|
@@ -75,8 +90,16 @@ Running `owt` with no arguments launches the **control plane** — a prioritized
   ▸ BACKGROUND     (1)
     14:20 dream     consolidated · memory=3 stale=0            [x]
 
-  ↑↓ nav | s ship | r review | a attach | f fix | m merge | x dismiss | q quit
+  ↑↓ nav | n new | s ship | r review | a attach | q quit
 ```
+
+**Starting work (`n`):** press `n` from anywhere to begin a task without leaving the UI:
+
+1. Type the task in plain English.
+2. Pick how to run it — **One worktree + agent** (`owt new`) or **Multi-step plan** that decomposes into a DAG and runs it (`owt plan --start`).
+3. Confirm the resolved `owt …` command, which then runs in the background.
+
+This is the only thing you need to start work; the `owt new` / `owt plan` verbs exist for scripts.
 
 **Sections (priority order):**
 - **NEEDS YOU** — merge conflicts, critic-blocking verdicts, BLOCKED/ERROR status
@@ -88,12 +111,15 @@ Running `owt` with no arguments launches the **control plane** — a prioritized
 
 | Key | Action | Where it applies |
 |-----|--------|------------------|
+| `n` | new — start work (task → mode pick → confirm) | always available |
 | `s` | ship (commit + merge + delete via confirm) | READY TO SHIP |
 | `r` | review (inline critic verdict panel) | NEEDS YOU, READY TO SHIP, IN FLIGHT |
 | `a` | attach (hand off via active backend) | every section except BACKGROUND |
 | `f` | fix (open conflicted files in `$EDITOR`) | NEEDS YOU |
 | `m` | merge (without ship's cleanup) | READY TO SHIP |
 | `x` | dismiss | BACKGROUND |
+
+**Context-sensitive footer:** the hotkey strip always shows `↑↓ nav`, `n new`, and `q quit`; between them it lists only the verbs that apply to the currently-focused row, so the UI teaches itself as you navigate.
 
 **Navigation:** `↑/↓` or `j/k` for previous/next row across sections; `q` to quit; `Esc` closes the inline review panel.
 
