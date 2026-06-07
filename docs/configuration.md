@@ -26,9 +26,6 @@ mouse_mode = true
 auto_install_deps = true
 copy_env_file = true
 
-[switchboard]
-background_color = "#1a1b2e"  # match your terminal background (auto-detected if omitted)
-
 [backend]
 mode = "tmux"                  # tmux | herdr | auto — picks the multiplexer backend
 herdr_session = "default"      # named herdr session (selects which socket)
