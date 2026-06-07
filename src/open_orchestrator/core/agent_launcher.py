@@ -168,8 +168,22 @@ class AgentLauncher:
                 )
 
             # Interactive or automated: create backend session, deliver prompt.
+            # task_via_args tools (e.g. ClawCore) take the task as argv inside
+            # the launch command, so the task is threaded into create_session
+            # and the prompt paste is skipped.
+            task_via_args = tool.task_via_args
             backend = self._resolve_backend(request)
-            backend_session = self._create_backend_session(backend, session_name, session_path, request)
+            if task_via_args and backend.kind == BackendKind.HERDR:
+                # herdr types agent_command into a persistent pane; one-shot
+                # argv tools aren't wired for it. Fail loudly rather than
+                # launching the agent with no task (the paste is skipped too).
+                raise PaneActionError(
+                    f"'{request.ai_tool}' is a one-shot (task-via-args) tool, which the herdr "
+                    "backend does not support yet — use the tmux backend (default) or --headless."
+                )
+            backend_session = self._create_backend_session(
+                backend, session_name, session_path, request, task_via_args=task_via_args
+            )
             txn.tmux_session_created = backend.kind == BackendKind.TMUX
             txn.backend_session_id = backend_session.id
             txn.backend_kind = backend.kind.value
@@ -191,7 +205,7 @@ class AgentLauncher:
                 backend_meta=dict(backend_session.meta),
                 session_type=request.session_type.value,
             )
-            if request.prompt:
+            if request.prompt and not task_via_args:
                 self._deliver_prompt(backend, backend_session, request.prompt)
 
             return LaunchResult(
@@ -312,6 +326,8 @@ class AgentLauncher:
         session_name: str,
         session_path: str,
         request: LaunchRequest,
+        *,
+        task_via_args: bool = False,
     ) -> BackendSession:
         """Create a multiplexer session via the resolved backend.
 
@@ -319,6 +335,10 @@ class AgentLauncher:
         :class:`TmuxBackend` forwards it to :class:`TmuxManager` (which
         applies plan-mode / automated flags) and :class:`HerdrBackend`
         types it into a fresh herdr workspace pane.
+
+        For ``task_via_args`` tools the task is passed as ``task`` so the
+        backend substitutes it into the one-shot launch command; the caller
+        then skips prompt delivery.
         """
         automated = request.mode == LaunchMode.AUTOMATED
         try:
@@ -328,6 +348,7 @@ class AgentLauncher:
                 agent_command=request.ai_tool,
                 plan_mode=request.plan_mode,
                 automated=automated,
+                task=request.prompt if task_via_args else None,
             )
         except TmuxSessionExistsError:
             # Only tmux raises this — recover by reusing the existing session
@@ -437,25 +458,30 @@ class AgentLauncher:
                     executable = str(candidate)
                     break
 
+        # task_via_args tools (e.g. ClawCore) take the task as argv; everything
+        # else receives the prompt over stdin.
+        task_via_args = tool.task_via_args
         command = tool.get_command(
             executable_path=executable,
             plan_mode=request.plan_mode,
             prompt=request.prompt,
+            worktree=session_path,
         )
 
         try:
             proc = subprocess.Popen(
                 shlex.split(command),
-                stdin=subprocess.PIPE,
+                stdin=subprocess.DEVNULL if task_via_args else subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=session_path,
                 env={**os.environ, "OWT_AUTOMATED": "1"},
                 start_new_session=True,
             )
-            assert proc.stdin is not None
-            proc.stdin.write(request.prompt.encode())
-            proc.stdin.close()
+            if not task_via_args:
+                assert proc.stdin is not None
+                proc.stdin.write(request.prompt.encode())
+                proc.stdin.close()
         except OSError as e:
             raise PaneActionError(f"Could not launch headless agent: {e}") from e
 

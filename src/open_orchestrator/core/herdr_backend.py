@@ -227,8 +227,13 @@ class HerdrBackend:
         agent_command: str | None = None,
         plan_mode: bool = False,
         automated: bool = False,
+        task: str | None = None,
     ) -> BackendSession:
-        del plan_mode, automated  # both are communicated via prompt content for herdr
+        # plan_mode/automated are communicated via prompt content for herdr.
+        # task_via_args (one-shot argv) tools are tmux/headless-only today —
+        # herdr types agent_command into a persistent pane, so `task` is not
+        # wired here; accepted for MultiplexerBackend protocol compatibility.
+        del plan_mode, automated, task
         raw = self._call(
             "workspace.create",
             {"cwd": cwd, "label": worktree_name},

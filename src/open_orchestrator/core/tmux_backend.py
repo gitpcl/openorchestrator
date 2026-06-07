@@ -46,6 +46,7 @@ class TmuxBackend:
         agent_command: str | None = None,
         plan_mode: bool = False,
         automated: bool = False,
+        task: str | None = None,
     ) -> BackendSession:
         info = self._tmux.create_worktree_session(
             worktree_name=worktree_name,
@@ -55,6 +56,10 @@ class TmuxBackend:
             ai_tool=agent_command or "claude",
             plan_mode=plan_mode,
             automated=automated,
+            # Only task_via_args tools pass a task here; it flows to
+            # _start_ai_tool_in_pane via the existing prompt channel and is
+            # substituted into the one-shot command (no paste).
+            prompt=task,
         )
         return BackendSession(
             kind=self.kind,

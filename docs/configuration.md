@@ -51,14 +51,17 @@ Open Orchestrator auto-detects installed AI tools and offers a picker when multi
 | Pi | `pi` | `npm install -g @earendil-works/pi-coding-agent`; automated/headless agents use `-p` with cat-piped prompts; live status via pane scraping |
 | OpenCode | `opencode` | Go-based |
 | Droid | `droid` | `--skip-permissions-unsafe` by default |
+| ClawCore | `clawcore` | Code-as-action engine; **one-shot** — `clawcore run "<task>" "<worktree>" --json` (task passed as argv, not pasted). `curl -fsSL https://raw.githubusercontent.com/clawco-io/clawcore/main/install.sh \| sh` |
 
-Auto-pick priority when multiple are installed: `claude > pi > droid > opencode`.
+Auto-pick priority when multiple are installed: `claude > pi > droid > opencode`
+(others, including `clawcore`, follow alphabetically). Pick any explicitly with `--ai-tool`.
 
 ```bash
 owt new "task" --ai-tool claude --plan-mode
 owt new "task" --ai-tool pi
 owt new "task" --ai-tool opencode
 owt new "task" --ai-tool droid
+owt new "fix the failing test" --ai-tool clawcore   # one-shot, task via argv
 ```
 
 ### Branch Mode (No Worktree)
@@ -90,6 +93,32 @@ prompt_flag = "-p"
 supports_hooks = false
 install_hint = "Install from https://..."
 known_paths = ["~/.local/bin/mytool"]
+```
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `binary` | tool name | Executable to resolve (via the allowlisted PATH + `known_paths`) |
+| `command_template` | `{binary}` | Launch command; `{binary}` is substituted with the resolved path |
+| `prompt_flag` | _none_ | Flag appended with the prompt for REPL tools (e.g. `-p`) |
+| `supports_hooks` / `supports_headless` / `supports_plan_mode` | `false` | Capability flags |
+| `task_via_args` | `false` | See below |
+| `known_paths` | `[]` | Extra install locations to probe beyond PATH |
+
+**Task delivery — paste vs. argv.** REPL/TUI agents boot an interactive
+session and OWT pastes the task in after startup (the default). One-shot
+agents take the task as a command-line argument instead. Set
+`task_via_args = true` and use `{{task}}` / `{{worktree}}` placeholders in
+`command_template`; OWT shell-quotes and substitutes both, then runs the
+command directly and **skips** the prompt paste/stdin entirely:
+
+```toml
+# A one-shot, task-via-argv tool (this is how the built-in `clawcore` is wired)
+[tools.myengine]
+binary = "myengine"
+command_template = "{binary} run {{task}} {{worktree}} --json"
+task_via_args = true
+supports_headless = true
+known_paths = ["~/go/bin/myengine"]
 ```
 
 ## Project Detection

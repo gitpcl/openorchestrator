@@ -26,10 +26,11 @@ class _FakeTool:
         self.supports_hooks = True
         self.supports_headless = supports_headless
         self.supports_plan_mode = True
+        self.task_via_args = False
         self.install_hint = ""
         self._command = command
 
-    def get_command(self, *, executable_path=None, plan_mode=False, prompt=None) -> str:
+    def get_command(self, *, executable_path=None, plan_mode=False, prompt=None, worktree=None) -> str:
         return self._command
 
     def is_installed(self) -> bool:

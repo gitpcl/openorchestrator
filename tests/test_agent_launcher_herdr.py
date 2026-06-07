@@ -81,9 +81,10 @@ class _FakeTool:
     supports_hooks = False
     supports_headless = True
     supports_plan_mode = True
+    task_via_args = False
     install_hint = ""
 
-    def get_command(self, *, executable_path=None, plan_mode=False, prompt=None):  # noqa: ANN001
+    def get_command(self, *, executable_path=None, plan_mode=False, prompt=None, worktree=None):  # noqa: ANN001
         return "claude"
 
     def is_installed(self) -> bool:

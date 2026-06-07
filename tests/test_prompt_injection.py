@@ -99,6 +99,7 @@ class _FakeTool:
     supports_hooks = True
     supports_headless = True
     supports_plan_mode = True
+    task_via_args = False
     install_hint = ""
 
     def get_command(
@@ -107,6 +108,7 @@ class _FakeTool:
         executable_path: str | None = None,
         plan_mode: bool = False,
         prompt: str | None = None,
+        worktree: str | None = None,
     ) -> str:
         # Mirror the real built-in contract: no prompt in the command line.
         binary = shlex.quote(executable_path) if executable_path else self.binary

@@ -52,6 +52,7 @@ class CustomTool:
     supports_hooks: bool = False
     supports_headless: bool = False
     supports_plan_mode: bool = False
+    task_via_args: bool = False
     install_hint: str = ""
 
     def get_command(
@@ -60,8 +61,17 @@ class CustomTool:
         executable_path: str | None = None,
         plan_mode: bool = False,
         prompt: str | None = None,
+        worktree: str | None = None,
     ) -> str:
         binary = shlex.quote(executable_path) if executable_path else self.binary
+        if self.task_via_args:
+            # One-shot tools take the task (and worktree) as argv. Substitute
+            # both — shell-quoted — into the template; the launcher runs this
+            # directly and never pastes/pipes a prompt.
+            cmd = self.command_template.replace("{binary}", binary)
+            cmd = cmd.replace("{{task}}", shlex.quote(prompt or ""))
+            cmd = cmd.replace("{{worktree}}", shlex.quote(worktree or "."))
+            return cmd
         cmd = self.command_template.format(binary=binary)
         if prompt and self.prompt_flag:
             cmd += f" {self.prompt_flag} {shlex.quote(prompt)}"
@@ -91,6 +101,7 @@ class ClaudeTool:
     supports_hooks = True
     supports_headless = True
     supports_plan_mode = True
+    task_via_args = False
     install_hint = "Install Claude Code: npm install -g @anthropic-ai/claude-code"
 
     def get_command(
@@ -99,6 +110,7 @@ class ClaudeTool:
         executable_path: str | None = None,
         plan_mode: bool = False,
         prompt: str | None = None,
+        worktree: str | None = None,
     ) -> str:
         binary = shlex.quote(executable_path) if executable_path else self.binary
         parts = [binary]
@@ -137,6 +149,7 @@ class DroidTool:
     supports_hooks = True
     supports_headless = False
     supports_plan_mode = False
+    task_via_args = False
     install_hint = "Install Droid: See https://docs.factory.ai/cli"
 
     def get_command(
@@ -145,6 +158,7 @@ class DroidTool:
         executable_path: str | None = None,
         plan_mode: bool = False,
         prompt: str | None = None,
+        worktree: str | None = None,
     ) -> str:
         binary = shlex.quote(executable_path) if executable_path else self.binary
         return f"{binary} --skip-permissions-unsafe"
@@ -179,6 +193,7 @@ class PiTool:
     supports_hooks = False
     supports_headless = True
     supports_plan_mode = False
+    task_via_args = False
     install_hint = "Install Pi: npm install -g @earendil-works/pi-coding-agent"
 
     def get_command(
@@ -187,6 +202,7 @@ class PiTool:
         executable_path: str | None = None,
         plan_mode: bool = False,
         prompt: str | None = None,
+        worktree: str | None = None,
     ) -> str:
         binary = shlex.quote(executable_path) if executable_path else self.binary
         parts = [binary]
@@ -224,6 +240,7 @@ class OpenCodeTool:
     supports_hooks = False
     supports_headless = False
     supports_plan_mode = False
+    task_via_args = False
     install_hint = "Install OpenCode: go install github.com/opencode-ai/opencode@latest"
 
     def get_command(
@@ -232,6 +249,7 @@ class OpenCodeTool:
         executable_path: str | None = None,
         plan_mode: bool = False,
         prompt: str | None = None,
+        worktree: str | None = None,
     ) -> str:
         return shlex.quote(executable_path) if executable_path else self.binary
 
@@ -304,12 +322,43 @@ class ToolRegistry:
         return list(self._tools.values())
 
 
+def _clawcore_tool() -> CustomTool:
+    """ClawCore — a code-as-action engine OWT launches as a one-shot provider.
+
+    Unlike the REPL agents, ClawCore takes the task + worktree as argv
+    (``clawcore run "<task>" "<worktree>" --json``) and exits when done, so it
+    is registered ``task_via_args`` — the launcher substitutes the task into
+    the command instead of pasting it into a TUI. Mirrors the descriptor in
+    clawcore's own ``integrations/owt-provider/provider.go``.
+    """
+    return CustomTool(
+        name="clawcore",
+        binary="clawcore",
+        # Placeholders are NOT pre-quoted here — get_command() shell-quotes each
+        # via shlex.quote, which round-trips correctly through both shlex.split
+        # (headless) and the pane shell (interactive). Pre-quoting would
+        # double-quote. Effective argv: clawcore run <task> <worktree> --json.
+        command_template="{binary} run {{task}} {{worktree}} --json",
+        task_via_args=True,
+        known_paths=[
+            "~/go/bin/clawcore",
+            "/usr/local/bin/clawcore",
+            "/opt/homebrew/bin/clawcore",
+        ],
+        supports_hooks=False,
+        supports_headless=True,
+        supports_plan_mode=False,
+        install_hint=("Install ClawCore: curl -fsSL https://raw.githubusercontent.com/clawco-io/clawcore/main/install.sh | sh"),
+    )
+
+
 def _register_builtins(registry: ToolRegistry) -> None:
     """Register built-in tools and detectable extras."""
     registry.register(ClaudeTool())
     registry.register(PiTool())
     registry.register(DroidTool())
     registry.register(OpenCodeTool())
+    registry.register(_clawcore_tool())
     for name, binary in _EXTRA_BINARIES.items():
         registry.register(
             CustomTool(
@@ -336,6 +385,7 @@ def register_custom_tools(registry: ToolRegistry, tools_config: dict[str, dict[s
             supports_hooks=bool(cfg.get("supports_hooks", False)),
             supports_headless=bool(cfg.get("supports_headless", False)),
             supports_plan_mode=bool(cfg.get("supports_plan_mode", False)),
+            task_via_args=bool(cfg.get("task_via_args", False)),
             install_hint=str(cfg.get("install_hint", "")),
         )
         registry.register(tool)

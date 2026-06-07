@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **ClawCore provider** — `owt new --ai-tool clawcore "<task>"` launches
+  [ClawCore](https://github.com/clawco-io/clawcore), a code-as-action engine,
+  as a one-shot agent: OWT runs `clawcore run "<task>" "<worktree>" --json`
+  with the task as a positional argument and skips the prompt paste.
+- **Task-via-args tool capability** — the tool model now supports one-shot
+  agents whose task is passed as argv rather than pasted into a TUI. Tools
+  (built-in or `[tools.<name>]` config) can set `task_via_args = true` and use
+  `{{task}}` / `{{worktree}}` placeholders in `command_template`; both are
+  shell-quoted and substituted, and the prompt paste/stdin write is skipped on
+  the interactive, automated, and headless launch paths. The REPL paste/stdin
+  path for Claude/Pi/Droid/OpenCode is unchanged.
+
 ### Security
 - Resolved all 12 Dependabot advisories. Bumped the `gitpython` floor to
   `>=3.1.50` (CVE-2026-42215 / -42284 / -44244 / GHSA-mv93-w799-cj2w — the only

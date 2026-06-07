@@ -242,6 +242,7 @@ class TmuxManager:
                     auto_exit=config.auto_exit,
                     automated=config.automated,
                     prompt=config.prompt,
+                    worktree_path=config.working_directory,
                 )
 
             if config.mouse_mode:
@@ -282,6 +283,7 @@ class TmuxManager:
         auto_exit: bool = False,
         automated: bool = False,
         prompt: str | None = None,
+        worktree_path: str | None = None,
     ) -> None:
         """Start the specified AI tool in the pane.
 
@@ -303,27 +305,30 @@ class TmuxManager:
             executable_path=executable,
             plan_mode=plan_mode,
             prompt=prompt,
+            worktree=worktree_path,
         )
 
+        # OWT_AUTOMATED lets user hooks distinguish automated agents from
+        # interactive sessions (e.g. skip commit-blocking hooks). It is
+        # exported for automated/auto-exit launches regardless of tool.
+        prefix = "export OWT_AUTOMATED=1; " if automated or auto_exit else ""
+        suffix = "; exit" if auto_exit else ""
+
+        # task_via_args tools (e.g. ClawCore) already have the task substituted
+        # into argv by get_command — run the one-shot command directly, no
+        # prompt paste/pipe. Must be checked before the claude/pi stdin branch.
+        if prompt and tool.task_via_args:
+            command = f"{prefix}{command}{suffix}"
         # For tools that consume the prompt via stdin (Claude, Pi), write
         # the prompt to a temp file and pipe via cat. Using `cat file | tool -p`
         # rather than `tool -p < file` because pipe-based stdin is the confirmed
         # working pattern (file redirects fail silently inside tmux panes on
         # some configurations).
-        if prompt and ai_tool in {"claude", "pi"}:
-            prompt_path = self._write_prompt_file(prompt)
-            quoted_path = shlex.quote(prompt_path)
-            prefix = "export OWT_AUTOMATED=1; " if automated or auto_exit else ""
-            if auto_exit:
-                command = f"{prefix}cat {quoted_path} | {command}; rm -f {quoted_path}; exit"
-            else:
-                command = f"{prefix}cat {quoted_path} | {command}; rm -f {quoted_path}"
-        elif auto_exit:
-            # OWT_AUTOMATED lets user hooks distinguish automated agents
-            # from interactive sessions (e.g. skip commit-blocking hooks).
-            command = f"export OWT_AUTOMATED=1; {command}; exit"
-        elif automated:
-            command = f"export OWT_AUTOMATED=1; {command}"
+        elif prompt and ai_tool in {"claude", "pi"}:
+            quoted_path = shlex.quote(self._write_prompt_file(prompt))
+            command = f"{prefix}cat {quoted_path} | {command}; rm -f {quoted_path}{suffix}"
+        elif automated or auto_exit:
+            command = f"{prefix}{command}{suffix}"
 
         logger.debug("AI tool command for pane: %s", command)
         self._wait_for_shell_ready(pane)

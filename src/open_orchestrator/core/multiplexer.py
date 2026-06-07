@@ -32,6 +32,7 @@ class MultiplexerBackend(Protocol):
         agent_command: str | None = None,
         plan_mode: bool = False,
         automated: bool = False,
+        task: str | None = None,
     ) -> BackendSession:
         """Create a session bound to ``cwd`` and optionally spawn ``agent_command``.
 
@@ -39,6 +40,12 @@ class MultiplexerBackend(Protocol):
         human will type follow-ups). Backends that surface this to the
         underlying process (e.g. tmux sets ``OWT_AUTOMATED=1``) should
         honor it; herdr currently treats it as advisory.
+
+        ``task`` is only set for ``task_via_args`` tools (e.g. ClawCore),
+        whose one-shot CLI takes the task as argv rather than a pasted
+        prompt. The backend substitutes it into the launch command and the
+        caller skips prompt delivery. Tools that paste/pipe the prompt leave
+        this ``None``.
         """
         ...
 

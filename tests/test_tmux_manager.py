@@ -17,7 +17,7 @@ from open_orchestrator.core.tmux_manager import (
     TmuxSessionNotFoundError,
     detect_activity_from_pane_output,
 )
-from open_orchestrator.core.tool_registry import ClaudeTool, DroidTool, OpenCodeTool, PiTool
+from open_orchestrator.core.tool_registry import ClaudeTool, CustomTool, DroidTool, OpenCodeTool, PiTool
 from open_orchestrator.models.status import AIActivityStatus
 
 
@@ -536,6 +536,48 @@ class TestAIToolSupport:
 
         mock_send_cmd.assert_called_once()
         assert mock_send_cmd.call_args[0][1] == "droid --skip-permissions-unsafe"
+
+    @patch.object(TmuxManager, "_send_command_to_pane")
+    @patch.object(TmuxManager, "_wait_for_shell_ready")
+    @patch.object(TmuxManager, "_resolve_executable", return_value=None)
+    @patch.object(CustomTool, "is_installed", return_value=True)
+    @patch.object(TmuxManager, "server", new_callable=PropertyMock)
+    def test_start_clawcore_passes_task_as_argv(
+        self,
+        mock_server_prop,
+        mock_is_installed,
+        mock_resolve_exec,
+        mock_wait,
+        mock_send_cmd,
+        temp_dir: Path,
+        mock_libtmux_session: MagicMock,
+    ):
+        """A task_via_args tool (ClawCore) gets the task + worktree substituted
+        into its one-shot argv — no `cat file | tool` prompt pipe."""
+        import shlex
+
+        mock_server = MagicMock()
+        mock_server.has_session.return_value = False
+        mock_server.new_session.return_value = mock_libtmux_session
+        mock_server_prop.return_value = mock_server
+
+        manager = TmuxManager()
+        config = TmuxSessionConfig(
+            session_name="test-session",
+            working_directory=str(temp_dir),
+            ai_tool="clawcore",
+            auto_start_ai=True,
+            prompt="fix the failing test",
+        )
+
+        manager.create_session(config)
+
+        mock_send_cmd.assert_called_once()
+        sent = mock_send_cmd.call_args[0][1]
+        # Task delivered as argv (shell-quoted), worktree substituted, no pipe.
+        assert sent == f"clawcore run 'fix the failing test' {shlex.quote(str(temp_dir))} --json"
+        assert "cat " not in sent
+        assert "|" not in sent
 
     @patch.object(TmuxManager, "_send_command_to_pane")
     @patch.object(TmuxManager, "_wait_for_shell_ready")

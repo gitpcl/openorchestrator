@@ -27,11 +27,12 @@ class _FakeTool:
         self.supports_hooks = True
         self.supports_headless = supports_headless
         self.supports_plan_mode = True
+        self.task_via_args = False
         self.install_hint = ""
         self._command = command
         self._last_kwargs: dict = {}
 
-    def get_command(self, *, executable_path=None, plan_mode=False, prompt=None) -> str:
+    def get_command(self, *, executable_path=None, plan_mode=False, prompt=None, worktree=None) -> str:
         self._last_kwargs = {"executable_path": executable_path, "plan_mode": plan_mode, "prompt": prompt}
         return self._command
 

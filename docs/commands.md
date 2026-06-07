@@ -133,9 +133,19 @@ owt new "Patch CVE" --template hotfix       # Emergency, production stability
 owt new "Build Stripe integration"                  # default provider
 owt new "Write payment tests" --ai-tool pi          # a different engine in its own worktree
 owt new "Port parser to Rust" --ai-tool droid
-# -> Three agents, three providers, working in parallel, visible in IN FLIGHT
+owt new "fix the failing test" --ai-tool clawcore   # ClawCore: code-as-action engine (one-shot)
+# -> agents across providers, working in parallel, visible in IN FLIGHT
 # -> Conflict Guard warns if agents touch the same files; conflicts surface in NEEDS YOU
 ```
+
+`--ai-tool clawcore` launches [ClawCore](https://github.com/clawco-io/clawcore),
+a code-as-action engine. Unlike the REPL agents (Claude/Pi/Droid/OpenCode)
+that boot a TUI and receive the task by paste, ClawCore is **one-shot**: OWT
+runs `clawcore run "<task>" "<worktree>" --json` with the task as a positional
+argument and the engine exits when done. This "task-via-args" launch is a
+general capability of the tool model (see
+[configuration.md](configuration.md#custom-ai-tools)), not a ClawCore special
+case.
 
 ### Native plan-first workflow
 ```bash

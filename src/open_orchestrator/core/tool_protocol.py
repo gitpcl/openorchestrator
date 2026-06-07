@@ -44,6 +44,19 @@ class AIToolProtocol(Protocol):
         ...
 
     @property
+    def task_via_args(self) -> bool:
+        """Whether the task is passed as command-line arguments, not pasted.
+
+        REPL/TUI agents (Claude, Pi, Droid, OpenCode) boot an interactive
+        session and receive the task by having it typed/pasted in after
+        startup. One-shot agents (e.g. ClawCore's ``run`` subcommand) take
+        the task as a positional argv instead. When this is True, the
+        launcher substitutes ``{{task}}`` / ``{{worktree}}`` into the
+        command and skips the prompt paste / stdin write entirely.
+        """
+        ...
+
+    @property
     def install_hint(self) -> str:
         """Installation instructions for the user."""
         ...
@@ -54,8 +67,14 @@ class AIToolProtocol(Protocol):
         executable_path: str | None = None,
         plan_mode: bool = False,
         prompt: str | None = None,
+        worktree: str | None = None,
     ) -> str:
-        """Build the shell command to launch this tool."""
+        """Build the shell command to launch this tool.
+
+        For ``task_via_args`` tools, ``prompt`` carries the task and
+        ``worktree`` the worktree path; both are substituted (shell-quoted)
+        into the command template. Other tools ignore ``worktree``.
+        """
         ...
 
     def is_installed(self) -> bool:
