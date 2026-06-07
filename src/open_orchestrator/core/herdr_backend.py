@@ -465,15 +465,18 @@ class HerdrBackend:
         """Type ``text`` into the pane and submit it with a carriage return.
 
         The body and the ``\\r`` terminator are delivered as **two separate**
-        ``pane.send_text`` calls. This matters: empirically (herdr v0.6.1) a
-        single ``"body\\r"`` blob leaves the prompt sitting unsent in the
-        agent's input box — a TUI (pi, claude, droid) does not treat the
-        trailing CR inside one pasted chunk as Enter. A standalone ``"\\r"``
-        delivered *after* the body is processed as a discrete submit.
+        ``pane.send_text`` calls. This matters: empirically (herdr v0.6.1 and
+        re-confirmed on v0.6.8) a single ``"body\\r"`` blob leaves the prompt
+        sitting unsent in the agent's input box — a TUI (pi, claude, droid)
+        does not treat the trailing CR inside one pasted chunk as Enter. A
+        standalone ``"\\r"`` delivered *after* the body is processed as a
+        discrete submit. Verified via the submission matrix in
+        ``tests/manual/herdr_submit_matrix.md`` (pi, claude submit on the
+        first attempt with the default; ``text:\\n`` does not).
 
         ``pane.send_keys`` is intentionally only used for the ``keys:``
-        override and is not the default: on herdr v0.6.1 it times out, so
-        relying on it would hang every prompt for the RPC timeout.
+        override and is not the default: on herdr v0.6.1/v0.6.8 it times out,
+        so relying on it would hang every prompt for the RPC timeout.
 
         Override via ``OWT_HERDR_SUBMIT`` if your herdr build differs
         (e.g. ``OWT_HERDR_SUBMIT=text:\\r\\n`` or ``OWT_HERDR_SUBMIT=keys:Return``).

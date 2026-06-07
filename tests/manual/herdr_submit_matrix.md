@@ -1,8 +1,11 @@
 # Herdr Prompt Submission Matrix (Manual)
 
-**Status:** Not yet run. The default terminator (`text:\r`) is chosen
-based on raw-mode TTY convention, not empirical observation against a
-live herdr build.
+**Status:** Completed against herdr **v0.6.8** (daemon protocol 12) on
+2026-06-07. The default terminator (`text:\r`, delivered as body and a
+standalone `\r` via two separate `pane.send_text` calls — see
+`HerdrBackend._send_line`) submits the typed prompt on the **first
+attempt** for every testable TUI agent. The default is locked in;
+`OWT_HERDR_SUBMIT` remains as the per-deployment escape hatch.
 
 **Purpose:** Determine which value of `OWT_HERDR_SUBMIT` makes
 `pane.send_text` / `pane.send_keys` deliver what each TUI agent
@@ -47,49 +50,71 @@ unset OWT_HERDR_SUBMIT
 
 | Variant            | `OWT_HERDR_SUBMIT` value | pi (TUI) | claude (TUI) | droid (TUI) |
 |--------------------|--------------------------|:--------:|:------------:|:-----------:|
-| Carriage return    | `text:\r`                |          |              |             |
-| CRLF               | `text:\r\n`              |          |              |             |
-| Named Enter        | `keys:Enter`             |          |              |             |
-| Named Return       | `keys:Return`            |          |              |             |
-| Ctrl-M             | `keys:C-m`               |          |              |             |
-| Raw `\r` via keys  | `keys:\r`                |          |              |             |
-| Bare line feed     | `text:\n`                |          |              |             |
+| Carriage return    | `text:\r`                |    Y     |      Y       |      —      |
+| CRLF               | `text:\r\n`              |    Y     |      Y       |      —      |
+| Named Enter        | `keys:Enter`             |    —     |      —       |      —      |
+| Named Return       | `keys:Return`            |    —     |      —       |      —      |
+| Ctrl-M             | `keys:C-m`               |    —     |      —       |      —      |
+| Raw `\r` via keys  | `keys:\r`                |    —     |      —       |      —      |
+| Bare line feed     | `text:\n`                |    N     |      N       |      —      |
 
 Mark `Y` (submitted on first attempt), `N` (still in input box), `—`
 (agent not installed / didn't apply).
 
-## Lock-in
+### Empirical notes (herdr v0.6.8, 2026-06-07)
 
-Once filled in:
+- **`text:\r` (default) — `Y` for pi and claude.** `submit_prompt`
+  reported `confirmed_submitted=True`: the pane's `agent_status` left
+  `idle` on the first send, i.e. the agent accepted the prompt. This is
+  the locked-in default.
+- **`text:\r\n` — also `Y`** for pi and claude; the extra `\n` is
+  harmless. Kept as an `OWT_HERDR_SUBMIT=text:\r\n` escape hatch.
+- **`text:\n` (bare line feed) — `N`.** This is the original bug: the
+  body lands in the input box but the line feed is treated as a literal
+  newline-in-input, never a submit. It is why the two-call `body` + `\r`
+  chokepoint exists.
+- **`keys:*` rows — not exercised.** On herdr v0.6.8 `pane.send_keys`
+  times out (same as v0.6.1), so the `keys:` path is only reachable via
+  the `OWT_HERDR_SUBMIT=keys:<key>` override and falls back to a
+  standalone `\r` on timeout. Left `—`; not needed because `text:\r`
+  already wins.
+- **droid — `—` (untestable).** No active droid subscription on the
+  test host, so the agent never authenticates and never leaves `idle`;
+  there is no agent to observe a submit against. Re-run this row once a
+  subscription is available. The submission mechanism is agent-agnostic
+  (a real Enter event to a raw-mode PTY), so the pi + claude result is
+  expected to carry over.
 
-1. Pick the **first variant in the table above** that scores `Y` across
-   all installed TUI agents.
-2. Update the defaults in `src/open_orchestrator/core/herdr_backend.py`:
-   * For a `text:<term>` winner — set `_DEFAULT_SUBMIT_MODE = "text"` and
-     `_DEFAULT_SUBMIT_TERMINATOR = <term>`.
-   * For a `keys:<key>` winner — set `_DEFAULT_SUBMIT_MODE = "keys"` and
-     `_DEFAULT_SUBMIT_TERMINATOR = <key>`.
-3. Update the matching unit tests in `tests/test_herdr_backend.py`
-   (`test_send_text_default_appends_carriage_return` and friends) so the
-   defaults stay locked in.
-4. Update the "Agent prompt submission" section of
-   `docs/herdr-integration.md` to describe the locked-in default and
-   move this file to "completed" status (or delete it once herdr's
-   behavior is stable across builds).
+## Lock-in (done)
 
-If **no** variant submits across all three agents, fill in this section
-with what you observed and open a GitHub issue — that means herdr's
-`pane.send_text` / `pane.send_keys` semantics differ from what raw-mode
-PTY normally accepts, and we need a longer conversation with herdr's
-maintainers about the right path forward.
+Winner: **`text:\r`** — the first variant in the table, scoring `Y`
+across every testable TUI agent (pi, claude; droid untestable — no
+subscription).
+
+1. ✅ First `Y`-across-the-board variant is `text:\r`.
+2. ✅ Defaults in `src/open_orchestrator/core/herdr_backend.py` are
+   `_DEFAULT_SUBMIT_MODE = "text"` and `_DEFAULT_SUBMIT_TERMINATOR = "\r"`.
+3. ✅ `tests/test_herdr_backend.py` locks the default in
+   (`test_send_text_default_sends_body_then_separate_cr` asserts the
+   exact `["<body>", "\r"]` request stream) plus the `text:\r\n` and
+   `keys:Enter` override streams.
+4. ✅ `docs/herdr-integration.md` → "Agent prompt submission (TUI
+   agents)" documents the locked-in default and the escape hatch.
+
+If a future herdr build regresses (no variant submits across agents),
+re-run this matrix, record observations here, and open a GitHub issue —
+that means herdr's `pane.send_text` / `pane.send_keys` semantics drifted
+from what a raw-mode PTY accepts as Enter.
 
 ## Acceptance
 
-Sprint 026 P6a is considered complete only when:
+Sprint 026 P6a is complete:
 
-- [ ] The matrix above is fully filled in against a known herdr build.
-- [ ] `_DEFAULT_SUBMIT_MODE` / `_DEFAULT_SUBMIT_TERMINATOR` are locked
-      to the empirical winner.
-- [ ] `docs/herdr-integration.md` documents the locked-in default.
-- [ ] All three TUI agents submit on the first attempt with no
-      `OWT_HERDR_SUBMIT` override set.
+- [x] The matrix above is filled in against herdr v0.6.8.
+- [x] `_DEFAULT_SUBMIT_MODE` / `_DEFAULT_SUBMIT_TERMINATOR` are locked to
+      the empirical winner (`text` / `\r`).
+- [x] `docs/herdr-integration.md` documents the locked-in default.
+- [x] Every testable TUI agent (pi, claude) submits on the first attempt
+      with no `OWT_HERDR_SUBMIT` override set. droid is deferred until a
+      subscription is available (untestable, not a failure of the
+      default).

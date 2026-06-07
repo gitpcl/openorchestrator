@@ -214,12 +214,17 @@ variable stays readable in a shell.
 
 ### Empirical matrix (manual verification)
 
-The default terminator was chosen based on raw-mode TTY convention
-(`\r` is what a physical Enter delivers). It has **not yet been
-empirically verified against a live herdr build with all three TUI
-agents** — see [`tests/manual/herdr_submit_matrix.md`](../tests/manual/herdr_submit_matrix.md)
-for the procedure. If you run the matrix and discover a different
-working default for your herdr version, please open an issue with the
+The default terminator (`text:\r`) is **empirically verified** against
+herdr **v0.6.8**: pi and claude both submit the typed prompt on the
+first attempt with no `OWT_HERDR_SUBMIT` override
+(`HerdrBackend.submit_prompt` confirms the pane leaves `idle`). The
+bare-line-feed variant (`text:\n`) does **not** submit — that is the bug
+the `_send_line` chokepoint fixes. droid was not exercised (no active
+subscription on the test host); the submission mechanism is
+agent-agnostic, so the result is expected to carry over. See
+[`tests/manual/herdr_submit_matrix.md`](../tests/manual/herdr_submit_matrix.md)
+for the full table and procedure. If a future herdr build needs a
+different working default, re-run the matrix and open an issue with the
 results.
 
 ## Known limitations
