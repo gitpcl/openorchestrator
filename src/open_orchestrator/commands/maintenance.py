@@ -130,8 +130,33 @@ def version_cmd() -> None:
     console.print(f"open-orchestrator {ver}")
 
 
+@click.command("usage")
+@click.option("--days", type=int, default=30, help="Window in days (default 30).")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
+def usage_cmd(days: int, json_output: bool) -> None:
+    """Show local usage counts (cockpit launches, worktrees started).
+
+    Local-only signal — nothing leaves the machine. Useful as a
+    keep-or-archive gauge over time.
+    """
+    from open_orchestrator.commands._shared import get_status_tracker
+
+    tracker = get_status_tracker()
+    counts = tracker.usage_counts(days=days)
+
+    if json_output:
+        click.echo(json.dumps({"days": days, "counts": counts}, indent=2))
+        return
+
+    console.print(f"[bold]Usage (last {days}d):[/bold]")
+    console.print(f"  worktrees started : {counts.get('new', 0)}")
+    console.print(f"  native workflows  : {counts.get('workflow', 0)}")
+    console.print(f"  control-plane launches : {counts.get('control_plane', 0)}")
+
+
 def register(main: click.Group) -> None:
     """Register maintenance commands on the main CLI group."""
     main.add_command(sync_worktrees)
     main.add_command(cleanup_worktrees)
     main.add_command(version_cmd)
+    main.add_command(usage_cmd)

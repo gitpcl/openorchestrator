@@ -20,6 +20,26 @@ class TestVersionCommand:
         assert len(result.output.strip()) > 0
 
 
+class TestUsageCommand:
+    @patch("open_orchestrator.commands._shared.get_status_tracker")
+    def test_usage_text_output(self, mock_tracker: MagicMock, cli_runner: CliRunner) -> None:
+        mock_tracker.return_value.usage_counts.return_value = {"new": 5, "workflow": 2, "control_plane": 9}
+        result = cli_runner.invoke(main, ["usage"])
+        assert result.exit_code == 0, result.output
+        assert "worktrees started" in result.output
+        assert "5" in result.output
+
+    @patch("open_orchestrator.commands._shared.get_status_tracker")
+    def test_usage_json_output(self, mock_tracker: MagicMock, cli_runner: CliRunner) -> None:
+        mock_tracker.return_value.usage_counts.return_value = {"new": 3}
+        result = cli_runner.invoke(main, ["usage", "--json", "--days", "7"])
+        assert result.exit_code == 0, result.output
+        import json
+
+        payload = json.loads(result.output)
+        assert payload == {"days": 7, "counts": {"new": 3}}
+
+
 class TestSyncCommand:
     @patch("open_orchestrator.commands._shared.WorktreeManager")
     def test_sync_requires_arg_or_all(self, mock_wt: MagicMock, cli_runner: CliRunner) -> None:

@@ -1,23 +1,18 @@
-"""Sprint 024: tests for the pure section builders."""
+"""Tests for the pure section builders (3-lane control plane)."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
 from open_orchestrator.core.control_plane_sections import (
-    background_rows,
-    background_section,
     build_all_sections,
-    compute_orchestration_header,
     in_flight_section,
     needs_you_section,
     ready_to_ship_section,
 )
-from open_orchestrator.core.critic import CriticFinding, CriticVerdict, Severity
 from open_orchestrator.models.control_plane import (
-    BackgroundEvent,
     RowAction,
     SectionKind,
 )
@@ -48,44 +43,23 @@ class TestNeedsYouSection:
         assert RowAction.FIX in rows[0].actions
         assert rows[0].meta["reason"] == "conflict"
 
-    def test_critic_blocker_surfaces(self) -> None:
-        verdict = CriticVerdict(
-            action="ship",
-            target="wt-bad",
-            findings=(
-                CriticFinding(
-                    severity=Severity.BLOCKING,
-                    category="file-overlap",
-                    message="conflicts with other",
-                ),
-            ),
-        )
-        rows = needs_you_section(statuses=[], critic_verdicts={"wt-bad": verdict})
-        assert len(rows) == 1
-        assert rows[0].name == "wt-bad"
-        assert RowAction.REVIEW in rows[0].actions
-
-    def test_safe_critic_verdict_is_filtered(self) -> None:
-        verdict = CriticVerdict(action="ship", target="wt-ok", findings=())
-        rows = needs_you_section(statuses=[], critic_verdicts={"wt-ok": verdict})
-        assert rows == []
-
     def test_blocked_status_surfaces(self) -> None:
         s = _status("wt-blocked", activity_status=AIActivityStatus.BLOCKED, current_task="needs input")
         rows = needs_you_section(statuses=[s])
         assert len(rows) == 1
         assert "blocked" in rows[0].summary
+        assert RowAction.ATTACH in rows[0].actions
 
-    def test_dedupes_across_sources(self) -> None:
+    def test_error_status_surfaces(self) -> None:
+        s = _status("wt-err", activity_status=AIActivityStatus.ERROR)
+        rows = needs_you_section(statuses=[s])
+        assert len(rows) == 1
+        assert rows[0].meta["reason"] == "error"
+
+    def test_conflict_takes_precedence_over_status(self) -> None:
         s = _status("wt", activity_status=AIActivityStatus.BLOCKED)
-        verdict = CriticVerdict(
-            action="ship",
-            target="wt",
-            findings=(CriticFinding(severity=Severity.BLOCKING, category="x", message="m"),),
-        )
         rows = needs_you_section(
             statuses=[s],
-            critic_verdicts={"wt": verdict},
             conflict_worktrees=["wt"],
         )
         # Only one row, prioritized by conflict
@@ -105,6 +79,10 @@ class TestReadyToShipSection:
         rows = ready_to_ship_section(queue)
         assert rows[0].meta["position"] == "1"
         assert "queued #1/2" in rows[0].summary
+
+    def test_overlap_hint_rendered(self) -> None:
+        rows = ready_to_ship_section([("a", 1, 2)])
+        assert "2 overlap" in rows[0].summary
 
     def test_empty_queue_yields_no_rows(self) -> None:
         assert ready_to_ship_section([]) == []
@@ -126,61 +104,26 @@ class TestInFlightSection:
         assert RowAction.ATTACH in rows[0].actions
 
 
-class TestBackgroundSection:
-    def test_merges_and_caps(self) -> None:
-        now = datetime.now()
-        dream = [BackgroundEvent(timestamp=now - timedelta(minutes=i), source="dream", summary=f"d{i}") for i in range(6)]
-        memory = [BackgroundEvent(timestamp=now - timedelta(minutes=i + 10), source="memory", summary=f"m{i}") for i in range(6)]
-        merged = background_section(dream_events=dream, memory_events=memory, cap=10)
-        assert len(merged) == 10
-        # Newest first
-        for prev, nxt in zip(merged, merged[1:], strict=False):
-            assert prev.timestamp >= nxt.timestamp
-
-    def test_to_row_conversion(self) -> None:
-        events = [BackgroundEvent(timestamp=datetime.now(), source="critic", summary="ok", worktree_name="wt")]
-        rows = background_rows(events)
-        assert rows[0].section == SectionKind.BACKGROUND
-        assert RowAction.DISMISS in rows[0].actions
-
-
 class TestBuildAllSections:
-    def test_returns_all_four_keys(self) -> None:
+    def test_returns_three_keys(self) -> None:
         sections = build_all_sections(statuses=[])
         assert set(sections.keys()) == set(SectionKind)
+        assert len(sections) == 3
 
-
-class TestOrchestrationHeader:
-    def test_returns_none_when_no_state(self) -> None:
-        assert compute_orchestration_header(None) is None
-
-    def test_renders_header_line(self) -> None:
-        class _T:
-            status = "completed"
-
-        class _R:
-            status = "running"
-
-        class _S:
-            goal = "ship feature X"
-            feature_branch = "feat/X"
-            tasks = [_T(), _T(), _R()]
-
-        header = compute_orchestration_header(_S())
-        assert header is not None
-        assert header.completed == 2
-        assert header.running == 1
-        assert "feat/X" in header.line
-
-
-class TestSafeRecentEvents:
-    def test_swallows_exceptions(self) -> None:
-        class Boom:
-            def recent_events(self, limit: int = 5) -> list[BackgroundEvent]:
-                raise RuntimeError("nope")
-
-        sections = build_all_sections(statuses=[], dream=Boom(), memory=Boom(), critic=Boom())
-        assert sections[SectionKind.BACKGROUND] == []
+    def test_populates_each_lane(self) -> None:
+        statuses = [
+            _status("flying", activity_status=AIActivityStatus.WORKING, updated_at=datetime.now()),
+            _status("stuck", activity_status=AIActivityStatus.BLOCKED),
+        ]
+        sections = build_all_sections(
+            statuses=statuses,
+            merge_queue=[("ready", 3, 0)],
+            conflict_worktrees=["fighting"],
+        )
+        assert any(r.name == "fighting" for r in sections[SectionKind.NEEDS_YOU])
+        assert any(r.name == "stuck" for r in sections[SectionKind.NEEDS_YOU])
+        assert any(r.name == "ready" for r in sections[SectionKind.READY_TO_SHIP])
+        assert any(r.name == "flying" for r in sections[SectionKind.IN_FLIGHT])
 
 
 if __name__ == "__main__":

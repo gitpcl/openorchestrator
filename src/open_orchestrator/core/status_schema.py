@@ -27,7 +27,7 @@ import os
 import sqlite3
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,6 +58,8 @@ __all__ = [
     "row_to_status",
     "upsert_status_row",
     "insert_shared_note",
+    "record_usage",
+    "usage_counts",
     "load_legacy_json",
     "backup_legacy_json",
     "migrate_legacy_json",
@@ -65,7 +67,7 @@ __all__ = [
     "runtime_status_config",
 ]
 
-SCHEMA_VERSION = "3.2"
+SCHEMA_VERSION = "3.3"
 
 SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS worktree_status (
@@ -109,6 +111,15 @@ CREATE TABLE IF NOT EXISTS peer_messages (
 
 CREATE INDEX IF NOT EXISTS idx_peer_messages_to_peer_read
     ON peer_messages(to_peer, read);
+
+CREATE TABLE IF NOT EXISTS usage_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_events_created_at
+    ON usage_events(created_at);
 """
 
 # Exported for ``mcp_peer.py`` to avoid duplicate schema definitions when a
@@ -260,6 +271,30 @@ def insert_shared_note(conn: sqlite3.Connection, note: str) -> None:
         (note, datetime.now().isoformat()),
     )
     conn.commit()
+
+
+def record_usage(conn: sqlite3.Connection, event: str) -> None:
+    """Append a local usage event (e.g. ``control_plane`` / ``new``).
+
+    Local-only — never leaves the machine. Used as a low-effort signal of
+    whether the cockpit is actually being used (the project's kill-switch
+    criterion). Commits on success.
+    """
+    conn.execute(
+        "INSERT INTO usage_events (event, created_at) VALUES (?, ?)",
+        (event, datetime.now().isoformat()),
+    )
+    conn.commit()
+
+
+def usage_counts(conn: sqlite3.Connection, *, days: int = 30) -> dict[str, int]:
+    """Return per-event counts over the last ``days`` days (newest window)."""
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        "SELECT event, COUNT(*) FROM usage_events WHERE created_at >= ? GROUP BY event",
+        (since,),
+    ).fetchall()
+    return {str(event): int(count) for event, count in rows}
 
 
 def load_legacy_json(storage_path: Path) -> tuple[Path | None, dict[str, object] | None]:

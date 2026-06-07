@@ -10,9 +10,9 @@ class LazyModule:
     """Proxy that defers module import until first attribute access.
 
     Usage:
-        agno = LazyModule("agno", install_hint="pip install open-orchestrator[agno]")
+        mcp = LazyModule("mcp", install_hint="pip install open-orchestrator[mcp]")
         # Module is not imported until you access an attribute:
-        agent = agno.Agent  # triggers import here
+        server = mcp.Server  # triggers import here
     """
 
     def __init__(self, module_name: str, install_hint: str | None = None) -> None:

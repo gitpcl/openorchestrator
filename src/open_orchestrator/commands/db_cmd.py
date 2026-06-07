@@ -19,10 +19,10 @@ def register(main: click.Group) -> None:
     @db_group.command("purge")
     @click.option("--days", type=int, default=30, help="Delete messages older than N days.")
     def purge_messages(days: int) -> None:
-        """Purge old peer messages from the database."""
+        """Purge old transient rows (peer messages, usage events) from the database."""
         tracker = get_status_tracker()
         deleted = tracker.purge_old_messages(days)
-        console.print(f"[green]Purged {deleted} message(s) older than {days} days.[/green]")
+        console.print(f"[green]Purged {deleted} row(s) older than {days} days.[/green]")
 
     @db_group.command("vacuum")
     def vacuum_db() -> None:

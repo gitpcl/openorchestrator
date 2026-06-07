@@ -134,8 +134,12 @@ def _make_launch_result(
     )
 
 
-def _make_fake_tool(*, supports_headless: bool = True) -> SimpleNamespace:
-    return SimpleNamespace(name="claude", supports_headless=supports_headless)
+def _make_fake_tool(*, supports_headless: bool = True, supports_plan_mode: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(
+        name="claude",
+        supports_headless=supports_headless,
+        supports_plan_mode=supports_plan_mode,
+    )
 
 
 def _patch_resolved_backend(monkeypatch: pytest.MonkeyPatch, *, kind: BackendKind = BackendKind.TMUX) -> MagicMock:
@@ -335,6 +339,82 @@ class TestNewWorktree:
         result = runner.invoke(main_cli, ["new", "x", "--herdr", "--headless", "-y"])
         assert result.exit_code != 0
         assert "incompatible" in result.output.lower()
+
+    def test_workflow_and_headless_incompatible(self, runner: CliRunner, main_cli: click.Group) -> None:
+        result = runner.invoke(main_cli, ["new", "x", "--workflow", "--headless", "-y"])
+        assert result.exit_code != 0
+        assert "plan-first" in result.output.lower()
+
+    def test_workflow_requires_plan_mode_tool(
+        self,
+        runner: CliRunner,
+        main_cli: click.Group,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _silence_ref_conflict(monkeypatch)
+        _patch_resolved_backend(monkeypatch)
+
+        registry = MagicMock()
+        registry.get.return_value = _make_fake_tool(supports_plan_mode=False)
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_registry",
+            lambda: registry,
+        )
+
+        result = runner.invoke(
+            main_cli,
+            ["new", "refactor billing", "--workflow", "--ai-tool", "droid", "-y"],
+        )
+        assert result.exit_code != 0
+        assert "--workflow needs a plan-mode-capable tool" in result.output
+
+    def test_workflow_sets_plan_mode_and_protocol(
+        self,
+        runner: CliRunner,
+        main_cli: click.Group,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _silence_ref_conflict(monkeypatch)
+        backend = _patch_resolved_backend(monkeypatch)
+        backend.kind = BackendKind.TMUX
+
+        registry = MagicMock()
+        registry.get.return_value = _make_fake_tool()
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_registry",
+            lambda: registry,
+        )
+
+        wt_manager = _make_wt_manager()
+        tracker = _make_tracker()
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_worktree_manager",
+            lambda: wt_manager,
+        )
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_status_tracker",
+            lambda _root: tracker,
+        )
+
+        launcher = MagicMock()
+        launcher.launch.return_value = _make_launch_result(tmux_session="owt-x")
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.AgentLauncher",
+            lambda **kw: launcher,
+        )
+
+        result = runner.invoke(
+            main_cli,
+            ["new", "fix the login bug", "--workflow", "--ai-tool", "claude", "-y"],
+        )
+        assert result.exit_code == 0, result.output
+        request = launcher.launch.call_args.args[0]
+        assert request.plan_mode is True
+        assert request.display_task.startswith("⟳ ")
+        # The plan-first protocol scaffold is prepended to the prompt.
+        assert request.prompt is not None
+        assert "fix the login bug" in request.prompt
+        assert len(request.prompt) > len("fix the login bug")
 
     def test_backend_unavailable_raises_click_exception(
         self,

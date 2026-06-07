@@ -118,18 +118,6 @@ def test_tmux_probe_handles_timeout_expired_cleanly() -> None:
     assert result is None
 
 
-def test_ai_cli_planner_timeout_raises_friendly_runtime_error() -> None:
-    """``batch.plan_tasks`` wraps its AI invocation with TimeoutExpired so a
-    hung planner becomes a single user-facing RuntimeError, not a stack
-    trace. This ties the AI CLI class to the timeout contract."""
-    from open_orchestrator.core import batch
-
-    expired = subprocess.TimeoutExpired(cmd=["claude", "--print"], timeout=300)
-    with patch("subprocess.run", side_effect=expired):
-        with pytest.raises(RuntimeError, match=r"(?i)tim(ed )?out|timeout"):
-            batch.plan_tasks(goal="x", ai_tool="claude", repo_path=str(SRC_ROOT))
-
-
 @pytest.mark.parametrize(
     "op_class,expected",
     [

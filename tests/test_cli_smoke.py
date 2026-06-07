@@ -38,12 +38,10 @@ class TestCLIHelp:
             ["merge", "--help"],
             ["ship", "--help"],
             ["queue", "--help"],
-            ["plan", "--help"],
-            ["batch", "--help"],
-            ["orchestrate", "--help"],
             ["sync", "--help"],
             ["cleanup", "--help"],
             ["version"],
+            ["usage", "--help"],
             ["doctor", "--help"],
             ["config", "validate", "--help"],
             ["config", "show", "--help"],
@@ -77,12 +75,10 @@ class TestCLICommandRegistration:
             "merge",
             "ship",
             "queue",
-            "plan",
-            "batch",
-            "orchestrate",
             "sync",
             "cleanup",
             "version",
+            "usage",
             "doctor",
             "config",
             "db",
@@ -107,29 +103,16 @@ class TestCLICommandRegistration:
 class TestCLIModuleImports:
     """Verify core modules import without errors."""
 
-    def test_import_switchboard(self) -> None:
-        from open_orchestrator.core.switchboard import SwitchboardApp
+    def test_import_control_plane(self) -> None:
+        from open_orchestrator.core.control_plane_view import ControlPlaneApp
 
-        assert SwitchboardApp is not None
+        assert ControlPlaneApp is not None
 
-    def test_import_switchboard_cards(self) -> None:
-        from open_orchestrator.core.switchboard_cards import Card, _build_cards
-
-        assert Card is not None
-        assert _build_cards is not None
-
-    def test_import_switchboard_modals(self) -> None:
-        from open_orchestrator.core.switchboard_modals import ConfirmModal, InputModal
+    def test_import_modals(self) -> None:
+        from open_orchestrator.core.modals import ConfirmModal, InputModal
 
         assert InputModal is not None
         assert ConfirmModal is not None
-
-    def test_import_batch_models(self) -> None:
-        from open_orchestrator.core.batch_models import BatchConfig, BatchStatus, BatchTask
-
-        assert BatchStatus is not None
-        assert BatchTask is not None
-        assert BatchConfig is not None
 
     def test_import_environment_claude_md(self) -> None:
         from open_orchestrator.core.environment_claude_md import (
@@ -163,31 +146,3 @@ class TestCLIModuleImports:
         assert inject_shared_notes is not None
         assert inject_dag_context is not None
         assert inject_coordination_context is not None
-
-    def test_backward_compat_switchboard_reexports(self) -> None:
-        """Card functions should still be importable from switchboard."""
-        from open_orchestrator.core.switchboard import (
-            HOOK_CAPABLE_TOOLS,
-            _build_cards,
-            _detect_pane_status,
-            launch_switchboard,
-        )
-
-        assert _build_cards is not None
-        assert _detect_pane_status is not None
-        assert HOOK_CAPABLE_TOOLS is not None
-        assert launch_switchboard is not None
-
-    def test_backward_compat_batch_reexports(self) -> None:
-        """Batch models should still be importable from batch."""
-        from open_orchestrator.core.batch import (
-            BatchConfig,
-            BatchResult,
-            BatchStatus,
-            BatchTask,
-        )
-
-        assert BatchStatus is not None
-        assert BatchTask is not None
-        assert BatchResult is not None
-        assert BatchConfig is not None

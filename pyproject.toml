@@ -44,9 +44,6 @@ Changelog = "https://github.com/gitpcl/openorchestrator/blob/main/CHANGELOG.md"
 Funding = "https://github.com/sponsors/gitpcl"
 
 [project.optional-dependencies]
-agno = [
-    "agno>=1.0.0",
-]
 mcp = [
     "mcp>=1.0.0",
 ]

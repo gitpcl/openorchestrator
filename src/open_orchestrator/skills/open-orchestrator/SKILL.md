@@ -1,46 +1,46 @@
 ---
 name: open-orchestrator
-description: "Git worktree + AI agent orchestration with a prioritized Textual control plane UI (NEEDS YOU / READY TO SHIP / IN FLIGHT / BACKGROUND), pluggable multiplexer backends (tmux default, herdr opt-in), persistent cross-worktree recall memory, swarm mode, dream daemon, critic safety reviews, multi-palette theming, plugin architecture, optional Agno intelligence layer, and MCP peer communication. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Viewing all agent worktrees in a prioritized control plane (owt — sectioned decision surface; legacy card grid behind owt --legacy-cards), (3) Handing off to an agent session via the active backend (owt attach), (4) Jumping between agent sessions (owt switch), (5) Sending messages to agents (owt send), (6) Broadcasting to all agents (owt send --all/--working/--swarm), (7) Merging worktree branches with conflict guard (owt merge), (8) Shipping worktrees in one shot with quality gate (owt ship), (9) AI-powered task decomposition into dependency DAGs (owt plan), (10) Running batch autopilot tasks with DAG scheduling (owt batch), (11) Viewing optimal merge order (owt queue), (12) Sharing context across agents (owt note), (13) Headless CI/CD mode (owt new --headless, owt wait), (14) Orchestrating AI tools across branches (auto-detects claude, pi, opencode, droid), (15) Agno-powered intelligent planning with codebase awareness, (16) Quality gate review before shipping, (17) AI-powered merge conflict resolution, (18) End-to-end orchestration into feature branch (owt orchestrate), (19) Stop/resume orchestration with persistent state, (20) User presence detection pauses auto-actions, (21) Cross-worktree coordination with Agno or template fallback, (22) MCP-based agent-to-agent peer communication (list_peers, send_message, check_messages), (23) Registering custom AI tools via config (plugin architecture), (24) Diagnosing orphaned resources (owt doctor), (25) Config validation and inspection (owt config validate/show), (26) Database maintenance (owt db purge/vacuum/health), (27) Structured logging with correlation IDs and JSON output (--json), (28) Task-aware prompt building with type-specific protocols, (29) Persistent cross-worktree memory with auto-classification (owt memory add/search/consolidate/list/mine), (30) SQLite + FTS5 recall store with 4-layer token-budgeted stack (L0 identity / L1 critical / L2 topics / L3 search), AAAK shorthand compression for L1, temporal knowledge graph with point-in-time queries and contradiction detection, (31) Auto-injection of L0+L1 recall payload into CLAUDE.md on every owt new, (32) Mining facts from git history, progress files, and code comments (owt memory mine), (33) Coordinator + specialist worker swarms with role constraints (owt swarm start/list/send/stop), (34) Pre-action critic safety review with denial tracking (owt critic ship/merge/delete), (35) Background KAIROS-style dream daemon for memory consolidation, stale worktree surfacing, and KG contradiction detection (owt dream enable/disable/status/consolidate/reports), (36) Branch mode sessions without git worktrees — faster setup, zero extra disk (owt branch, owt new --in-place), (37) Opt-in herdr multiplexer backend so owt is the orchestration brain and herdr is the rendering surface (owt new --herdr, owt attach --herdr, [backend] mode = 'tmux' | 'herdr' | 'auto', status forwarding to herdr's sidebar via pane.report_agent — non-fatal, SQLite stays source of truth). Triggers: worktree, parallel development, multi-branch, AI orchestration, control plane, switchboard, owt commands, owt new, owt attach, owt merge, owt ship, owt delete, owt switch, owt send, owt plan, owt batch, owt queue, owt note, owt wait, owt orchestrate, owt doctor, owt config, owt db, owt memory, owt swarm, owt critic, owt dream, owt branch, auto-detect agents, conflict guard, autopilot, DAG, task planning, agno, quality gate, conflict resolution, intelligent planner, orchestrator, feature branch, coordination, stop resume, MCP, peer communication, agent messaging, plugin, custom tool, structured logging, correlation ID, prompt builder, recall, memory store, fact mining, knowledge graph, AAAK, swarm mode, coordinator, specialist worker, critic, denial tracking, dream daemon, KAIROS, theming, palette, OSC 11, multiplexer backend, herdr, herdr integration, MultiplexerBackend protocol, --legacy-cards, control plane sections."
+description: "The multi-provider cockpit for parallel AI coding. Supervise Claude Code, Pi, Droid, and OpenCode across isolated git worktrees from one Textual control plane (three lanes: NEEDS YOU / READY TO SHIP / IN FLIGHT) with real-time cross-worktree Conflict Guard (file-overlap detection), pluggable multiplexer backends (tmux default, herdr opt-in), a multi-provider plugin layer, native plan-first workflow launch, and optional MCP peer communication. Use when: (1) Creating isolated dev environments from task descriptions (owt new), (2) Launching a native plan-first Claude Code workflow in a worktree (owt new --workflow), (3) Supervising different AI providers per worktree (owt new --ai-tool claude|pi|droid|opencode), (4) Viewing all agent worktrees in a prioritized control plane (owt), (5) Handing off to an agent session via the active backend (owt attach), (6) Jumping between agent sessions (owt switch), (7) Sending messages to agents (owt send, owt send --all/--working), (8) Merging worktree branches with Conflict Guard (owt merge), (9) Shipping worktrees in one shot (owt ship), (10) Viewing optimal merge order with overlap counts (owt queue), (11) Sharing context across agents (owt note), (12) Headless CI/CD mode (owt new --headless, owt wait), (13) Branch-mode sessions without git worktrees (owt branch, owt new --in-place), (14) Opt-in herdr multiplexer backend (owt new --herdr, [backend] mode = 'tmux'|'herdr'|'auto'), (15) Registering custom AI tools via config (plugin architecture), (16) Diagnosing orphaned resources (owt doctor), (17) Config validation and inspection (owt config validate/show), (18) Database maintenance (owt db purge/vacuum/health), (19) Structured logging with correlation IDs and JSON output (--json), (20) MCP-based agent-to-agent peer communication (list_peers, send_message, check_messages). Triggers: worktree, parallel development, multi-branch, multi-provider, AI cockpit, control plane, supervise agents, owt commands, owt new, owt new --workflow, owt attach, owt merge, owt ship, owt delete, owt switch, owt send, owt queue, owt note, owt wait, owt branch, owt doctor, owt config, owt db, auto-detect agents, Conflict Guard, file overlap, claude pi droid opencode, plugin, custom tool, multiplexer backend, herdr, MultiplexerBackend protocol, MCP, peer communication, structured logging, theming, palette."
 ---
 
-# Open Orchestrator - Git Worktree + AI Orchestration
+# Open Orchestrator — the multi-provider cockpit for parallel AI coding
 
-Open Orchestrator (`owt`) enables developers to manage parallel development workflows with isolated git worktrees and a **Textual-based control plane UI**. **The primary interface is one command: `owt`** — it launches the **control plane**, a sectioned decision surface (NEEDS YOU / READY TO SHIP / IN FLIGHT / BACKGROUND) where you run the whole loop from the keyboard: press **`n`** to start work (type a task, pick one worktree or a multi-step plan, confirm), **`a`** to attach, **`s`** to ship. Every row carries verb actions (`[s]hip`, `[r]eview`, `[a]ttach`, `[f]ix`) and the footer shows only the keys that apply to the focused row. The legacy card-grid switchboard is still available behind `owt --legacy-cards` for one release.
+Open Orchestrator (`owt`) supervises parallel AI coding sessions across isolated git worktrees. It does **not** try to be the agent — it hosts whatever AI coding tool you point it at (Claude Code, Pi, Droid, OpenCode, or a custom tool) and gives you one place to watch and steer them all.
 
-Sprint 025 added an optional **herdr multiplexer backend** so owt becomes the orchestration brain and herdr (when installed) becomes the rendering surface — opt in via `--herdr` or `[backend] mode = "herdr" | "auto"`. tmux remains the default.
+**Two things make it worth using, and native tooling lacks both:**
+
+1. **A persistent cross-worktree control plane** — a standing board across long-lived worktrees, three lanes deep (NEEDS YOU / READY TO SHIP / IN FLIGHT), driven entirely from the keyboard.
+2. **Conflict Guard** — real-time file-overlap detection that warns you the moment two agents start editing the same files, long before they collide at merge.
+
+**The primary interface is one command: `owt`** — it launches the control plane. Press **`n`** to start work (type a task, pick one worktree or a native plan-first workflow, confirm), **`a`** to attach, **`s`** to ship, **`f`** to fix conflicts, **`m`** to merge. Every row carries verb actions and the footer shows only the keys that apply to the focused row.
+
+You own the cockpit; the AI tools own the engine.
 
 ## Commands (scripting / CI reference)
 
-Humans drive the [control plane](#the-control-plane-default--sprint-024) with `owt` and the keys above; the verbs below are the same actions exposed for scripts, pipelines, and automation.
+Humans drive the [control plane](#the-control-plane) with `owt` and the keys above; the verbs below are the same actions exposed for scripts, pipelines, and automation.
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `owt` | | **Launch the Control Plane** — prioritized sections, row verbs |
-| `owt --legacy-cards` | | Launch the deprecated card-grid switchboard (one-release migration window) |
-| `owt new "task"` | `owt n` | Create worktree + tmux session + deps + AI agent. One command. |
+| `owt` | | **Launch the Control Plane** — prioritized lanes, row verbs |
+| `owt new "task"` | `owt n` | Create worktree + session + deps + AI agent. One command. |
+| `owt new "task" --workflow` | | Launch a native plan-first Claude Code workflow in the worktree |
+| `owt new "task" --ai-tool <name>` | | Pick the provider (claude/pi/droid/opencode/custom) |
 | `owt new "task" --herdr` | | Use the herdr multiplexer backend instead of tmux |
 | `owt new "task" --tmux` | | Force tmux backend (default; useful to override config) |
-| `owt branch "task"` | | Create branch in current checkout instead of worktree (faster, zero disk) |
 | `owt new "task" --headless` | | Create worktree without tmux (CI/script use) |
+| `owt branch "task"` | | Create branch in current checkout instead of worktree (faster, zero disk) |
 | `owt list` | `owt ls` | Quick text list of worktrees (non-interactive, for scripts/pipes) |
-| `owt switch <name>` | `owt s` | Jump to a worktree's tmux session |
+| `owt switch <name>` | `owt s` | Jump to a worktree's session |
 | `owt attach <name>` | | Hand off to the worktree's session via the active backend (`--herdr` / `--tmux` to override) |
 | `owt send <name> "msg"` | | Send command to a worktree's AI agent |
 | `owt send --all "msg"` | | Broadcast to ALL worktrees |
 | `owt send --working "msg"` | | Broadcast to WORKING worktrees only |
-| `owt send --swarm <id> "msg"` | | Broadcast to all workers in a swarm |
-| `owt merge <name>` | `owt m` | Two-phase merge + conflict guard + auto-cleanup (`--rebase`, `--strategy`, `--leave-conflicts`) |
+| `owt merge <name>` | `owt m` | Two-phase merge + Conflict Guard + auto-cleanup (`--rebase`, `--strategy`, `--leave-conflicts`) |
 | `owt ship <name>` | | Commit + merge + delete in one shot |
-| `owt delete <name>` | `owt rm` | Delete worktree + tmux session + status |
-| `owt queue` | | Show optimal merge order for completed worktrees |
+| `owt delete <name>` | `owt rm` | Delete worktree + session + status |
+| `owt queue` | | Show optimal merge order (with overlap counts) for completed worktrees |
 | `owt queue --ship` | | Ship all completed worktrees in optimal order |
-| `owt plan "goal"` | | AI-powered task decomposition into dependency DAG |
-| `owt plan "goal" --start` | | Plan + start orchestrator in one shot |
-| `owt batch tasks.toml` | | Autopilot: run batch tasks from TOML (DAG-aware) |
-| `owt orchestrate plan.toml` | | Orchestrate plan into feature branch with coordination |
-| `owt orchestrate --resume` | | Resume orchestrator from saved state |
-| `owt orchestrate --stop` | | Graceful stop (worktrees kept) |
-| `owt orchestrate --status` | | Show orchestrator progress |
 | `owt wait <name>` | | Poll until agent finishes (for CI/scripts) |
 | `owt note "msg"` | | Share context across all agent sessions |
 | `owt sync [--all]` | | Sync worktree(s) with upstream |
@@ -50,99 +50,89 @@ Humans drive the [control plane](#the-control-plane-default--sprint-024) with `o
 | `owt db purge [--days N]` | | Delete messages older than N days (default 30) |
 | `owt db vacuum` | | Optimize and compact the database |
 | `owt db health [--check]` | | Database health diagnostics with CI thresholds |
-| `owt memory add "fact"` | | Store a fact with auto-classification (identity/critical/topic) |
-| `owt memory search "q"` | | Search recall store, MEMORY.md index, topics, and transcripts |
-| `owt memory consolidate` | | Dedup, prune, and index untracked topics |
-| `owt memory list` | | List all memory entries |
-| `owt memory mine` | | Mine facts from git history, progress files, and code comments |
-| `owt swarm start "goal" -w wt` | | Launch coordinator + specialist workers in a worktree |
-| `owt swarm list` | | List all active swarms |
-| `owt swarm send <id> "msg"` | | Broadcast a message to all workers in a swarm |
-| `owt swarm stop <id>` | | Stop a swarm and kill its worker panes |
-| `owt critic ship\|merge\|delete <name>` | | Pre-action safety review (overlaps, uncommitted, empty branch) |
-| `owt dream enable` | | Start the background dream daemon |
-| `owt dream disable` | | Stop the dream daemon |
-| `owt dream status` | | Show daemon state and last heartbeat |
-| `owt dream consolidate` | | Run consolidation immediately |
-| `owt dream reports` | | List recent dream reports |
 | `owt doctor [--fix]` | | Diagnose and fix orphaned resources |
+| `owt usage [--days N]` | | Local usage counts (cockpit launches, worktrees started) |
 | `owt --theme <name>` | | Override UI theme (auto, dark, light, dark-ansi, light-ansi) |
 | `owt --json <cmd>` | | Machine-readable JSON output for `list`, `queue`, `doctor`, `db health` |
 | `owt version` | | Show version |
 
-## The Control Plane (default — Sprint 024)
+## The Control Plane
 
-Run `owt` to launch the **control plane** — a prioritized decision surface. Four sections render top-to-bottom in priority order; empty sections are hidden so you always see the most important thing first.
+Run `owt` to launch the control plane — a prioritized decision surface. Three lanes render top-to-bottom in priority order; empty lanes are hidden so you always see the most important thing first.
 
 ```
-  open-orchestrator · 5 rows · 14:32:08
+  open-orchestrator · 4 rows · 14:32:08
   ▸ NEEDS YOU      (1)
   ▶ auth-jwt        merge conflict — needs manual resolution   [f] [a]
   ▸ READY TO SHIP  (2)
-    fix-login       +3 commits · queued #1/2                   [s] [r] [a]
-    docs-update     +1 commits · queued #2/2                   [s] [r] [a]
+    fix-login       +3 commits · queued #1/2                   [s] [a]
+    docs-update     +1 commits · queued #2/2 · 1 overlap       [s] [a]
   ▸ IN FLIGHT      (1)
-    api-refactor    45m · opencode · Refactoring REST routes   [a] [r]
-  ▸ BACKGROUND     (1)
-    14:20 dream     consolidated · memory=3 stale=0            [x]
+    api-refactor    45m · opencode · Refactoring REST routes   [a]
 
-  ↑↓ nav | n new | s ship | r review | a attach | q quit
+  ↑↓ nav | n new | s ship | a attach | q quit
 ```
 
-**Starting work (`n`):** press `n` to start a task without leaving the UI — type the task, pick the run mode (**One worktree + agent** → `owt new`, or **Multi-step plan** → `owt plan --start`), confirm the resolved command, and it runs in the background. The mode picker is explicit (no keyword guessing); the `owt new` / `owt plan` verbs remain for scripts.
+**Starting work (`n`):** press `n` to start a task without leaving the UI — type the task, pick the run mode (**One worktree + agent** → `owt new`, or **Native Claude workflow (plan-first)** → `owt new --workflow`), confirm the resolved command, and it runs in the background. The mode picker is explicit; the `owt new` verbs remain for scripts.
 
-**Control plane sections:**
-- **NEEDS YOU** — conflicts, critic-blocking verdicts, BLOCKED/ERROR status (priority section)
-- **READY TO SHIP** — `MergeManager.plan_merge_order()` output with `[s]hip` action
-- **IN FLIGHT** — WORKING agents with elapsed time + last task message
-- **BACKGROUND** — dream / memory / critic events (≤10, newest first), `[x]` to dismiss
+**Lanes:**
+- **NEEDS YOU** — merge conflicts and BLOCKED/ERROR status (priority section)
+- **READY TO SHIP** — `MergeManager.plan_merge_order()` output with `[s]hip` action and per-worktree overlap counts
+- **IN FLIGHT** — WORKING agents with elapsed time + provider + last task message
 
 **Row verbs:**
 - `n` — new (start work: task → mode pick → confirm); always available
 - `s` — ship (commit + merge + delete via confirm modal)
-- `r` — review (expand critic verdict in inline panel)
 - `a` — attach (hand off via active multiplexer backend, see below)
 - `f` — fix (open conflicted files in `$EDITOR`)
 - `m` — merge (without delete/cleanup)
-- `x` — dismiss (acknowledge a background event)
 
 **Context-sensitive footer:** always shows `↑↓ nav`, `n new`, `q quit`; between them it lists only the verbs that apply to the focused row, so the UI teaches itself.
 
-**Navigation:** `↑/↓` or `j/k` for previous/next row across sections; `q` to quit; `Esc` closes the inline review panel.
+**Navigation:** `↑/↓` or `j/k` for previous/next row across lanes; `q` to quit.
 
-**Header bar:** when `owt orchestrate` is active, the header shows DAG progress (`X/Y done · Z running`). Otherwise it shows the project name + total row count + a clock.
+**Header bar:** project name + total row count + a clock.
 
 **Design notes:** Section builders are pure functions in `core/control_plane_sections.py` (fully testable without a Textual Pilot); the action dispatcher in `core/control_plane_actions.py` is a `(SectionKind, RowAction) → coroutine` table; the view in `core/control_plane_view.py` is dumb — it only knows about rows and key presses.
 
-## The Switchboard (legacy — behind `--legacy-cards`)
+## Conflict Guard
 
-`owt --legacy-cards` launches the original card-grid switchboard. It will be removed in the next minor release (Sprint 024 deprecation banner is printed on every legacy invocation):
+`MergeManager.check_file_overlaps()` compares the files each worktree has modified (tracked in the status DB) against every other worktree and reports the intersection. `plan_merge_order()` surfaces an overlap count per worktree, rendered in the READY TO SHIP lane and the `owt queue` output, so you see brewing collisions before you merge. The detection is pure and AI-free.
 
-```
-  SWITCHBOARD (legacy) · 4  ●3  ○1
+## Multi-provider plugin layer
 
-  +- auth-jwt --------------+   +- fix-login --------------+
-  | * WORKING        12m    |   | o IDLE              3h    |
-  | feat/auth-jwt           |   | fix/login-redirect        |
-  | claude        +142 -37  |   | claude                    |
-  | Implementing JWT auth   |   | -                         |
-  +-------------------------+   +---------------------------+
-```
-
-Keys: arrows nav, `Enter` patch into tmux, `s` send, `a` broadcast, `n` new, `S` ship, `m` merge, `d` delete, `q` quit. Detail/info modals were removed in Sprint 024 — info now surfaces as toasts.
-
-**Global tmux keybindings (work from any agent session):**
-- `Alt+s`: switch back to the switchboard
-- `Alt+m`: merge current worktree
-- `Alt+d`: delete current worktree
-- `Alt+c`: create a new worktree (opens popup)
-
-## Multiplexer Backends (tmux / herdr — Sprint 025)
-
-owt defaults to **tmux** for hosting agent sessions. You can opt in to **[herdr](https://herdr.dev)** as the multiplexer backend — owt becomes the orchestration brain, herdr the rendering surface. Purely additive; tmux remains the default.
+owt launches and manages any AI coding tool through the `AIToolProtocol` interface (`core/tool_protocol.py`), resolved via the `ToolRegistry` singleton (`core/tool_registry.py`). Built-in tools: **claude, pi, droid, opencode**. Auto-detection (`core/agent_detector.py`) picks the best installed tool (order: claude > pi > droid > opencode) when you don't specify one.
 
 ```bash
-# one-off
+owt new "task" --ai-tool claude
+owt new "task" --ai-tool pi
+owt new "task" --ai-tool droid
+owt new "task" --ai-tool opencode
+```
+
+### Native workflow launch
+
+`owt new "task" --workflow` launches a **plan-first native Claude Code workflow** in a managed worktree (Claude starts in plan mode and is given a plan-then-execute protocol), then tracks it on the board alongside Pi/Droid/OpenCode sessions in other worktrees. owt supervises native; it doesn't replace it.
+
+### Custom AI tools
+
+Register any AI coding tool via config without code changes:
+
+```toml
+[tools.mytool]
+binary = "my-ai-tool"
+command_template = "{binary} --interactive"
+prompt_flag = "-p"
+supports_hooks = false
+install_hint = "Install from https://..."
+known_paths = ["~/.local/bin/mytool"]
+```
+
+## Multiplexer backends (tmux / herdr)
+
+owt defaults to **tmux** for hosting agent sessions. Opt in to **[herdr](https://herdr.dev)** as the multiplexer backend — owt becomes the orchestration brain, herdr the rendering surface. Purely additive; tmux remains the default.
+
+```bash
 owt new "Refactor billing" --herdr
 owt attach my-feature --herdr
 
@@ -150,135 +140,60 @@ owt attach my-feature --herdr
 [backend]
 mode = "auto"               # tmux | herdr | auto
 herdr_session = "default"   # named herdr session (selects which socket)
-# herdr_socket = "/custom/path/to/herdr.sock"  # only if you've moved it
 ```
 
-**Selection precedence:**
-1. `--herdr` / `--tmux` on the command line (per invocation)
-2. `[backend] mode` in `.worktreerc.toml`
-3. `tmux` as the safe default
+**Selection precedence:** `--herdr`/`--tmux` on the command line → `[backend] mode` in config → `tmux` default. `mode = "auto"` reaches for herdr first and falls back to tmux when unreachable.
 
-`mode = "auto"` reaches for herdr first (via `which herdr` + `HerdrClient.ping()`) and falls back to tmux when unreachable.
+**Status DB is source of truth.** `StatusTracker.update_task(..., backend=)` writes SQLite first, then forwards to `backend.report_agent_state` so herdr's sidebar reflects owt's state. If herdr is down the SQLite write is unaffected and the control plane keeps working.
 
-**What owt sends to herdr:**
-
-| owt action            | herdr RPC                                |
-|-----------------------|------------------------------------------|
-| `owt new --herdr`     | `workspace.create` + `pane.send_text`    |
-| `owt send`            | `pane.send_text`                         |
-| `owt attach --herdr`  | `herdr agent attach <pane_id>`           |
-| status update         | `pane.report_agent` (non-fatal)          |
-| `owt delete`          | `pane.close` + `workspace.close`         |
-
-**Status DB is source of truth.** `StatusTracker.update_task(..., backend=)` writes SQLite first, *then* forwards to `backend.report_agent_state` so herdr's sidebar reflects owt's state. If herdr is down the SQLite write is unaffected and the control plane keeps working.
-
-**Recorded per worktree:** the status row carries `session_type` (`"worktree"` | `"branch"`), `backend_kind` (`"tmux"` | `"herdr"`), `backend_session_id` (tmux session name OR herdr pane id), and `backend_meta` (e.g. herdr `workspace_id`, `socket`, `herdr_session`). `owt attach <name>`, `owt send <name>`, `owt switch <name>`, and `owt delete <name>` all consult those fields, so once a worktree is created with `--herdr` no further flags are needed for follow-ups — including custom herdr sockets which are preserved end-to-end (Sprint 026 P3).
-
-**Branch-mode parity (Sprint 026 P5):** `owt send`, `owt switch`, and `owt delete` work on in-place branch sessions (created via `owt branch` / `owt new --in-place`) by falling back to the status DB when `WorktreeManager.get` raises. `owt doctor` reconciles branch rows against `git branch --list`, never against the worktree list — a healthy in-place branch session can never be flagged as an orphan.
-
-**`owt attach --tmux/--herdr` semantics (Sprint 026 P4):** when the forced backend differs from the recorded one, owt re-resolves the session via `backend.session_for(name)` on the forced backend instead of coercing the recorded id. If the forced backend can't find a matching session, the command errors clearly (`No <override> session for '<name>'. Recorded as <recorded.kind>.`).
-
-**Headless + herdr (Sprint 026 P6):** `owt new --headless` skips backend resolution entirely — the detached subprocess never uses a multiplexer — so `[backend] mode = "herdr"` is legal in CI even when herdr isn't installed.
-
-**TUI prompt submission (Sprint 026 P6a):** every agent-facing message routes through `HerdrBackend._send_line()` so TUI agents (pi, claude TUI, droid) receive a real Enter event (default `\r`, escape hatch via `OWT_HERDR_SUBMIT=text:\r\n` or `OWT_HERDR_SUBMIT=keys:Enter`). The empirical default lock-in (Phase 6a step 1) is still pending against a live herdr build — see `tests/manual/herdr_submit_matrix.md`.
-
-**Architecture:**
-```
-            commands/ (owt CLI)
-                  │
-       MultiplexerBackend  (protocol)
-                  │
-      ┌───────────┴───────────┐
-      │                       │
- TmuxBackend            HerdrBackend
-   (TmuxManager)        (HerdrClient RPC)
-```
-
-`AgentLauncher`, `commands/agent.py:send`, `commands/worktree.py:{new,switch,attach,delete,list}`, and `commands/doctor.py` resolve a backend through `core/backend_factory.py` and never touch `TmuxManager` directly — the protocol is the only seam.
-
-**Known limitation:** `owt orchestrate`, `owt batch`, `owt swarm`, and `owt subagent` still create sessions through `TmuxManager` directly because their pane-split / coordinator-worker topology has no direct herdr analogue yet. They ignore `--herdr` and use tmux even when `[backend] mode = "herdr"` is set. The standalone `owt new` flow is fully herdr-aware.
+`AgentLauncher`, `commands/agent.py:send`, the `commands/worktree/` package, and `commands/doctor.py` resolve a backend through `core/backend_factory.py` and never touch `TmuxManager` directly — the protocol is the only seam.
 
 See [`docs/herdr-integration.md`](../../../../docs/herdr-integration.md) for the full configuration, troubleshooting, and named-session walkthrough.
 
-## Core Workflow
+## Core workflow
 
-### 1. Create a Worktree
+### 1. Create a worktree
 ```bash
 owt new "Add user authentication with JWT"
 # -> Generates branch: feat/add-user-auth-jwt
 # -> Creates worktree, installs deps, copies .env
-# -> Creates tmux session with Claude running
+# -> Creates session with the AI tool running
 # -> Sends task description as initial prompt
 
 owt new --branch feat/my-branch    # Explicit branch name
-owt new "Fix login" --plan-mode    # Start Claude in plan mode
+owt new "Fix login" --workflow      # Native plan-first Claude workflow
 owt new "Quick fix" --template bugfix  # Use workflow template
 owt new "Audit" --headless         # No tmux (CI/scripts)
 ```
 
-### 2. Monitor via Switchboard
+### 2. Monitor via the control plane
 ```bash
-owt           # Launch switchboard in persistent tmux session
+owt           # Launch the control plane
 owt list      # Quick text table for scripts/pipes
 owt wait auth-jwt --timeout 600    # Poll until done (CI/scripts)
 ```
 
-### 3. Interact with Agents
+### 3. Interact with agents
 ```bash
 owt send auth-jwt "Fix the failing tests"
 owt send --all "Run tests"          # Broadcast to all
 owt send --working "Wrap up"        # Broadcast to working only
 owt note "Users table has verified_at column"  # Share context
-owt switch auth-jwt                 # Jump to that tmux session
+owt switch auth-jwt                 # Jump to that session
 ```
 
-### 4. Complete Work
+### 4. Complete work
 ```bash
-owt queue              # Show optimal merge order
+owt queue              # Show optimal merge order (with overlap counts)
 owt queue --ship       # Ship all completed, smallest first
 owt ship auth-jwt      # Commit + merge + delete in one shot
-owt merge auth-jwt     # Two-phase merge + conflict guard + cleanup
+owt merge auth-jwt     # Two-phase merge + Conflict Guard + cleanup
 owt merge auth-jwt --rebase           # Rebase for linear history
-owt merge auth-jwt --strategy theirs  # Auto-resolve conflicts
+owt merge auth-jwt --strategy theirs  # Bias conflict resolution
 owt merge auth-jwt --leave-conflicts  # Leave in-progress for manual resolution
 owt delete fix-login   # Delete worktree + session + status
 owt cleanup --force    # Delete stale worktrees
 ```
-
-### 5. AI-Powered Planning (DAG Execution)
-```bash
-owt plan "Build JWT auth with refresh tokens"           # Generate plan.toml
-owt plan "Add rate limiting" --execute                   # Generate + run (batch mode)
-owt plan "Add auth" --start --branch feat/auth-v2       # Plan + orchestrate into feature branch
-owt plan "Fix auth bugs" --execute --auto-ship           # Generate + run + auto-merge
-```
-
-Tasks run in dependency order. Independent tasks run in parallel. Parent context is auto-injected into child worktrees.
-
-### 6. Orchestrator (Feature Branch Mode)
-```bash
-owt plan "Add JWT auth" --start --branch feat/auth-v2    # Plan + start in one shot
-owt orchestrate plan.toml --branch feat/auth-v2          # Start from existing plan
-owt orchestrate --resume                                  # Resume from saved state
-owt orchestrate --stop                                    # Graceful stop (worktrees kept)
-owt orchestrate --status                                  # Show progress table
-```
-
-The orchestrator merges completed tasks into a **feature branch** (not main), persists state for stop/resume, detects user presence to pause auto-actions, and coordinates agents when file overlaps are detected. Batch mode and orchestrator mode share the same runtime completion evaluator, so grace-period checks, premature-exit detection, commit checks, and retry behavior stay aligned.
-
-**Agent execution model:** Orchestrated and batch agents now start as live provider sessions inside tmux, then receive the structured session-init prompt through `send-keys`. That keeps the session patchable from the switchboard while preserving `OWT_AUTOMATED=1` for hook-aware automation. Runtime completion uses shared hook plus pane-state detection rather than relying on the pane to auto-exit.
-
-**Safety nets:** Before shipping, the orchestrator (1) auto-commits any uncommitted work left by agents (`feat(auto):` prefix), (2) runs an optional Agno quality gate, (3) refuses to ship branches with zero new commits, and (4) retries failed tasks once with failure context injected into the prompt. Per-task timeouts (default 30 min) prevent hung agents from blocking the DAG.
-
-**Agent prompts:** Agents receive a structured session init protocol (orient → explore → implement → test → verify → commit) and project context (detected test/dev commands) via CLAUDE.md injection. Progress is tracked via incremental `wip:` commits visible in the switchboard.
-
-### 7. Batch Autopilot (DAG-Aware)
-```bash
-owt batch tasks.toml               # Run batch from TOML (supports depends_on)
-owt batch tasks.toml --auto-ship   # Auto-ship completed work
-```
-
-`[batch].min_agent_runtime` is available in `tasks.toml` to tune the shared silent-exit guard. `OWT_DB_PATH` can be used to point hooks, MCP peers, and in-process status tracking at the same SQLite DB; if the default home-directory DB path is unavailable, orchestrator/batch fall back to repo-local or temp-backed storage.
 
 ## Templates
 
@@ -301,71 +216,24 @@ auto_cleanup_days = 14
 
 [tmux]
 auto_start_ai = true
-ai_tool = "claude"    # claude, opencode, droid
+ai_tool = "claude"    # claude, pi, droid, opencode
 
 [environment]
 auto_install_deps = true
 copy_env_file = true
+
+[backend]
+mode = "tmux"         # tmux | herdr | auto
 ```
 
-## Agno Intelligence Layer (Optional)
+## Branch-mode sessions
 
-Install with `pip install open-orchestrator[agno]` to enable AI-powered intelligence features. Without it, everything works exactly as before.
+`owt branch` / `owt new --in-place` create a branch in the current checkout instead of a separate worktree — faster setup, zero extra disk. `owt send`, `owt switch`, and `owt delete` work on branch sessions by falling back to the status DB when `WorktreeManager.get` raises. `owt doctor` reconciles branch rows against `git branch --list`, so a healthy in-place branch session is never flagged as an orphan.
 
-### Intelligent Planner
-`owt plan` uses an Agno agent with codebase awareness — it reads the file tree and git history to produce better task decompositions with Pydantic-validated structured output (no regex parsing).
-
-### Quality Gate
-`owt ship` runs an AI quality review before merging. Checks code quality, completeness, security issues, and cross-worktree conflicts. Prompts if issues are found (skipped with `--yes`).
-
-### Merge Conflict Resolution
-When `auto_resolve_conflicts = true`, merge conflicts are resolved semantically by an AI agent before falling back to manual resolution. Only applies resolved content when confidence > 0.8.
-
-### Cross-Worktree Coordination
-The orchestrator detects file overlaps between running worktrees and injects context into each agent's CLAUDE.md. With Agno, a coordinator agent generates intelligent, targeted messages. Without Agno, template-based warnings are used. Coordination runs on a 120s cooldown per event to avoid noise.
-
-### Configuration
-```toml
-[agno]
-enabled = true
-model_id = "claude-sonnet-4-20250514"
-quality_gate_threshold = 0.8
-auto_resolve_conflicts = false
-coordinator_model_id = "claude-haiku-4-5-20251001"  # Cost-effective for coordination
-```
-
-All three features are model-agnostic (Claude, OpenAI, Gemini) and gracefully degrade — import failures or runtime errors silently fall back to existing behavior.
-
-## AI Tool Support
-
-Auto-detects installed tools: Claude Code, OpenCode, Droid. Offers picker when multiple found.
+## Diagnostics & maintenance
 
 ```bash
-owt new "task" --ai-tool claude
-owt new "task" --ai-tool opencode
-owt new "task" --ai-tool droid
-```
-
-### Custom AI Tools (Plugin Architecture)
-
-Register any AI coding tool via config without code changes:
-
-```toml
-[tools.mytool]
-binary = "my-ai-tool"
-command_template = "{binary} --interactive"
-prompt_flag = "-p"
-supports_hooks = false
-install_hint = "Install from https://..."
-known_paths = ["~/.local/bin/mytool"]
-```
-
-Built-in tools (`claude`, `opencode`, `droid`) use the same `AIToolProtocol` interface. The `ToolRegistry` singleton handles discovery, registration, and lookup.
-
-## Diagnostics & Maintenance
-
-```bash
-owt doctor              # Find orphaned worktrees, tmux sessions, status entries
+owt doctor              # Find orphaned worktrees, sessions, status entries
 owt doctor --fix        # Auto-fix orphaned resources
 owt config validate     # Validate config file against schema
 owt config show         # Display effective config as TOML
@@ -376,16 +244,16 @@ owt db vacuum           # Compact and optimize the database
 owt --json list         # Machine-readable JSON output (also: queue, doctor, db health)
 ```
 
-## Structured Logging
+## Structured logging
 
 Correlation IDs and per-worktree context are injected into every log record via `ContextVar`-based tracking. JSON output is available for log aggregation:
 
 ```bash
-owt --log-format json orchestrate plan.toml   # JSON output for jq/log pipelines
-owt --verbose new "task"                       # DEBUG-level output
+owt --log-format json new "task"   # JSON output for jq/log pipelines
+owt --verbose new "task"           # DEBUG-level output
 ```
 
-## Task-Aware Prompt Builder
+## Task-aware prompt builder
 
 Agents receive structured protocols based on task type (detected from keywords):
 
@@ -395,97 +263,15 @@ Agents receive structured protocols based on task type (detected from keywords):
 - **Test:** SURVEY → IDENTIFY → WRITE → RUN → COVERAGE → COMMIT
 - **Docs:** READ → DRAFT → EXAMPLES → REVIEW → COMMIT
 
-The `PromptBuilder` assembles sections by priority with budget-aware truncation (drops lowest-priority sections first when approaching token limits).
+The `PromptBuilder` assembles sections by priority with budget-aware truncation.
 
-## Project Detection
+## Project detection
 
 Auto-detects: Python (uv/poetry/pip), Node.js (bun/pnpm/yarn/npm), Rust (cargo), Go, PHP (composer).
 
-## Memory & Recall
-
-Persistent cross-worktree knowledge with two complementary backends:
-
-**MemoryManager** (file-based, stdlib only) — `MEMORY.md` index + per-topic files with grep search and auto-classification (identity / critical / topic).
-
-**Recall store** (SQLite + FTS5, also stdlib `sqlite3`, zero new deps) — a 4-layer token-budgeted stack:
-
-- **L0 identity** — pinned facts (user, project, role)
-- **L1 critical** — high-importance facts compressed via **AAAK shorthand** (encoder/decoder under `core/aaak.py`)
-- **L2 topics** — categorized facts grouped by subject
-- **L3 search** — full FTS5 over the entire fact corpus
-
-Backed by a **temporal knowledge graph** with point-in-time queries, contradiction detection, and provenance triples. The L0+L1 payload auto-injects into each worktree's CLAUDE.md on every `owt new`, so agents start with the user's pinned context.
-
-```bash
-owt memory add "API uses bearer tokens, not session cookies"   # auto-classifies
-owt memory search "auth"                                        # FTS5 + grep + transcripts
-owt memory list                                                 # full inventory
-owt memory consolidate                                          # dedup, prune, re-index
-owt memory mine                                                 # FactMiner: extract from git log, progress files, code comments
-```
-
-`OWT_RECALL_DB_PATH` overrides the recall SQLite path (default `~/.open-orchestrator/recall.db`).
-
-## Swarm Mode
-
-`owt swarm start "goal" -w <worktree>` launches a **coordinator + specialist worker** swarm inside a single worktree. Workers run as tmux panes with role-constrained prompts:
-
-- **researcher** — read-only, gathers context
-- **implementer** — writes code
-- **reviewer** — read-only, audits implementer output
-- **tester** — limited to `tests/` directory
-
-Role prompts enforce constraints, and the coordinator brokers handoffs between workers. The switchboard groups swarm workers under a `SwarmGroup` card.
-
-```bash
-owt swarm start "Add JWT auth" -w auth-jwt           # default: researcher + implementer + reviewer + tester
-owt swarm list                                        # all active swarms
-owt swarm send <swarm-id> "wrap up and commit"        # broadcast to every worker
-owt send --swarm <swarm-id> "msg"                     # alias via owt send
-owt swarm stop <swarm-id>                             # kill worker panes, keep worktree
-```
-
-## Critic (Pre-Action Safety Review)
-
-`owt critic ship|merge|delete <name>` runs a pre-action safety review before destructive operations. Checks include:
-
-- File overlaps with other active worktrees
-- Uncommitted changes that would be lost
-- Empty branches (zero new commits)
-- Unmerged commits on the parent branch
-
-Findings are scored by severity. The critic uses a **DenialTracker** (SQLite-backed) — after 3 consecutive or 20 total denials in a session, the critic falls back to user confirmation rather than continuing to block automated workflows.
-
-```bash
-owt critic ship auth-jwt    # safety review without performing the action
-owt critic merge fix-login
-owt critic delete stale-wt
-```
-
-The critic is also invoked automatically by `owt ship` and `owt merge` when enabled in config.
-
-## Dream Mode (Background Consolidation)
-
-`owt dream enable` starts a **KAIROS-style background daemon** that periodically wakes to consolidate memory, surface stale worktrees, and detect knowledge-graph contradictions across worktrees. Reports are saved under `.owt/dream_reports/`.
-
-```bash
-owt dream enable        # start background daemon
-owt dream disable       # stop daemon
-owt dream status        # daemon state + last heartbeat
-owt dream consolidate   # run consolidation immediately (foreground)
-owt dream reports       # list recent dream reports
-```
-
-The daemon uses a heartbeat file for liveness, runs on a cooldown to avoid noise, and integrates with the recall store + MemoryManager for cross-session memory hygiene.
-
 ## Theming
 
-The switchboard auto-detects terminal background via **OSC 11** (with `$COLORFGBG` fallback) and selects from four palettes:
-
-- `dark` — true-color dark backgrounds
-- `light` — true-color light backgrounds
-- `dark-ansi` — 16-color dark fallback for limited terminals
-- `light-ansi` — 16-color light fallback
+The control plane auto-detects terminal background via **OSC 11** (with `$COLORFGBG` fallback) and selects from four palettes: `dark`, `light`, `dark-ansi`, `light-ansi`.
 
 ```bash
 owt --theme auto         # default, OSC 11 detection
@@ -493,11 +279,11 @@ owt --theme dark
 owt --theme light-ansi
 ```
 
-Switchboard CSS uses native Textual `$variable` references so palette swaps are instant. Set `OWT_BACKGROUND` to override the detected hex if OSC 11 detection fails.
+Set `OWT_BACKGROUND` to override the detected hex if OSC 11 detection fails.
 
-## MCP Peer Communication (Optional)
+## MCP peer communication (optional)
 
-Install with `pip install open-orchestrator[mcp]` to enable agent-to-agent communication via MCP (Model Context Protocol). Each agent's Claude session gets an MCP server with peer discovery and messaging tools.
+Install with `pip install open-orchestrator[mcp]` to enable agent-to-agent communication via MCP. Each agent's Claude session gets an MCP server with peer discovery and messaging tools.
 
 **Tools available to agents:**
 - `list_peers` — discover all active agents (name, branch, status, summary)
@@ -506,16 +292,8 @@ Install with `pip install open-orchestrator[mcp]` to enable agent-to-agent commu
 - `set_summary` — update this agent's visible status for coordination
 - `get_peer_files` — check what files a peer is editing (avoid conflicts)
 
-**How it works:** When `owt new` creates a worktree, an MCP server config (`owt-peers`) is injected into `.claude/settings.local.json`. Claude Code spawns the server process (stdio transport), which reads/writes to the shared SQLite status database (WAL mode for concurrent access). No broker daemon needed.
-
-**Example agent conversation:**
-```
-Agent A: list_peers() → [{name: "api-refactor", status: "working", summary: "REST endpoints"}]
-Agent A: send_message("api-refactor", "I'm adding auth middleware to server.py — are you touching it?")
-Agent B: check_messages() → [{from: "auth-jwt", message: "...are you touching it?"}]
-Agent B: send_message("auth-jwt", "No, only routes.py. Go ahead.")
-```
+The MCP server reads/writes the shared SQLite status database (WAL mode), so no broker daemon is needed.
 
 ## Dependencies
 
-7 production deps: click, pydantic, rich, textual, toml, gitpython, libtmux. The recall store, AAAK encoder, knowledge graph, dream daemon, swarm, critic, and theming all use stdlib only — **zero new dependencies** for v0.4.0 features. Optional: agno (intelligence layer), mcp (peer communication).
+7 production deps: click, pydantic, rich, textual, toml, gitpython, libtmux. Optional: mcp (peer communication).

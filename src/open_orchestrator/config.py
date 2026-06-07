@@ -35,24 +35,6 @@ class DroidAutoLevel(str, Enum):
     HIGH = "high"
 
 
-class AgnoConfig(BaseModel):
-    """Agno intelligence layer configuration."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = Field(default=True, description="Enable Agno intelligence features")
-    model_id: str = Field(default="claude-sonnet-4-20250514", description="Default model ID for Agno agents")
-    planner_model_id: str | None = Field(default=None, description="Override model for planner agent")
-    quality_gate_model_id: str | None = Field(default=None, description="Override model for quality gate agent")
-    max_tokens: int = Field(default=4096, description="Max tokens for Agno model responses")
-    temperature: float = Field(default=0.2, description="Temperature for Agno model responses")
-    quality_gate_threshold: float = Field(default=0.7, description="Minimum score to pass quality gate")
-    auto_resolve_conflicts: bool = Field(default=False, description="Automatically apply AI conflict resolutions")
-    coordinator_model_id: str | None = Field(default=None, description="Override model for coordinator agent")
-    memory_enabled: bool = Field(default=True, description="Enable persistent memory for Agno agents")
-    memory_db_path: str | None = Field(default=None, description="Custom path for memory DB")
-
-
 class ClaudeConfig(BaseModel):
     """Claude-specific configuration."""
 
@@ -180,7 +162,6 @@ class Config(BaseModel):
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     switchboard: SwitchboardConfig = Field(default_factory=SwitchboardConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
-    agno: AgnoConfig = Field(default_factory=AgnoConfig)
     backend: BackendConfig = Field(default_factory=BackendConfig)
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
@@ -188,10 +169,6 @@ class Config(BaseModel):
     templates: dict[str, WorktreeTemplate] = Field(default_factory=dict, description="Custom worktree templates")
     tools: dict[str, dict[str, object]] = Field(default_factory=dict, description="Custom AI tool declarations")
     tool_token_budget: int = Field(default=8000, ge=100, description="Max tokens for deferred tool schemas")
-    critic_enabled: bool = Field(default=True, description="Run critic review before ship/merge")
-    dream_idle_seconds: int = Field(default=3600, ge=60, description="Inactivity threshold before dream wakes")
-    dream_enabled: bool = Field(default=False, description="Enable dream daemon on startup")
-    recall_enabled: bool = Field(default=True, description="Auto-inject L0+L1 recall payload into CLAUDE.md")
     theme: str = Field(
         default="auto",
         description="UI theme: auto, dark, light, dark-ansi, light-ansi",

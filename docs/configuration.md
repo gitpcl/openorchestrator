@@ -39,11 +39,10 @@ herdr_session = "default"      # named herdr session (selects which socket)
 
 | Variable | Set by | Purpose |
 |----------|--------|---------|
-| `OWT_AUTOMATED` | OWT (in orchestrated panes) | Lets user hooks distinguish automated agents from interactive sessions. Check `[ -n "$OWT_AUTOMATED" ]` in hooks to skip restrictions for agents. |
+| `OWT_AUTOMATED` | OWT (in automated panes) | Lets user hooks distinguish automated agents from interactive sessions. Check `[ -n "$OWT_AUTOMATED" ]` in hooks to skip restrictions for agents. |
 | `OWT_WORKTREE_NAME` | OWT (in all panes) | Current worktree name. Used by MCP peer servers and hooks for identification. |
-| `OWT_DB_PATH` | OWT hook/MCP wiring or user override | Points hooks, MCP peer servers, and in-process status tracking at the same SQLite DB. If `~/.open-orchestrator/status.db` is not writable, orchestrator/batch fall back to repo-local or temp-backed storage. |
-| `OWT_RECALL_DB_PATH` | User override | Override the recall memory store SQLite path (defaults to `~/.open-orchestrator/recall.db`). |
-| `OWT_BACKGROUND` | OWT (auto-detected) or user override | Terminal background hex color for the legacy switchboard. Auto-detected via OSC 11 at launch; set manually if detection fails. |
+| `OWT_DB_PATH` | OWT hook/MCP wiring or user override | Points hooks, MCP peer servers, and in-process status tracking at the same SQLite DB. If `~/.open-orchestrator/status.db` is not writable, owt falls back to repo-local or temp-backed storage. |
+| `OWT_BACKGROUND` | OWT (auto-detected) or user override | Terminal background hex color for the control plane. Auto-detected via OSC 11 at launch; set manually if detection fails. |
 
 ## AI Tool Support
 
@@ -51,8 +50,8 @@ Open Orchestrator auto-detects installed AI tools and offers a picker when multi
 
 | Tool | Binary | Notes |
 |------|--------|-------|
-| Claude Code | `claude` | Default, `--dangerously-skip-permissions`; orchestrated agents use `-p` with cat-piped prompts |
-| Pi | `pi` | `npm install -g @earendil-works/pi-coding-agent`; orchestrated agents use `-p` with cat-piped prompts; live status via pane scraping |
+| Claude Code | `claude` | Default, `--dangerously-skip-permissions`; automated/headless agents use `-p` with cat-piped prompts |
+| Pi | `pi` | `npm install -g @earendil-works/pi-coding-agent`; automated/headless agents use `-p` with cat-piped prompts; live status via pane scraping |
 | OpenCode | `opencode` | Go-based |
 | Droid | `droid` | `--skip-permissions-unsafe` by default |
 
@@ -108,45 +107,14 @@ Automatically detects project type and installs dependencies:
 | Go | `go.mod` | go |
 | PHP | `composer.json` | composer |
 
-## Agno Intelligence Layer (Optional)
+## Conflict Guard
 
-Install with `pip install open-orchestrator[agno]` to enable AI-powered intelligence features. Without it, everything works exactly as before — all three features gracefully degrade.
+Conflict Guard is always on — no configuration needed. owt tracks the files each worktree modifies (in the status DB) and reports overlaps between worktrees so you see brewing collisions before they reach a merge:
 
-### Intelligent Planner
+- The **READY TO SHIP** lane and `owt queue` show a per-worktree overlap count.
+- Active merge conflicts (MERGE_HEAD / rebase-in-progress) surface in the **NEEDS YOU** lane.
 
-`owt plan` uses an Agno agent with codebase awareness — it reads the file tree and git history to produce better task decompositions with Pydantic-validated structured output (no regex parsing). Falls back to subprocess-based planning if Agno is not installed.
-
-### Quality Gate
-
-`owt ship` runs an AI quality review before merging. Checks for:
-- Code completeness (TODOs, partial implementations, debug code)
-- Security issues (hardcoded secrets, injection vulnerabilities)
-- Cross-worktree conflicts (files modified by other active agents)
-
-If the quality gate flags issues, you're prompted to ship anyway or abort. Skipped with `--yes`.
-
-### Merge Conflict Resolution
-
-When `auto_resolve_conflicts = true` in config, merge conflicts are resolved semantically by an AI agent before falling back to manual resolution. Only applies resolved content when confidence exceeds 0.8.
-
-### Cross-Worktree Coordination
-
-The orchestrator detects file overlaps between running worktrees and injects context into each agent's CLAUDE.md. With Agno, a coordinator agent generates intelligent, targeted messages. Without Agno, template-based warnings are used. Coordination runs on a 120s cooldown per event to avoid noise.
-
-### Agno Configuration
-
-```toml
-[agno]
-enabled = true                           # Toggle intelligence features
-model_id = "claude-sonnet-4-20250514"    # Default model (Claude, OpenAI, Gemini)
-planner_model_id = "claude-sonnet-4-20250514"  # Override for planner
-quality_gate_model_id = "claude-sonnet-4-20250514"  # Override for gate
-coordinator_model_id = "claude-haiku-4-5-20251001"  # Cost-effective for coordination
-quality_gate_threshold = 0.7             # Minimum score to pass (0.0-1.0)
-auto_resolve_conflicts = false           # Auto-apply AI conflict resolutions
-```
-
-API keys use standard env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) — no OWT-specific config needed.
+The detection lives in `MergeManager.check_file_overlaps()` / `plan_merge_order()` — pure and AI-free.
 
 ## MCP Peer Communication (Optional)
 

@@ -7,11 +7,9 @@ from pathlib import Path
 import click
 from rich.table import Table
 
-from open_orchestrator.commands._shared import console, get_status_tracker, get_worktree_manager
-from open_orchestrator.config import load_config
+from open_orchestrator.commands._shared import console, get_worktree_manager
 from open_orchestrator.core.pane_actions import teardown_worktree
 from open_orchestrator.core.worktree import WorktreeNotFoundError
-from open_orchestrator.models.status import AIActivityStatus
 
 
 def _detect_session_type(name: str) -> bool:
@@ -54,56 +52,6 @@ def _auto_commit_dirty_files(worktree_path: str | Path, branch: str, commit_mess
     wt_repo.git.commit("-m", msg)
     console.print(f"[green]Committed:[/green] {msg}")
     return msg
-
-
-def _run_quality_gate(worktree_name: str, worktree_path: str | Path, branch: str, target: str) -> bool:
-    """Run Agno quality gate if enabled. Returns True to continue, False to abort."""
-    from git import Repo
-
-    config = load_config()
-    if not config.agno.enabled:
-        return True
-
-    try:
-        from open_orchestrator.core.intelligence import AgnoQualityGate
-
-        diff_output = Repo(worktree_path).git.diff(f"{target}...{branch}", stat=False)
-        if not diff_output:
-            return True
-
-        wt_manager = get_worktree_manager()
-        tracker = get_status_tracker(wt_manager.git_root)
-        status = tracker.get_status(worktree_name)
-        task_desc = status.current_task if status else None
-
-        active_wts = [
-            {"name": s.worktree_name, "branch": s.branch, "task": s.current_task or ""}
-            for s in tracker.get_all_statuses()
-            if s.worktree_name != worktree_name and s.activity_status in (AIActivityStatus.WORKING, AIActivityStatus.IDLE)
-        ]
-
-        with console.status("[bold blue]Running quality gate..."):
-            gate = AgnoQualityGate(config.agno, repo_path=str(wt_manager.git_root))
-            verdict = gate.review(diff_output, task_desc, active_wts)
-
-        if verdict.passed:
-            console.print(f"[green]Quality gate passed[/green] (score: {verdict.score:.1f}): {verdict.summary}")
-            return True
-
-        console.print(f"\n[yellow]Quality gate flagged issues[/yellow] (score: {verdict.score:.1f})")
-        console.print(f"  {verdict.summary}")
-        for issue in verdict.issues[:5]:
-            console.print(f"  [yellow]\u2022[/yellow] {issue}")
-        if verdict.cross_worktree_conflicts:
-            console.print("  [yellow]Cross-worktree conflicts:[/yellow]")
-            for conflict in verdict.cross_worktree_conflicts[:3]:
-                console.print(f"    [yellow]\u26a0[/yellow] {conflict}")
-        return click.confirm("\nShip anyway?")
-    except ImportError:
-        return True
-    except Exception as e:
-        console.print(f"[dim]Quality gate skipped: {e}[/dim]")
-        return True
 
 
 def _ship_branch(
@@ -446,11 +394,6 @@ def ship_worktree(
     # Step 1: Auto-commit if dirty
     if dirty_files:
         _auto_commit_dirty_files(worktree.path, worktree.branch, commit_message)
-
-    # Step 1.5: Quality gate (Agno, if available)
-    if not yes and not _run_quality_gate(worktree_name, worktree.path, worktree.branch, target):
-        console.print("[yellow]Aborted.[/yellow]")
-        return
 
     # Step 2: Kill tmux session BEFORE merge (avoids issues with agent holding locks)
 
