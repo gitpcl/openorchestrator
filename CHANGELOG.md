@@ -7,21 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-06
+
+Repositioned open-orchestrator as a **multi-provider cockpit**: supervise
+Claude Code, Pi, Droid, and OpenCode across isolated git worktrees from one
+control plane. The engine features that competed with the AI platforms
+themselves were deliberately cut (~18k lines); see **Removed**. This release
+also folds in the Sprint 027 production-readiness hardening.
+
+### Removed (breaking)
+- Commands cut: `plan`, `orchestrate`, `swarm`, `batch`, `critic`, `memory`,
+  `dream` — the AI planning/DAG, batch autopilot, critic safety-review,
+  recall/memory, and dream daemon subsystems are gone.
+- The Agno intelligence layer and its optional `[agno]` extra.
+- The legacy switchboard UI and the `owt --legacy-cards` flag; the control
+  plane is now the only board.
+- Config keys, each reported with a friendly "removed in 0.5.0, safe to
+  delete" migration message (never a typo hint): `[switchboard]`,
+  `[agno]`/`[intelligence]`, `critic`/`critic_enabled`,
+  `recall`/`recall_enabled`/`memory`, `swarm`, and the `dream_*` family.
+
 ### Added
+- `owt new --workflow` — launch a native plan-first Claude Code workflow
+  (plan mode + plan-then-execute protocol) directly in the worktree.
+- `owt usage [--days N]` — local-only usage counts (control-plane launches,
+  worktrees started, native workflows), backed by a new `usage_events` table.
+  Nothing leaves the machine; it's a keep-or-archive gauge.
 - `AIActivityStatus.STALLED` enum value plus `WorktreeAIStatus.mark_stalled` and
   `StatusTracker.mark_stalled` for flagging subprocess-timeout casualties.
 - `core/_subprocess.run_with_class_timeout` — single chokepoint that routes
   every subprocess call through the correct timeout class (tmux / git / gh /
   ai_cli / fast) and fires an `on_timeout` callback before re-raising.
-- Structured JSON heartbeats from the dream daemon (`core/dream.py`); tail with
-  `jq` against the daemon log.
 - `pip-audit` step + Dependabot configuration in CI; macOS runner added to the
-  test matrix; coverage ratchet enforced at 68% with a path to 80%.
+  test matrix.
 - Authoritative project metadata: author email, `Source`, and `Funding` URLs
   in `pyproject.toml`.
 - `CHANGELOG.md` (this file), backfilled from git tags.
 
 ### Changed
+- Repositioned to a multi-provider cockpit; the control plane went from four
+  lanes to three (NEEDS YOU / READY TO SHIP / IN FLIGHT).
+- `pyproject.toml` description + keywords reframed around the cockpit
+  (cockpit / control-plane / multi-provider), dropping the engine
+  "orchestration" framing.
+- CI coverage floor re-baselined to the true post-cut total (`--cov-fail-under`
+  raised to **83%**); the cut removed several sub-80% modules and their tests.
 - Every `subprocess.run` / `check_call` / `check_output` site under `src/` now
   carries an explicit `timeout=` argument; the regression guard fails CI if a
   new site omits one.
@@ -29,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sync_worktree` now flips the worktree to `STALLED` with a friendly message.
 - All SQLite connections route through `core/_db.open_db`, which sets WAL +
   `busy_timeout=5000` + `synchronous=NORMAL` consistently — no more
-  `database is locked` under contention from the switchboard + dream + hooks.
+  `database is locked` under contention from the control plane + hooks.
 - `mcp_peer.py` is now fully type-checked (mypy override removed).
 - Textual floor in `pyproject.toml` reconciled to `>=8.0.0` to match the
   ship lockfile.
@@ -38,8 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Subprocess timeouts surface as `TimeoutExpired` with a logged class +
-  command head instead of hanging the switchboard or dream daemon
-  indefinitely.
+  command head instead of hanging the control plane or a daemon indefinitely.
 
 ## [0.4.0] — 2026-05
 
