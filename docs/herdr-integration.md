@@ -229,21 +229,12 @@ results.
 
 ## Known limitations
 
-- **Orchestrator and batch runs are tmux-only today.** `owt orchestrate`,
-  `owt batch`, `owt swarm`, and `owt subagent` create sessions through
-  `TmuxManager` directly because their pane-split / coordinator-worker
-  topology has no direct herdr analogue yet. They are unaffected by
-  `--herdr` and will continue to create tmux sessions even when
-  `[backend] mode = "herdr"` is set.
 - **Plan mode + automated mode are honored only by tmux** (they are
   propagated via the agent command and `OWT_AUTOMATED=1` env var, which
   herdr's `pane.send_text` doesn't currently set on the pane shell).
-- The `switchboard` (`owt --legacy-cards`) hosts its *own* tmux session;
-  this is unaffected by the backend choice for agent sessions.
 
-## Out of scope (not in this sprint)
+## Out of scope
 
-- Pushing DAG / orchestration progress into herdr's UI (could be a follow-up).
 - herdr triggering owt commands (the socket allows this — owt does not
   consume incoming triggers today).
 - Bundling herdr — install it yourself from herdr.dev.

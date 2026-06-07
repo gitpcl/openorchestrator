@@ -22,6 +22,11 @@ from open_orchestrator.models.worktree_info import SessionType
     help="AI tool to start by registered name (auto-detected if not specified).",
 )
 @click.option("--plan-mode", is_flag=True, help="Start Claude in plan mode.")
+@click.option(
+    "--workflow",
+    is_flag=True,
+    help="Launch a native plan-first Claude Code workflow (plan mode + plan-then-execute protocol).",
+)
 @click.option("-t", "--template", "template_name", help="Apply a worktree template.")
 @click.option("-a", "--attach", is_flag=True, help="Attach to tmux session after creation.")
 @click.option("--prefix", help="Override auto-detected branch prefix (e.g., feat, fix).")
@@ -41,6 +46,7 @@ def new_worktree(
     explicit_branch: str | None,
     ai_tool: str | None,
     plan_mode: bool,
+    workflow: bool,
     template_name: str | None,
     attach: bool,
     prefix: str | None,
@@ -62,14 +68,21 @@ def new_worktree(
         owt new Add user authentication with JWT
         owt new Fix login redirect bug
         owt new "Refactor database queries" --plan-mode
+        owt new "Refactor the billing module" --workflow  # native plan-first workflow
+        owt new "Port parser to Rust" --ai-tool droid     # supervise a different provider
         owt new --branch feat/my-branch
         owt new "Fix bug" --in-place
         owt branch "Fix bug"  # alias for owt new ... --in-place
     """
     if headless and branch_mode:
         raise click.ClickException("--headless and --in-place cannot be used together.")
+    if workflow and headless:
+        raise click.ClickException("--workflow is plan-first and interactive; it can't run --headless.")
     if force_herdr and force_tmux:
         raise click.ClickException("--herdr and --tmux are mutually exclusive.")
+    # --workflow is a high-level alias: native plan-first launch.
+    if workflow:
+        plan_mode = True
     if force_herdr and headless:
         raise click.ClickException("--herdr is incompatible with --headless (no terminal to host).")
 
@@ -135,9 +148,24 @@ def new_worktree(
             f"Headless mode is not supported by '{ai_tool_name}'. The tool needs a non-interactive execution mode plus OWT hooks."
         )
 
+    if workflow and not tool.supports_plan_mode:
+        raise click.ClickException(
+            f"--workflow needs a plan-mode-capable tool; '{ai_tool_name}' doesn't support plan mode. Try --ai-tool claude."
+        )
+
     prompt = task_description or None
     if tmpl_instructions:
         prompt = f"{tmpl_instructions}\n\n{task_description}" if task_description else tmpl_instructions
+
+    # --workflow frames the task with a plan-first, task-type-specific protocol
+    # so the native agent plans before it executes.
+    display_task = task_description or None
+    if workflow and task_description:
+        from open_orchestrator.core.prompt_builder import get_protocol_for_task
+
+        protocol = get_protocol_for_task(task_description)
+        prompt = f"{protocol}\n\n{prompt}" if prompt else protocol
+        display_task = f"⟳ {task_description}"
 
     mode = LaunchMode.HEADLESS if headless else LaunchMode.INTERACTIVE
     wt_manager = _pkg.get_worktree_manager()
@@ -157,7 +185,7 @@ def new_worktree(
         ai_tool=ai_tool_name,
         mode=mode,
         prompt=prompt,
-        display_task=task_description or None,
+        display_task=display_task,
         plan_mode=plan_mode,
         session_type=SessionType.BRANCH if branch_mode else SessionType.WORKTREE,
         backend_kind=BackendKind(resolved_kind.value),
@@ -167,6 +195,10 @@ def new_worktree(
         result = launcher.launch(request)
     except PaneActionError as e:
         raise click.ClickException(str(e)) from e
+
+    tracker.record_usage("new")
+    if workflow:
+        tracker.record_usage("workflow")
 
     if branch_mode:
         console.print(f"[green]Branch session created:[/green] {result.worktree_name}")

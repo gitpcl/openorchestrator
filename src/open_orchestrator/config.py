@@ -35,24 +35,6 @@ class DroidAutoLevel(str, Enum):
     HIGH = "high"
 
 
-class AgnoConfig(BaseModel):
-    """Agno intelligence layer configuration."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = Field(default=True, description="Enable Agno intelligence features")
-    model_id: str = Field(default="claude-sonnet-4-20250514", description="Default model ID for Agno agents")
-    planner_model_id: str | None = Field(default=None, description="Override model for planner agent")
-    quality_gate_model_id: str | None = Field(default=None, description="Override model for quality gate agent")
-    max_tokens: int = Field(default=4096, description="Max tokens for Agno model responses")
-    temperature: float = Field(default=0.2, description="Temperature for Agno model responses")
-    quality_gate_threshold: float = Field(default=0.7, description="Minimum score to pass quality gate")
-    auto_resolve_conflicts: bool = Field(default=False, description="Automatically apply AI conflict resolutions")
-    coordinator_model_id: str | None = Field(default=None, description="Override model for coordinator agent")
-    memory_enabled: bool = Field(default=True, description="Enable persistent memory for Agno agents")
-    memory_db_path: str | None = Field(default=None, description="Custom path for memory DB")
-
-
 class ClaudeConfig(BaseModel):
     """Claude-specific configuration."""
 
@@ -152,14 +134,6 @@ class EnvironmentConfig(BaseModel):
     )
 
 
-class SwitchboardConfig(BaseModel):
-    """Configuration for switchboard UI."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    background_color: str | None = Field(default=None, description="Background hex color (e.g. '#1a1b2e') to match terminal")
-
-
 class SyncConfig(BaseModel):
     """Configuration for sync operations."""
 
@@ -178,9 +152,7 @@ class Config(BaseModel):
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
-    switchboard: SwitchboardConfig = Field(default_factory=SwitchboardConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
-    agno: AgnoConfig = Field(default_factory=AgnoConfig)
     backend: BackendConfig = Field(default_factory=BackendConfig)
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
@@ -188,10 +160,6 @@ class Config(BaseModel):
     templates: dict[str, WorktreeTemplate] = Field(default_factory=dict, description="Custom worktree templates")
     tools: dict[str, dict[str, object]] = Field(default_factory=dict, description="Custom AI tool declarations")
     tool_token_budget: int = Field(default=8000, ge=100, description="Max tokens for deferred tool schemas")
-    critic_enabled: bool = Field(default=True, description="Run critic review before ship/merge")
-    dream_idle_seconds: int = Field(default=3600, ge=60, description="Inactivity threshold before dream wakes")
-    dream_enabled: bool = Field(default=False, description="Enable dream daemon on startup")
-    recall_enabled: bool = Field(default=True, description="Auto-inject L0+L1 recall payload into CLAUDE.md")
     theme: str = Field(
         default="auto",
         description="UI theme: auto, dark, light, dark-ansi, light-ansi",
@@ -249,6 +217,38 @@ class ConfigError(Exception):
     """Raised when configuration is invalid."""
 
 
+# Config keys that existed in 0.4.0 but were deleted in the 0.5.0 cockpit
+# reposition (engine features cut). A user upgrading from 0.4.0 has
+# valid-yesterday config; map the dead key to *why* it went and tell them
+# it's safe to delete — never imply they misspelled something. Keyed by the
+# top-level section/key name; values explain the removal.
+_REMOVED_CONFIG_KEYS: dict[str, str] = {
+    "switchboard": "the legacy switchboard UI was replaced by the control plane",
+    "agno": "the Agno intelligence layer was removed",
+    "intelligence": "the Agno intelligence layer was removed",
+    "critic_enabled": "the critic safety-review feature was removed",
+    "critic": "the critic safety-review feature was removed",
+    "recall_enabled": "cross-worktree recall/memory was removed",
+    "recall": "cross-worktree recall/memory was removed",
+    "memory": "cross-worktree recall/memory was removed",
+    "swarm": "swarm mode was removed",
+}
+
+# Prefixes for families of removed keys (e.g. dream_enabled, dream_interval).
+_REMOVED_CONFIG_PREFIXES: tuple[tuple[str, str], ...] = (("dream", "the dream daemon was removed"),)
+
+
+def _removed_key_reason(top: str) -> str | None:
+    """Return why ``top`` was removed in 0.5.0, or None if it's not a known
+    removed key (i.e. a genuine typo)."""
+    if top in _REMOVED_CONFIG_KEYS:
+        return _REMOVED_CONFIG_KEYS[top]
+    for prefix, reason in _REMOVED_CONFIG_PREFIXES:
+        if top == prefix or top.startswith(f"{prefix}_"):
+            return reason
+    return None
+
+
 def _format_validation_error(error: Exception, config_path: Path) -> str:
     """Format a Pydantic ValidationError into a user-friendly message."""
     from pydantic import ValidationError
@@ -261,7 +261,12 @@ def _format_validation_error(error: Exception, config_path: Path) -> str:
         loc = " → ".join(str(part) for part in err["loc"])
         msg = err["msg"]
         if err["type"] == "extra_forbidden":
-            lines.append(f"  Unknown key '{loc}'. Remove it or check spelling.")
+            top = str(err["loc"][0]) if err["loc"] else loc
+            reason = _removed_key_reason(top)
+            if reason is not None:
+                lines.append(f"  '{loc}' was removed in 0.5.0 ({reason}). It's safe to delete this key — {config_path}.")
+            else:
+                lines.append(f"  Unknown key '{loc}'. Remove it or check spelling.")
         else:
             lines.append(f"  [{loc}] {msg}")
     return "\n".join(lines)

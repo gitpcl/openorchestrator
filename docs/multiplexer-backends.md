@@ -47,10 +47,8 @@ herdr_session = "default"   # named herdr session (selects which socket)
 
 ## Architecture
 
-Call sites depend only on `core/multiplexer.py::MultiplexerBackend`; `AgentLauncher`, `commands/agent.py`, `commands/worktree.py`, and `commands/doctor.py` resolve a backend via `core/backend_factory.py` and never touch `TmuxManager` directly. Concrete adapters live behind `core/tmux_backend.py` (wraps `TmuxManager`) and `core/herdr_backend.py` (wraps `HerdrClient` JSON-RPC over Unix socket).
+Call sites depend only on `core/multiplexer.py::MultiplexerBackend`; `AgentLauncher`, `commands/agent.py`, the `commands/worktree/` package, and `commands/doctor.py` resolve a backend via `core/backend_factory.py` and never touch `TmuxManager` directly. Concrete adapters live behind `core/tmux_backend.py` (wraps `TmuxManager`) and `core/herdr_backend.py` (wraps `HerdrClient` JSON-RPC over Unix socket).
 
-## Known Limitation
-
-`owt orchestrate`, `owt batch`, `owt swarm`, and `owt subagent` create sessions through tmux directly today — they ignore `--herdr` and continue to use tmux even when `[backend] mode = "herdr"` is set. The standalone `owt new` flow is fully herdr-aware.
+Both the standalone `owt new` flow and `owt new --workflow` are fully backend-aware (tmux or herdr).
 
 See [`herdr-integration.md`](herdr-integration.md) for the full configuration, troubleshooting, named-session walkthrough, and protocol reference.

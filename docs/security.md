@@ -13,11 +13,10 @@ string — defending against that is the AI vendor's responsibility, not ours).
 An attacker who can influence any of the following can inject text that is
 later fed to an AI tool spawned by OWT:
 
-- The `task` argument to `owt new "task"` (or `owt n`, `owt plan "goal"`,
-  `owt batch tasks.toml`, `owt orchestrate plan.toml`).
-- The `prompt` field inside a batch TOML or orchestrator plan TOML.
-- Any free-text field in a `notes/`, `MEMORY.md`, or worktree CLAUDE.md that
-  the prompt-builder reads back into the launch prompt.
+- The `task` argument to `owt new "task"` (or `owt n`, `owt new "task" --workflow`,
+  `owt branch "task"`).
+- Any free-text field in a `notes/` file or worktree CLAUDE.md that the
+  prompt-builder reads back into the launch prompt.
 - MCP-peer messages relayed through `core/mcp_peer.py` (when enabled).
 - The contents of files the prompt-builder injects (git log, file tree, recent
   commit messages from collaborator branches).

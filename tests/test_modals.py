@@ -11,7 +11,7 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Static
 
-from open_orchestrator.core.switchboard_modals import (
+from open_orchestrator.core.modals import (
     ConfirmModal,
     InputModal,
     SearchableSelectModal,

@@ -572,29 +572,3 @@ class TestPrivateHelpers:
             msg = _auto_commit_dirty_files(tmp_path, "feat/x", "explicit message")
 
         assert msg == "explicit message"
-
-    def test_run_quality_gate_disabled_returns_true(self) -> None:
-        from open_orchestrator.commands.merge_cmds import _run_quality_gate
-
-        config = MagicMock()
-        config.agno.enabled = False
-        with patch("open_orchestrator.commands.merge_cmds.load_config", return_value=config):
-            assert _run_quality_gate("feat-x", "/tmp/feat-x", "feat/x", "main") is True
-
-    def test_run_quality_gate_handles_import_error(self) -> None:
-        from open_orchestrator.commands.merge_cmds import _run_quality_gate
-
-        config = MagicMock()
-        config.agno.enabled = True
-        repo = MagicMock()
-        repo.git.diff.return_value = "+++ a\n"  # non-empty diff
-
-        with (
-            patch("open_orchestrator.commands.merge_cmds.load_config", return_value=config),
-            patch("git.Repo", return_value=repo),
-            patch.dict(
-                "sys.modules",
-                {"open_orchestrator.core.intelligence": None},  # forces ImportError
-            ),
-        ):
-            assert _run_quality_gate("feat-x", "/tmp/feat-x", "feat/x", "main") is True

@@ -7,15 +7,10 @@ import click
 from open_orchestrator.commands import (
     agent,
     config_cmd,
-    critic_cmd,
     db_cmd,
     doctor,
-    dream_cmd,
     maintenance,
-    memory_cmd,
     merge_cmds,
-    orchestrate_cmds,
-    swarm_cmd,
     worktree,
 )
 
@@ -31,12 +26,6 @@ from open_orchestrator.commands import (
     default=None,
     help="UI theme (default: auto, detects terminal background).",
 )
-@click.option(
-    "--legacy-cards",
-    "legacy_cards",
-    is_flag=True,
-    help="Use the legacy card-grid switchboard instead of the control plane (deprecated).",
-)
 @click.pass_context
 def main(
     ctx: click.Context,
@@ -45,11 +34,10 @@ def main(
     verbose: bool,
     json_output: bool,
     theme: str | None,
-    legacy_cards: bool,
 ) -> None:
-    """Open Orchestrator — multi-agent worktree orchestration.
+    """Open Orchestrator — the multi-provider cockpit for parallel AI worktrees.
 
-    Run 'owt' with no arguments to launch the Switchboard.
+    Run 'owt' with no arguments to launch the Control Plane.
     """
     ctx.ensure_object(dict)
     ctx.obj["json"] = json_output
@@ -97,31 +85,22 @@ def main(
         return
 
     if ctx.invoked_subcommand is None:
-        if legacy_cards:
-            click.echo(
-                "[deprecation] --legacy-cards renders the card-grid switchboard; "
-                "this flag will be removed in the next minor release.",
-                err=True,
-            )
-            from open_orchestrator.core.switchboard import launch_switchboard
+        from open_orchestrator.core.control_plane_view import ControlPlaneApp
+        from open_orchestrator.core.status import StatusTracker
 
-            launch_switchboard()
-        else:
-            from open_orchestrator.core.control_plane_view import ControlPlaneApp
-
-            ControlPlaneApp().run()
+        # Record one cockpit launch. Only fires on the no-subcommand path,
+        # so `owt <subcommand>` invocations never count toward this metric
+        # (which keeps `owt usage`'s "control-plane launches" line honest).
+        # record_usage is failure-isolated — it never blocks the launch.
+        StatusTracker().record_usage("control_plane")
+        ControlPlaneApp().run()
 
 
 # Register all command modules
 worktree.register(main)
 agent.register(main)
 merge_cmds.register(main)
-orchestrate_cmds.register(main)
 maintenance.register(main)
 config_cmd.register(main)
 db_cmd.register(main)
 doctor.register(main)
-memory_cmd.register(main)
-critic_cmd.register(main)
-dream_cmd.register(main)
-swarm_cmd.register(main)

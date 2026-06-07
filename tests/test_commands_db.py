@@ -18,7 +18,7 @@ class TestDbPurge:
         runner = CliRunner()
         result = runner.invoke(main, ["db", "purge"])
         assert result.exit_code == 0
-        assert "5 message(s)" in result.output
+        assert "5 row(s)" in result.output
         mock_get_tracker.return_value.purge_old_messages.assert_called_once_with(30)
 
     @patch("open_orchestrator.commands.db_cmd.get_status_tracker")
@@ -27,7 +27,7 @@ class TestDbPurge:
         runner = CliRunner()
         result = runner.invoke(main, ["db", "purge", "--days", "7"])
         assert result.exit_code == 0
-        assert "12 message(s)" in result.output
+        assert "12 row(s)" in result.output
         mock_get_tracker.return_value.purge_old_messages.assert_called_once_with(7)
 
 

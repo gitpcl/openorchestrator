@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -24,9 +24,11 @@ from open_orchestrator.core.status_schema import (
     ensure_schema,
     migrate_columns,
     migrate_legacy_json,
+    record_usage,
     row_to_status,
     str_to_dt,
     upsert_status_row,
+    usage_counts,
 )
 from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
 
@@ -206,6 +208,30 @@ class TestMigrateLegacyJson:
         # Backup file replaces the original.
         assert not legacy.exists()
         assert (tmp_path / "ai_status.json.bak").exists()
+
+
+class TestUsageEvents:
+    """Local usage signal (the project's kill-switch gauge)."""
+
+    def test_record_and_count(self, conn: sqlite3.Connection) -> None:
+        ensure_schema(conn)
+        record_usage(conn, "control_plane")
+        record_usage(conn, "new")
+        record_usage(conn, "new")
+        counts = usage_counts(conn, days=30)
+        assert counts == {"control_plane": 1, "new": 2}
+
+    def test_empty_when_no_events(self, conn: sqlite3.Connection) -> None:
+        ensure_schema(conn)
+        assert usage_counts(conn, days=30) == {}
+
+    def test_window_excludes_old_events(self, conn: sqlite3.Connection) -> None:
+        ensure_schema(conn)
+        old = (datetime.now() - timedelta(days=40)).isoformat()
+        conn.execute("INSERT INTO usage_events (event, created_at) VALUES (?, ?)", ("new", old))
+        conn.commit()
+        record_usage(conn, "new")  # within window
+        assert usage_counts(conn, days=30) == {"new": 1}
 
 
 class TestPublicSurface:

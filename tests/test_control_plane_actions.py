@@ -1,4 +1,4 @@
-"""Sprint 024: tests for the action dispatcher."""
+"""Tests for the action dispatcher (3-lane control plane)."""
 
 from __future__ import annotations
 
@@ -12,10 +12,7 @@ from open_orchestrator.core.control_plane_actions import (
     ActionResult,
     ControlPlaneActions,
     ControlPlaneRuntime,
-    action_dismiss,
-    action_review,
 )
-from open_orchestrator.core.critic import CriticFinding, CriticVerdict, Severity
 from open_orchestrator.models.control_plane import ControlPlaneRow, RowAction, SectionKind
 
 
@@ -50,23 +47,6 @@ async def test_dispatch_unknown_action_returns_friendly_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_review_uses_critic_lookup() -> None:
-    verdict = CriticVerdict(
-        action="ship",
-        target="wt",
-        findings=(CriticFinding(severity=Severity.BLOCKING, category="x", message="m"),),
-    )
-    runtime = ControlPlaneRuntime(
-        repo_root="/tmp",
-        critic_lookup=lambda wt: verdict if wt == "wt" else None,
-    )
-    row = _row(SectionKind.NEEDS_YOU, RowAction.REVIEW, worktree="wt")
-    result = await action_review(row, runtime)
-    assert result.ok
-    assert "blocking" in result.detail.lower()
-
-
-@pytest.mark.asyncio
 async def test_attach_uses_backend_when_provided() -> None:
     called = {}
 
@@ -83,15 +63,6 @@ async def test_attach_uses_backend_when_provided() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dismiss_is_noop_success() -> None:
-    runtime = ControlPlaneRuntime(repo_root="/tmp")
-    row = _row(SectionKind.BACKGROUND, RowAction.DISMISS)
-    result = await action_dismiss(row, runtime)
-    assert result.ok
-    assert "dismiss" in result.message.lower()
-
-
-@pytest.mark.asyncio
 async def test_handler_exception_becomes_action_error() -> None:
     async def bad(row, runtime):
         raise RuntimeError("boom")
@@ -99,10 +70,10 @@ async def test_handler_exception_becomes_action_error() -> None:
     runtime = ControlPlaneRuntime(repo_root="/tmp")
     actions = ControlPlaneActions(
         runtime,
-        table={(SectionKind.NEEDS_YOU, RowAction.REVIEW): bad},
+        table={(SectionKind.NEEDS_YOU, RowAction.FIX): bad},
     )
-    row = _row(SectionKind.NEEDS_YOU, RowAction.REVIEW)
-    result = await actions.dispatch(row, RowAction.REVIEW)
+    row = _row(SectionKind.NEEDS_YOU, RowAction.FIX)
+    result = await actions.dispatch(row, RowAction.FIX)
     assert result.ok is False
     assert "action error" in result.message
 
@@ -145,13 +116,13 @@ def test_build_start_args_single() -> None:
     assert cpa.build_start_args("add auth", "single") == ["new", "add auth", "--yes"]
 
 
-def test_build_start_args_plan() -> None:
-    assert cpa.build_start_args("ship the dashboard", "plan") == ["plan", "ship the dashboard", "--start"]
-
-
-def test_build_start_args_batch_requires_file() -> None:
-    assert cpa.build_start_args("x", "batch") is None
-    assert cpa.build_start_args("x", "batch", "plan.toml") == ["batch", "plan.toml"]
+def test_build_start_args_workflow() -> None:
+    assert cpa.build_start_args("ship the dashboard", "workflow") == [
+        "new",
+        "ship the dashboard",
+        "--workflow",
+        "--yes",
+    ]
 
 
 def test_build_start_args_unknown_mode() -> None:

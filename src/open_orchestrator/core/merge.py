@@ -411,7 +411,7 @@ class MergeManager:
         if rebase:
             self._phase1_rebase(wt_repo, merge_ref, source_branch, target_branch, leave_conflicts)
         else:
-            self._phase1_merge(wt_repo, worktree_path, merge_ref, source_branch, target_branch, strategy, leave_conflicts)
+            self._phase1_merge(wt_repo, merge_ref, source_branch, target_branch, strategy, leave_conflicts)
 
     def _phase1_rebase(
         self,
@@ -438,14 +438,13 @@ class MergeManager:
     def _phase1_merge(
         self,
         wt_repo: Repo,
-        worktree_path: Path,
         merge_ref: str,
         source_branch: str,
         target_branch: str,
         strategy: str | None,
         leave_conflicts: bool,
     ) -> None:
-        """Phase 1 (merge): Merge base into feature branch with optional AI resolution."""
+        """Phase 1 (merge): Merge base into feature branch."""
         try:
             merge_args = [merge_ref, "--no-edit"]
             if strategy:
@@ -454,64 +453,16 @@ class MergeManager:
         except GitCommandError as e:
             conflicts = self._get_conflict_files(wt_repo)
             if conflicts:
-                resolved = self._try_ai_conflict_resolution(wt_repo, worktree_path, conflicts, source_branch, target_branch)
-                if not resolved:
-                    if not leave_conflicts:
-                        with contextlib.suppress(GitCommandError):
-                            wt_repo.git.merge("--abort")
-                    raise MergeConflictError(
-                        f"Merge conflicts detected when merging '{target_branch}' into '{source_branch}'"
-                        + (" (merge left in-progress for manual resolution)" if leave_conflicts else ""),
-                        conflicts=conflicts,
-                    )
+                if not leave_conflicts:
+                    with contextlib.suppress(GitCommandError):
+                        wt_repo.git.merge("--abort")
+                raise MergeConflictError(
+                    f"Merge conflicts detected when merging '{target_branch}' into '{source_branch}'"
+                    + (" (merge left in-progress for manual resolution)" if leave_conflicts else ""),
+                    conflicts=conflicts,
+                )
             else:
                 raise MergeError(f"Phase 1 merge failed: {e}") from e
-
-    def _try_ai_conflict_resolution(
-        self,
-        wt_repo: Repo,
-        worktree_path: Path,
-        conflicts: list[str],
-        source_branch: str,
-        target_branch: str,
-    ) -> bool:
-        """Attempt AI-powered conflict resolution. Returns True if resolved."""
-        try:
-            from open_orchestrator.config import load_config
-
-            config = load_config()
-            if not (config.agno.enabled and config.agno.auto_resolve_conflicts):
-                return False
-
-            from open_orchestrator.core.intelligence import AgnoConflictResolver
-
-            conflicted_contents: dict[str, str] = {}
-            for cf in conflicts:
-                cf_path = worktree_path / cf
-                if cf_path.exists():
-                    conflicted_contents[cf] = cf_path.read_text(encoding="utf-8", errors="replace")
-
-            if not conflicted_contents:
-                return False
-
-            resolution = AgnoConflictResolver(config.agno, repo_path=str(worktree_path)).resolve(
-                conflicted_files=conflicted_contents,
-                source_branch=source_branch,
-                target_branch=target_branch,
-            )
-            if resolution.confidence > 0.8 and not resolution.requires_human and resolution.resolutions:
-                for file_path, content in resolution.resolutions.items():
-                    resolved_path = worktree_path / file_path
-                    resolved_path.write_text(content, encoding="utf-8")
-                    wt_repo.git.add(file_path)
-                wt_repo.git.commit("-m", f"fix: auto-resolve merge conflicts ({resolution.explanation[:60]})")
-                logger.info("AI resolved %d conflict(s): %s", len(conflicts), resolution.explanation)
-                return True
-        except ImportError:
-            pass
-        except Exception as exc:
-            logger.debug("AI conflict resolution failed: %s", exc)
-        return False
 
     def _phase2_merge_into_base(self, source_branch: str, target_branch: str) -> None:
         """Phase 2: Merge feature branch into base from the main repo.

@@ -60,7 +60,11 @@ jobs:
         run: uv pip install --group dev --system -e .
 
       - name: Run tests
-        run: pytest -v --cov=src/open_orchestrator --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+        # Floor re-baselined to the true post-cockpit-cut coverage (Sprint 028):
+        # the ~18k-line deletion removed several sub-80% modules and their tests,
+        # raising the real total to 83.44%. Held at 83 (honest floor, not 80);
+        # ratchet upward in a follow-up once the Beta soaks.
+        run: pytest -v --cov=src/open_orchestrator --cov-report=term-missing --cov-report=xml --cov-fail-under=83
 
       - name: Combine coverage
         if: always()

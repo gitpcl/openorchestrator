@@ -3,15 +3,13 @@
 Layout:
 
     ┌─────────────────────────────────────────────────────────┐
-    │ HEADER (orchestration progress or project + counts)     │
+    │ HEADER (project + row counts)                           │
     ├─────────────────────────────────────────────────────────┤
     │ NEEDS YOU       (hidden when empty)                     │
     │   row …                                                 │
     │ READY TO SHIP                                           │
     │   row …                                                 │
     │ IN FLIGHT                                               │
-    │   row …                                                 │
-    │ BACKGROUND      (≤10 events)                            │
     │   row …                                                 │
     ├─────────────────────────────────────────────────────────┤
     │ FOOTER (hotkey strip + toast slot)                      │
@@ -31,7 +29,6 @@ import shlex
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
 
 from rich.text import Text
 from textual import events
@@ -47,26 +44,20 @@ from open_orchestrator.core.control_plane_actions import (
     build_start_args,
     start_work,
 )
-from open_orchestrator.core.control_plane_sections import (
-    build_all_sections,
-    compute_orchestration_header,
-)
-from open_orchestrator.core.status import StatusTracker, runtime_status_config
-from open_orchestrator.core.switchboard_modals import (
+from open_orchestrator.core.control_plane_sections import build_all_sections
+from open_orchestrator.core.modals import (
     ConfirmModal,
     InputModal,
     SearchableSelectModal,
     SelectOption,
 )
+from open_orchestrator.core.status import StatusTracker, runtime_status_config
 from open_orchestrator.models.control_plane import (
     ControlPlaneRow,
     RowAction,
     SectionKind,
 )
-from open_orchestrator.models.status import AIActivityStatus, WorktreeAIStatus
-
-if TYPE_CHECKING:
-    from open_orchestrator.core.critic import CriticVerdict
+from open_orchestrator.models.status import WorktreeAIStatus
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +67,12 @@ SECTION_TITLES: dict[SectionKind, str] = {
     SectionKind.NEEDS_YOU: "NEEDS YOU",
     SectionKind.READY_TO_SHIP: "READY TO SHIP",
     SectionKind.IN_FLIGHT: "IN FLIGHT",
-    SectionKind.BACKGROUND: "BACKGROUND",
 }
 
 SECTION_COLORS: dict[SectionKind, str] = {
     SectionKind.NEEDS_YOU: "bold red",
     SectionKind.READY_TO_SHIP: "bold green",
     SectionKind.IN_FLIGHT: "bold cyan",
-    SectionKind.BACKGROUND: "bold dim",
 }
 
 # Order is the priority order — top-to-bottom.
@@ -91,7 +80,6 @@ SECTION_ORDER: tuple[SectionKind, ...] = (
     SectionKind.NEEDS_YOU,
     SectionKind.READY_TO_SHIP,
     SectionKind.IN_FLIGHT,
-    SectionKind.BACKGROUND,
 )
 
 
@@ -155,11 +143,7 @@ class SectionWidget(Static):
 
 
 class ControlPlaneApp(App[None]):
-    """Textual app that renders the control plane.
-
-    Standalone application (separate from ``SwitchboardApp``) so the
-    legacy card grid stays available behind ``--legacy-cards``.
-    """
+    """Textual app that renders the control plane — the cockpit front door."""
 
     CSS = """
     Screen { layout: vertical; background: $background; }
@@ -168,17 +152,6 @@ class ControlPlaneApp(App[None]):
     #footer { dock: bottom; height: 1; background: $panel; color: $text-muted; padding: 0 1; }
     #toast { dock: bottom; height: 1; background: $primary; color: $text; padding: 0 1; display: none; }
     #toast.visible { display: block; }
-    #review {
-        dock: bottom;
-        height: auto;
-        max-height: 12;
-        background: $panel;
-        color: $text;
-        padding: 0 1;
-        display: none;
-        border: tall $primary;
-    }
-    #review.visible { display: block; }
     """
 
     BINDINGS = [
@@ -188,13 +161,10 @@ class ControlPlaneApp(App[None]):
         Binding("k", "focus_prev", "Prev", show=False),
         Binding("n", "new", "New", show=False),
         Binding("s", "dispatch('s')", "Ship", show=False),
-        Binding("r", "dispatch('r')", "Review", show=False),
         Binding("a", "dispatch('a')", "Attach", show=False),
         Binding("f", "dispatch('f')", "Fix", show=False),
         Binding("m", "dispatch('m')", "Merge", show=False),
-        Binding("x", "dispatch('x')", "Dismiss", show=False),
         Binding("q", "quit", "Quit", show=False),
-        Binding("escape", "close_review", "Close panel", show=False),
     ]
 
     def __init__(
@@ -210,16 +180,12 @@ class ControlPlaneApp(App[None]):
         self._sections: dict[SectionKind, list[ControlPlaneRow]] = {k: [] for k in SECTION_ORDER}
         self._section_widgets: dict[SectionKind, SectionWidget] = {}
         self._focus = _Focus()
-        self._actions: ControlPlaneActions = ControlPlaneActions(
-            ControlPlaneRuntime(
-                repo_root=str(self._repo_root),
-                critic_lookup=self._lookup_critic,
-            )
-        )
-        self._critic_cache: dict[str, object] = {}
+        self._actions: ControlPlaneActions = ControlPlaneActions(ControlPlaneRuntime(repo_root=str(self._repo_root)))
         # Transient state for the multi-step "start work" (n) flow.
         self._new_task: str = ""
         self._new_mode: str = ""
+        # Usage line (computed once at mount; local-only signal).
+        self._usage_line: str = ""
 
     # ── lifecycle ─────────────────────────────────────────────────────
 
@@ -233,10 +199,16 @@ class ControlPlaneApp(App[None]):
                     yield widget
         with Container():
             yield Static("", id="toast")
-            yield Static("", id="review")
             yield Static(self._build_footer(), id="footer")
 
     def on_mount(self) -> None:
+        # Local-only usage signal: count this launch, then snapshot the
+        # 30-day summary once so the header doesn't re-query every tick.
+        self._tracker.record_usage("control_plane")
+        counts = self._tracker.usage_counts(days=30)
+        started = counts.get("new", 0)
+        launches = counts.get("control_plane", 0)
+        self._usage_line = f"30d: {started} started · {launches} launches"
         self.set_interval(self._refresh_seconds, self._tick)
         self.call_after_refresh(self._tick)
 
@@ -260,33 +232,11 @@ class ControlPlaneApp(App[None]):
         statuses = self._tracker.get_all_statuses()
         merge_queue = self._safe_merge_queue()
         conflicts = self._detect_conflicts(statuses)
-        critic_verdicts = self._refresh_critic_verdicts(statuses)
-
-        from open_orchestrator.core.critic import CriticAgent
-        from open_orchestrator.core.dream import DreamDaemon
-        from open_orchestrator.core.memory import MemoryManager
-
-        try:
-            dream = DreamDaemon(self._repo_root)
-        except Exception:  # noqa: BLE001
-            dream = None
-        try:
-            memory = MemoryManager(self._repo_root)
-        except Exception:  # noqa: BLE001
-            memory = None
-        try:
-            critic = CriticAgent(self._repo_root)
-        except Exception:  # noqa: BLE001
-            critic = None
 
         self._sections = build_all_sections(
             statuses=statuses,
             merge_queue=merge_queue,
-            critic_verdicts=critic_verdicts,
             conflict_worktrees=conflicts,
-            dream=dream,
-            memory=memory,
-            critic=critic,
         )
 
     def _safe_merge_queue(self) -> list[tuple[str, int, int]]:
@@ -310,27 +260,6 @@ class ControlPlaneApp(App[None]):
                 conflicts.append(s.worktree_name)
         return [c for c in conflicts if c]
 
-    def _refresh_critic_verdicts(self, statuses: list[WorktreeAIStatus]) -> dict[str, CriticVerdict]:
-        """Run lightweight critic.review_ship() for COMPLETED worktrees."""
-        from open_orchestrator.core.critic import CriticAgent
-
-        critic = CriticAgent(self._repo_root)
-        cache: dict[str, CriticVerdict] = {}
-        for s in statuses:
-            if s.activity_status != AIActivityStatus.COMPLETED:
-                continue
-            if not s.worktree_name:
-                continue
-            try:
-                cache[s.worktree_name] = critic.review_ship(s.worktree_name)
-            except Exception:  # noqa: BLE001
-                logger.debug("critic.review_ship(%s) failed", s.worktree_name, exc_info=True)
-        self._critic_cache = cast("dict[str, object]", cache)
-        return cache
-
-    def _lookup_critic(self, worktree: str) -> CriticVerdict | None:
-        return cast("CriticVerdict | None", self._critic_cache.get(worktree))
-
     # ── render ────────────────────────────────────────────────────────
 
     def _update_header(self) -> None:
@@ -339,26 +268,10 @@ class ControlPlaneApp(App[None]):
         except Exception:  # noqa: BLE001
             return
 
-        orch_state = self._load_orchestrator_state()
-        header_payload = compute_orchestration_header(orch_state)
-        if header_payload is not None:
-            header_widget.update(header_payload.line)
-            return
-
         total_rows = sum(len(rows) for rows in self._sections.values())
         project = self._repo_root.name
-        header_widget.update(f" {project} · {total_rows} rows · {datetime.now().strftime('%H:%M:%S')}")
-
-    def _load_orchestrator_state(self) -> object | None:
-        state_path = self._repo_root / ".owt" / "orchestrator.json"
-        if not state_path.exists():
-            return None
-        try:
-            from open_orchestrator.core.orchestrator import OrchestratorState
-
-            return OrchestratorState.model_validate_json(state_path.read_text())
-        except Exception:  # noqa: BLE001
-            return None
+        usage = f" · {self._usage_line}" if self._usage_line else ""
+        header_widget.update(f" {project} · {total_rows} rows · {datetime.now().strftime('%H:%M:%S')}{usage}")
 
     def _render_sections(self) -> None:
         all_rows = list(self._iter_rows())
@@ -476,14 +389,12 @@ class ControlPlaneApp(App[None]):
         self._handle_result(action, row, result)
 
     def _handle_result(self, action: RowAction, row: ControlPlaneRow, result: ActionResult) -> None:
-        if action == RowAction.REVIEW and result.detail:
-            self._show_review(result.detail)
         if result.handoff:
             self.exit()
             return
         variant = "info" if result.ok else "warn"
         self._show_toast(result.message, variant=variant)
-        if result.ok and action in (RowAction.SHIP, RowAction.MERGE, RowAction.DISMISS):
+        if result.ok and action in (RowAction.SHIP, RowAction.MERGE):
             self.call_after_refresh(self._tick)
 
     # ── start work (n) ────────────────────────────────────────────────
@@ -503,9 +414,9 @@ class ControlPlaneApp(App[None]):
                 description="owt new — a single task",
             ),
             SelectOption(
-                value="plan",
-                label="Multi-step plan",
-                description="owt plan --start — decompose into a DAG and run it",
+                value="workflow",
+                label="Native Claude workflow (plan-first)",
+                description="owt new --workflow — plan-then-execute in one worktree",
             ),
         ]
         self.push_screen(SearchableSelectModal("How should I run this?", options), self._on_new_mode)
@@ -535,22 +446,6 @@ class ControlPlaneApp(App[None]):
         self._show_toast(result.message, variant="info" if result.ok else "warn")
         if result.ok:
             self.call_after_refresh(self._tick)
-
-    def action_close_review(self) -> None:
-        try:
-            review = self.query_one("#review", Static)
-        except Exception:  # noqa: BLE001
-            return
-        review.update("")
-        review.remove_class("visible")
-
-    def _show_review(self, text: str) -> None:
-        try:
-            review = self.query_one("#review", Static)
-        except Exception:  # noqa: BLE001
-            return
-        review.update(text)
-        review.add_class("visible")
 
     def _show_toast(self, message: str, *, variant: str = "info") -> None:
         try:

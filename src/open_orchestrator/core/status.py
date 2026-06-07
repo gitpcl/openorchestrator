@@ -39,6 +39,8 @@ _insert_shared_note = _schema.insert_shared_note
 _migrate_legacy_json = _schema.migrate_legacy_json
 _row_to_status = _schema.row_to_status
 _upsert_status_row = _schema.upsert_status_row
+_record_usage = _schema.record_usage
+_usage_counts = _schema.usage_counts
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +327,21 @@ class StatusTracker:
         self._conn.execute("DELETE FROM shared_notes")
         self._conn.commit()
 
+    def record_usage(self, event: str) -> None:
+        """Record a local usage event. Failure-isolated — never raises."""
+        try:
+            _record_usage(self._conn, event)
+        except Exception:  # noqa: BLE001
+            logger.debug("record_usage(%s) failed", event, exc_info=True)
+
+    def usage_counts(self, *, days: int = 30) -> dict[str, int]:
+        """Per-event usage counts over the last ``days`` days. Never raises."""
+        try:
+            return _usage_counts(self._conn, days=days)
+        except Exception:  # noqa: BLE001
+            logger.debug("usage_counts failed", exc_info=True)
+            return {}
+
     def get_summary(self, worktree_names: list[str] | None = None) -> StatusSummary:
         """Generate a summary of AI tool status across worktrees."""
         all_statuses = self.get_all_statuses()
@@ -458,19 +475,21 @@ class StatusTracker:
     # -- Database maintenance -----------------------------------------------
 
     def purge_old_messages(self, days: int = 30) -> int:
-        """Delete peer messages older than the given number of days.
+        """Delete transient rows (peer messages, usage events) older than ``days``.
 
-        Returns the number of deleted rows.
+        Returns the total number of deleted rows.
         """
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
-        cursor = self._conn.execute(
-            "DELETE FROM peer_messages WHERE created_at < ?",
-            (cutoff,),
-        )
+        deleted = 0
+        for table in ("peer_messages", "usage_events"):
+            cursor = self._conn.execute(
+                f"DELETE FROM {table} WHERE created_at < ?",  # noqa: S608 — table name is a fixed literal
+                (cutoff,),
+            )
+            deleted += cursor.rowcount
         self._conn.commit()
-        deleted = cursor.rowcount
         if deleted:
-            logger.info("Purged %d peer message(s) older than %d days", deleted, days)
+            logger.info("Purged %d transient row(s) older than %d days", deleted, days)
         return deleted
 
     def vacuum(self) -> None:

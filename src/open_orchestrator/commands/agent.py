@@ -26,14 +26,12 @@ logger = logging.getLogger(__name__)
 @click.option("--pane", "pane_index", type=int, default=0, help="Target pane index.")
 @click.option("--all", "send_all", is_flag=True, help="Send to ALL worktrees.")
 @click.option("--working", "send_working", is_flag=True, help="Send only to WORKING worktrees.")
-@click.option("--swarm", "swarm_id", default=None, help="Broadcast to all workers in a swarm.")
 def send_to_worktree(
     identifier: str | None,
     message: tuple[str, ...],
     pane_index: int,
     send_all: bool,
     send_working: bool,
-    swarm_id: str | None,
 ) -> None:
     """Send a command/message to a worktree's AI agent.
 
@@ -45,24 +43,12 @@ def send_to_worktree(
         owt send auth-jwt "Fix the failing tests"
         owt send --all "Run tests"
         owt send --working "Wrap up and commit"
-        owt send --swarm swarm-abc12345 "status check"
     """
     del pane_index  # backend protocol targets the primary pane; pane_index is legacy
     from open_orchestrator.core.backend_factory import BackendUnavailableError, select_backend_for_session
 
     msg = " ".join(message)
     tracker = get_status_tracker()
-
-    if swarm_id:
-        from open_orchestrator.commands.swarm_cmd import get_manager
-        from open_orchestrator.core.swarm import SwarmError
-
-        try:
-            targets = get_manager().broadcast(swarm_id, msg)
-        except SwarmError as exc:
-            raise click.ClickException(str(exc)) from exc
-        console.print(f"[green]Broadcast to {len(targets)} swarm worker(s):[/green] {msg[:80]}")
-        return
 
     def _send_via_backend(worktree_name: str) -> bool:
         """Resolve backend for ``worktree_name`` and dispatch ``msg``."""
@@ -98,7 +84,7 @@ def send_to_worktree(
         return
 
     if not identifier:
-        raise click.ClickException("Specify a worktree name, or use --all / --working / --swarm")
+        raise click.ClickException("Specify a worktree name, or use --all / --working")
 
     wt_manager = get_worktree_manager()
     # Fall back to status DB so branch-mode sessions (no entry in
