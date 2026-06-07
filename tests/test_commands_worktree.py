@@ -416,6 +416,96 @@ class TestNewWorktree:
         assert "fix the login bug" in request.prompt
         assert len(request.prompt) > len("fix the login bug")
 
+    def test_workflow_records_workflow_usage(
+        self,
+        runner: CliRunner,
+        main_cli: click.Group,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A successful --workflow launch records both 'new' and 'workflow'
+        usage events; a plain launch records only 'new'."""
+        _silence_ref_conflict(monkeypatch)
+        backend = _patch_resolved_backend(monkeypatch)
+        backend.kind = BackendKind.TMUX
+
+        registry = MagicMock()
+        registry.get.return_value = _make_fake_tool()
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_registry",
+            lambda: registry,
+        )
+
+        wt_manager = _make_wt_manager()
+        tracker = _make_tracker()
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_worktree_manager",
+            lambda: wt_manager,
+        )
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_status_tracker",
+            lambda _root: tracker,
+        )
+
+        launcher = MagicMock()
+        launcher.launch.return_value = _make_launch_result(tmux_session="owt-x")
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.AgentLauncher",
+            lambda **kw: launcher,
+        )
+
+        result = runner.invoke(
+            main_cli,
+            ["new", "fix the login bug", "--workflow", "--ai-tool", "claude", "-y"],
+        )
+        assert result.exit_code == 0, result.output
+        recorded = [c.args[0] for c in tracker.record_usage.call_args_list]
+        assert "new" in recorded
+        assert "workflow" in recorded
+
+    def test_plain_launch_does_not_record_workflow_usage(
+        self,
+        runner: CliRunner,
+        main_cli: click.Group,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _silence_ref_conflict(monkeypatch)
+        backend = _patch_resolved_backend(monkeypatch)
+        backend.kind = BackendKind.TMUX
+
+        registry = MagicMock()
+        registry.get.return_value = _make_fake_tool()
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_registry",
+            lambda: registry,
+        )
+
+        wt_manager = _make_wt_manager()
+        tracker = _make_tracker()
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_worktree_manager",
+            lambda: wt_manager,
+        )
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.get_status_tracker",
+            lambda _root: tracker,
+        )
+
+        launcher = MagicMock()
+        launcher.launch.return_value = _make_launch_result(tmux_session="owt-x")
+        monkeypatch.setattr(
+            "open_orchestrator.commands.worktree.AgentLauncher",
+            lambda **kw: launcher,
+        )
+
+        result = runner.invoke(
+            main_cli,
+            ["new", "fix the login bug", "--ai-tool", "claude", "-y"],
+        )
+        assert result.exit_code == 0, result.output
+        recorded = [c.args[0] for c in tracker.record_usage.call_args_list]
+        assert "new" in recorded
+        assert "workflow" not in recorded
+
     def test_backend_unavailable_raises_click_exception(
         self,
         runner: CliRunner,
