@@ -134,14 +134,6 @@ class EnvironmentConfig(BaseModel):
     )
 
 
-class SwitchboardConfig(BaseModel):
-    """Configuration for switchboard UI."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    background_color: str | None = Field(default=None, description="Background hex color (e.g. '#1a1b2e') to match terminal")
-
-
 class SyncConfig(BaseModel):
     """Configuration for sync operations."""
 
@@ -160,7 +152,6 @@ class Config(BaseModel):
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     tmux: TmuxConfig = Field(default_factory=TmuxConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
-    switchboard: SwitchboardConfig = Field(default_factory=SwitchboardConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
     backend: BackendConfig = Field(default_factory=BackendConfig)
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
@@ -226,6 +217,38 @@ class ConfigError(Exception):
     """Raised when configuration is invalid."""
 
 
+# Config keys that existed in 0.4.0 but were deleted in the 0.5.0 cockpit
+# reposition (engine features cut). A user upgrading from 0.4.0 has
+# valid-yesterday config; map the dead key to *why* it went and tell them
+# it's safe to delete — never imply they misspelled something. Keyed by the
+# top-level section/key name; values explain the removal.
+_REMOVED_CONFIG_KEYS: dict[str, str] = {
+    "switchboard": "the legacy switchboard UI was replaced by the control plane",
+    "agno": "the Agno intelligence layer was removed",
+    "intelligence": "the Agno intelligence layer was removed",
+    "critic_enabled": "the critic safety-review feature was removed",
+    "critic": "the critic safety-review feature was removed",
+    "recall_enabled": "cross-worktree recall/memory was removed",
+    "recall": "cross-worktree recall/memory was removed",
+    "memory": "cross-worktree recall/memory was removed",
+    "swarm": "swarm mode was removed",
+}
+
+# Prefixes for families of removed keys (e.g. dream_enabled, dream_interval).
+_REMOVED_CONFIG_PREFIXES: tuple[tuple[str, str], ...] = (("dream", "the dream daemon was removed"),)
+
+
+def _removed_key_reason(top: str) -> str | None:
+    """Return why ``top`` was removed in 0.5.0, or None if it's not a known
+    removed key (i.e. a genuine typo)."""
+    if top in _REMOVED_CONFIG_KEYS:
+        return _REMOVED_CONFIG_KEYS[top]
+    for prefix, reason in _REMOVED_CONFIG_PREFIXES:
+        if top == prefix or top.startswith(f"{prefix}_"):
+            return reason
+    return None
+
+
 def _format_validation_error(error: Exception, config_path: Path) -> str:
     """Format a Pydantic ValidationError into a user-friendly message."""
     from pydantic import ValidationError
@@ -238,7 +261,12 @@ def _format_validation_error(error: Exception, config_path: Path) -> str:
         loc = " → ".join(str(part) for part in err["loc"])
         msg = err["msg"]
         if err["type"] == "extra_forbidden":
-            lines.append(f"  Unknown key '{loc}'. Remove it or check spelling.")
+            top = str(err["loc"][0]) if err["loc"] else loc
+            reason = _removed_key_reason(top)
+            if reason is not None:
+                lines.append(f"  '{loc}' was removed in 0.5.0 ({reason}). It's safe to delete this key — {config_path}.")
+            else:
+                lines.append(f"  Unknown key '{loc}'. Remove it or check spelling.")
         else:
             lines.append(f"  [{loc}] {msg}")
     return "\n".join(lines)
