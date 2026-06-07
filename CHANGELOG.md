@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Resolved all 12 Dependabot advisories. Bumped the `gitpython` floor to
+  `>=3.1.50` (CVE-2026-42215 / -42284 / -44244 / GHSA-mv93-w799-cj2w — the only
+  vuln in a default install) and re-locked the optional `[mcp]`-extra and dev
+  transitives to their patched releases: `python-multipart` 0.0.29,
+  `urllib3` 2.7.0, `cryptography` 48.0.0, `idna` 3.15, `starlette` 1.0.1,
+  `pyjwt` 2.13.0. The project `[tool.uv] exclude-newer` cutoff was advanced to
+  `2026-05-22` (just past the latest patch) so the resolver admits the fixes
+  while staying reproducible. Full gate stays green (1274 tests, 83.54% cov).
+
 ## [0.5.0] — 2026-06
 
 Repositioned open-orchestrator as a **multi-provider cockpit**: supervise
