@@ -86,7 +86,13 @@ def main(
 
     if ctx.invoked_subcommand is None:
         from open_orchestrator.core.control_plane_view import ControlPlaneApp
+        from open_orchestrator.core.status import StatusTracker
 
+        # Record one cockpit launch. Only fires on the no-subcommand path,
+        # so `owt <subcommand>` invocations never count toward this metric
+        # (which keeps `owt usage`'s "control-plane launches" line honest).
+        # record_usage is failure-isolated — it never blocks the launch.
+        StatusTracker().record_usage("control_plane")
         ControlPlaneApp().run()
 
 
